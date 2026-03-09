@@ -10,11 +10,16 @@ function getClerkFrontendApiUrl(): string {
   return `https://${decoded}`
 }
 
+const CLERK_CDN = 'https://cdn.clerk.io'
+
 async function handler(req: NextRequest) {
   const clerkBase = getClerkFrontendApiUrl()
   const { pathname, search } = new URL(req.url)
   const clerkPath = pathname.replace(/^\/api\/clerk/, '')
-  const target = `${clerkBase}${clerkPath}${search}`
+  // npm bundle requests come from Clerk's CDN, not the frontend API host
+  const target = clerkPath.startsWith('/npm/')
+    ? `${CLERK_CDN}${clerkPath}${search}`
+    : `${clerkBase}${clerkPath}${search}`
 
   const headers = new Headers(req.headers)
   headers.set('host', new URL(clerkBase).host)
