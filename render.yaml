@@ -1,0 +1,69 @@
+# Render Infrastructure-as-Code
+# Deploy all three services from this single file.
+# Documentation: https://render.com/docs/yaml-spec
+
+services:
+  # ── API (Web Service) ────────────────────────────────────────────────────
+  - type: web
+    name: rzf-api
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: pnpm install && pnpm --filter @rzf/db db:generate && pnpm --filter @rzf/api build
+    startCommand: node apps/api/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rzf-db
+          property: connectionString
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false  # Set manually in Render dashboard
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_WEBHOOK_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ADMIN_SECRET
+        sync: false
+      - key: API_BASE_URL
+        value: https://rzf-api.onrender.com
+      - key: WORKER_CONCURRENCY
+        value: "5"
+
+  # ── Worker (Background Worker) ───────────────────────────────────────────
+  - type: worker
+    name: rzf-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: pnpm install && pnpm --filter @rzf/db db:generate && pnpm --filter @rzf/worker build
+    startCommand: node apps/worker/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rzf-db
+          property: connectionString
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: WORKER_CONCURRENCY
+        value: "5"
+
+databases:
+  # ── Postgres ─────────────────────────────────────────────────────────────
+  - name: rzf-db
+    plan: starter
+    region: oregon
+    databaseName: rzf_prod
+    user: rzf

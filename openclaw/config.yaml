@@ -1,0 +1,75 @@
+# OpenClaw Operator Gateway Configuration
+# This file configures your local OpenClaw instance.
+# Update TELEGRAM_BOT_TOKEN and DATABASE_URL in .env before starting.
+#
+# Start: docker compose up openclaw -d
+# Monitor: http://localhost:3002 (ClawDeck)
+
+gateway:
+  name: "Red Zone Fantasy Ops"
+  description: "Operator control plane for Red Zone Fantasy platform"
+
+telegram:
+  # Your private bot token from @BotFather
+  # Only YOU should have access to this bot
+  bot_token: "${TELEGRAM_BOT_TOKEN}"
+  # Your Telegram user ID — only this user can send commands
+  # Get your ID from @userinfobot
+  allowed_user_ids: []  # Add your Telegram user ID here
+
+database:
+  url: "${DATABASE_URL}"
+  # Use a read+write role scoped to operational tables only
+  # Never use a superuser role for OpenClaw
+
+# Registered tools — natural language operations available via Telegram
+tools:
+  - name: "query_users"
+    description: "Query users table — count, filter by tier, find by email"
+    type: "db_query"
+    scope: ["users"]
+
+  - name: "query_runs"
+    description: "Query agent_runs — recent failures, runs today, by user"
+    type: "db_query"
+    scope: ["agent_runs"]
+
+  - name: "query_events"
+    description: "Query analytics_events — recent signups, upgrades, errors"
+    type: "db_query"
+    scope: ["analytics_events"]
+
+  - name: "grant_paid"
+    description: "Manually grant paid tier to a user by email"
+    type: "api_call"
+    endpoint: "${API_BASE_URL}/internal/users/{id}"
+    method: "PATCH"
+    body: { tier: "paid", runCredits: 50 }
+    requires_confirmation: true
+
+  - name: "reset_credits"
+    description: "Reset run credits for a specific user"
+    type: "api_call"
+    endpoint: "${API_BASE_URL}/internal/users/{id}"
+    method: "PATCH"
+    body: { runCredits: 2 }
+    requires_confirmation: true
+
+  - name: "queue_depth"
+    description: "Check current BullMQ queue depth and job counts"
+    type: "api_call"
+    endpoint: "${API_BASE_URL}/internal/queue"
+    method: "GET"
+
+  - name: "system_overview"
+    description: "Get system overview — users, runs, errors today"
+    type: "api_call"
+    endpoint: "${API_BASE_URL}/internal/overview"
+    method: "GET"
+
+# Example operator commands:
+# "show me all users who ran agents today"
+# "how many free users have 0 credits left?"
+# "grant paid tier to user@email.com"
+# "what's the worker queue depth right now?"
+# "show me the last 5 failed agent runs"

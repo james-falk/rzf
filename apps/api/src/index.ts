@@ -1,0 +1,47 @@
+import Fastify from 'fastify'
+import cors from '@fastify/cors'
+import helmet from '@fastify/helmet'
+import { env } from '@rzf/shared/env'
+import { usersRoutes } from './routes/users.js'
+import { sleeperRoutes } from './routes/sleeper.js'
+import { agentsRoutes } from './routes/agents.js'
+import { preferencesRoutes } from './routes/preferences.js'
+import { webhooksRoutes } from './routes/webhooks.js'
+import { internalRoutes } from './routes/internal.js'
+
+const app = Fastify({
+  logger: {
+    level: env.NODE_ENV === 'production' ? 'info' : 'debug',
+  },
+})
+
+// ── Plugins ────────────────────────────────────────────────────────────────────
+await app.register(helmet)
+await app.register(cors, {
+  origin: env.NODE_ENV === 'production'
+    ? ['https://your-domain.vercel.app'] // update with actual domain
+    : true,
+  credentials: true,
+})
+
+// ── Health check ───────────────────────────────────────────────────────────────
+app.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }))
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+await app.register(webhooksRoutes) // webhooks before auth (svix handles its own sig verification)
+await app.register(usersRoutes)
+await app.register(sleeperRoutes)
+await app.register(agentsRoutes)
+await app.register(preferencesRoutes)
+await app.register(internalRoutes)
+
+// ── Start ─────────────────────────────────────────────────────────────────────
+const PORT = env.PORT
+
+try {
+  await app.listen({ port: PORT, host: '0.0.0.0' })
+  console.log(`[api] Red Zone Fantasy API running on :${PORT}`)
+} catch (err) {
+  app.log.error(err)
+  process.exit(1)
+}

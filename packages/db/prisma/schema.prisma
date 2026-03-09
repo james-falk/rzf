@@ -1,0 +1,376 @@
+// Red Zone Fantasy — Prisma Schema
+// Docs: https://pris.ly/d/prisma-schema
+// Run `pnpm db:migrate` to apply changes locally
+// Run `pnpm db:generate` to regenerate the Prisma client
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserTier {
+  free
+  paid
+}
+
+enum UserRole {
+  user
+  admin
+}
+
+enum AgentRunStatus {
+  queued
+  running
+  done
+  failed
+}
+
+enum AgentResultRating {
+  up
+  down
+}
+
+enum LeagueStyle {
+  redraft
+  keeper
+  dynasty
+}
+
+enum ScoringPriority {
+  ppr
+  half_ppr
+  standard
+}
+
+enum PlayStyle {
+  safe_floor
+  balanced
+  boom_bust
+}
+
+enum ReportFormat {
+  detailed
+  concise
+}
+
+enum TrendingType {
+  add
+  drop
+}
+
+// ─── Core User Models ────────────────────────────────────────────────────────
+
+/// Application user. Auth source of truth is Clerk — synced via webhook.
+model User {
+  id String @id @default(cuid())
+
+  /// Clerk user ID — links our DB record to Clerk's auth record
+  clerkId String @unique
+
+  email String @unique
+  tier  UserTier @default(free)
+  role  UserRole @default(user)
+
+  /// Remaining agent run credits. Free = 2 (lifetime). Paid = 50/mo.
+  runCredits Int @default(2)
+
+  /// Stripe fields — populated on first checkout (Phase 2)
+  stripeCustomerId         String?
+  stripeSubscriptionId     String?
+  stripeSubscriptionStatus String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  sleeperProfile  SleeperProfile?
+  preferences     UserPreferences?
+  agentRuns       AgentRun[]
+  tokenBudget     TokenBudget[]
+  analyticsEvents AnalyticsEvent[]
+
+  @@map("users")
+}
+
+/// Linked Sleeper account for a user.
+model SleeperProfile {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Sleeper's internal user_id
+  sleeperId   String
+  displayName String
+
+  /// Snapshot of the user's leagues array from Sleeper API
+  leagues Json @default("[]")
+
+  updatedAt DateTime @updatedAt
+
+  @@map("sleeper_profiles")
+}
+
+/// Per-user agent customization preferences.
+/// These are injected into every agent run as system context.
+model UserPreferences {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  leagueStyle      LeagueStyle     @default(redraft)
+  scoringPriority  ScoringPriority @default(ppr)
+  playStyle        PlayStyle       @default(balanced)
+  reportFormat     ReportFormat    @default(detailed)
+
+  /// Array of positions the user cares most about e.g. ["RB", "WR"]
+  priorityPositions String[]
+
+  /// Free-text prompt additions injected into every agent run
+  customInstructions String?
+
+  notifyOnInjury   Boolean @default(false)
+  notifyOnTrending Boolean @default(false)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+// ─── Agent Execution ─────────────────────────────────────────────────────────
+
+/// Record of every agent job execution.
+model AgentRun {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// e.g. "team_eval", "waiver", "lineup"
+  agentType String
+
+  status AgentRunStatus @default(queued)
+
+  /// Typed agent input (stored as JSON)
+  inputJson Json
+
+  /// Typed agent output (null until status = done)
+  outputJson Json?
+
+  tokensUsed   Int?
+  durationMs   Int?
+
+  /// User feedback on result quality
+  rating AgentResultRating?
+
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([agentType])
+  @@index([status])
+  @@index([createdAt])
+  @@map("agent_runs")
+}
+
+/// Monthly token + run usage tracking per user.
+model TokenBudget {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  periodStart DateTime
+  tokensUsed  Int      @default(0)
+  runsUsed    Int      @default(0)
+
+  @@unique([userId, periodStart])
+  @@map("token_budgets")
+}
+
+// ─── Analytics ───────────────────────────────────────────────────────────────
+
+/// Flexible event store for behavioral analytics and system telemetry.
+/// Use track() helper — never insert directly.
+/// See docs/DATA.md for full event type catalog.
+model AnalyticsEvent {
+  id String @id @default(cuid())
+
+  /// Nullable — some events are system-level (ingestion jobs, etc.)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  /// Typed event name e.g. "user.signup", "agent.run.completed"
+  eventType String
+
+  /// Event-specific payload. Schema varies by eventType — see docs/DATA.md
+  payload Json
+
+  createdAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("analytics_events")
+}
+
+// ─── NFL Player Data (cached from Sleeper) ───────────────────────────────────
+
+/// All NFL players, refreshed daily from Sleeper /players/nfl.
+/// Primary key is Sleeper's player_id string.
+model Player {
+  sleeperId String @id
+
+  firstName String
+  lastName  String
+  position  String
+  team      String?
+
+  /// Active, Injured Reserve, PUP, etc.
+  status String
+
+  /// Questionable, Doubtful, Out, IR — null if healthy
+  injuryStatus String?
+
+  /// Full, Limited, Did Not Practice — null if no report
+  practiceParticipation String?
+
+  /// e.g. "QB1", "RB2"
+  depthChartPosition String?
+
+  /// 1 = starter, 2 = backup — lower is better
+  depthChartOrder Int?
+
+  /// Sleeper's built-in rough ranking across all players
+  searchRank Int?
+
+  age      Int?
+  yearsExp Int?
+
+  /// Full raw Sleeper player object — preserved for future use
+  metadata Json @default("{}")
+
+  lastRefreshedAt DateTime @default(now())
+
+  // Relations
+  rankings  PlayerRanking[]
+  trending  TrendingPlayer[]
+
+  @@index([position])
+  @@index([team])
+  @@index([injuryStatus])
+  @@map("players")
+}
+
+/// Consensus rankings from FantasyPros and other sources.
+/// Updated weekly (Tuesday after MNF).
+model PlayerRanking {
+  id String @id @default(cuid())
+
+  playerId String
+  player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
+
+  /// "fantasypros" | "sleeper_trending"
+  source String
+
+  rankOverall  Int
+  rankPosition Int
+
+  week   Int
+  season Int
+
+  fetchedAt DateTime @default(now())
+
+  @@unique([playerId, source, week, season])
+  @@index([source, week, season])
+  @@map("player_rankings")
+}
+
+/// Waiver wire trending data from Sleeper. Updated hourly.
+model TrendingPlayer {
+  id String @id @default(cuid())
+
+  playerId String
+  player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
+
+  type         TrendingType
+  count        Int
+  lookbackHours Int @default(24)
+
+  fetchedAt DateTime @default(now())
+
+  @@index([type, fetchedAt])
+  @@map("trending_players")
+}
+
+// ─── Content (Phase 2 — schema defined now, pipeline built later) ────────────
+
+/// Normalized content from all ingested sources.
+/// Raw content preserved for reprocessing as extraction improves.
+model ContentItem {
+  id String @id @default(cuid())
+
+  /// "article" | "youtube" | "podcast" | "tweet"
+  sourceType String
+
+  sourceUrl  String @unique
+  title      String
+  publishedAt DateTime?
+  authorName String?
+
+  /// Full raw content text — preserved for reprocessing
+  rawContent String @db.Text
+
+  /// Structured extraction: players mentioned, sentiment, event type, etc.
+  /// See docs/DATA.md for format.
+  extractedFacts Json @default("{}")
+
+  /// Sleeper player IDs mentioned in this content
+  playerIds String[]
+
+  /// NFL team abbreviations mentioned
+  teamSlugs String[]
+
+  /// Content topics e.g. ["injury", "usage_spike", "depth_chart_change"]
+  topics String[]
+
+  importanceScore Float?
+  noveltyScore    Float?
+
+  fetchedAt DateTime @default(now())
+
+  sourceId String?
+  source   ContentSource? @relation(fields: [sourceId], references: [id])
+
+  @@index([sourceType])
+  @@index([fetchedAt])
+  @@map("content_items")
+}
+
+/// Registry of all content ingestion sources.
+model ContentSource {
+  id   String @id @default(cuid())
+  name String
+
+  /// "rss" | "youtube_channel" | "podcast_feed"
+  type String
+
+  url                  String
+  refreshIntervalMins  Int      @default(60)
+  lastFetchedAt        DateTime?
+  isActive             Boolean  @default(true)
+
+  items ContentItem[]
+
+  @@map("content_sources")
+}

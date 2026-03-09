@@ -1,0 +1,60 @@
+version: '3.9'
+
+# Local development only — mirrors production services.
+# Production: Render Postgres + Upstash Redis (managed).
+# Run: docker compose up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rzf_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rzf
+      POSTGRES_PASSWORD: rzf_local
+      POSTGRES_DB: rzf_dev
+    ports:
+      - '5432:5432'
+    volumes:
+      - rzf_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U rzf -d rzf_dev']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: rzf_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - rzf_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # OpenClaw operator gateway — local only, never publicly deployed.
+  # Connects to your Telegram bot (operator-only).
+  # Configure TELEGRAM_BOT_TOKEN in .env before starting.
+  # openclaw:
+  #   image: openclaw/openclaw:latest
+  #   container_name: rzf_openclaw
+  #   restart: unless-stopped
+  #   environment:
+  #     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+  #     - DATABASE_URL=${DATABASE_URL}
+  #   ports:
+  #     - '3002:3002'  # ClawDeck dashboard
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./openclaw:/app/config
+
+volumes:
+  rzf_postgres_data:
+  rzf_redis_data:
