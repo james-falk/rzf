@@ -123,7 +123,9 @@ export default function AnalyzePage() {
           if (run.status === 'done' && run.output) {
             push({ id: mid(), role: 'assistant', type: 'result', result: run })
           } else {
-            push({ id: mid(), role: 'assistant', type: 'error', content: run.errorMessage ?? 'Analysis failed. Please try again.' })
+            const msg = run.errorMessage ?? 'Unknown error'
+            console.error(`[rzf-ui] Agent run failed — runId=${run.id} error=${msg}`)
+            push({ id: mid(), role: 'assistant', type: 'error', content: `${msg}\n\nRun ID: ${run.id}` })
           }
         }
       } catch { clearInterval(pollRef.current!) }
@@ -140,9 +142,11 @@ export default function AnalyzePage() {
       const { agentRunId } = await api.runTeamEval(token, leagueId, note || undefined)
       setRunId(agentRunId)
     } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to start analysis.'
+      console.error(`[rzf-ui] Failed to enqueue run — leagueId=${leagueId} error=${msg}`)
       setPhase('done')
       setMessages((prev) => prev.filter((m) => m.type !== 'loading'))
-      push({ id: mid(), role: 'assistant', type: 'error', content: err instanceof Error ? err.message : 'Failed to start analysis.' })
+      push({ id: mid(), role: 'assistant', type: 'error', content: msg })
     }
   }, [getToken, push])
 
@@ -340,8 +344,9 @@ function MessageBubble({
 
         {/* Error */}
         {msg.role === 'assistant' && msg.type === 'error' && (
-          <div className="rounded-2xl rounded-tl-sm border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            {msg.content}
+          <div className="rounded-2xl rounded-tl-sm border border-red-500/20 bg-red-500/10 px-4 py-3">
+            <p className="text-sm font-medium text-red-400">Something went wrong</p>
+            <p className="mt-1 font-mono text-xs text-red-300/80">{msg.content}</p>
           </div>
         )}
 

@@ -92,7 +92,11 @@ export function createAgentWorker(): Worker<AgentJobData> {
           input.userId,
         )
 
-        console.error(`[agent-worker] Failed ${agentType} job ${job.id} after ${durationMs}ms:`, errorMessage)
+        console.error(`[agent-worker] ❌ Failed ${agentType} job ${job.id} after ${durationMs}ms`)
+        console.error(`[agent-worker] Error: ${errorMessage}`)
+        if (err instanceof Error && err.stack) {
+          console.error(`[agent-worker] Stack:\n${err.stack}`)
+        }
         throw err
       }
     },

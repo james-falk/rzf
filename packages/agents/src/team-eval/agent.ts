@@ -8,6 +8,7 @@ import { buildSystemPrompt, buildUserPrompt, buildContentLinks } from './prompt.
 
 export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOutput> {
   const { userId, leagueId, focusNote } = input
+  console.log(`[team-eval] Starting — userId=${userId} leagueId=${leagueId} focusNote=${focusNote ?? 'none'}`)
 
   // ── 1. Resolve Sleeper user ID from linked profile ─────────────────────────
   const sleeperProfile = await db.sleeperProfile.findUnique({ where: { userId } })
@@ -15,6 +16,7 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
     throw new Error('No Sleeper account connected. Visit /account/sleeper to link your account.')
   }
   const sleeperUserId = sleeperProfile.sleeperId
+  console.log(`[team-eval] Sleeper profile found — sleeperId=${sleeperUserId}`)
 
   // ── 2. Load user preferences for personalized context ──────────────────────
   const userPrefs = await db.userPreferences.findUnique({ where: { userId } })
@@ -32,6 +34,7 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
   )
 
   // ── 2. Live fetch: user's roster + league settings ─────────────────────────
+  console.log(`[team-eval] Fetching league + roster from Sleeper...`)
   const [league, userRoster, nflState] = await Promise.all([
     SleeperConnector.getLeague(leagueId),
     SleeperConnector.getUserRoster(leagueId, sleeperUserId),
@@ -44,11 +47,14 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
 
   const starterIds = new Set(userRoster.starters ?? [])
   const allPlayerIds = userRoster.players ?? []
+  console.log(`[team-eval] Roster loaded — league="${league.name}" season=${nflState.season} week=${nflState.week} players=${allPlayerIds.length} starters=${starterIds.size}`)
 
   // ── 3. DB lookup: enrich players with cached Player data ──────────────────
+  console.log(`[team-eval] Enriching ${allPlayerIds.length} players from DB...`)
   const playerRecords = await db.player.findMany({
     where: { sleeperId: { in: allPlayerIds } },
   })
+  console.log(`[team-eval] DB enrichment — found ${playerRecords.length}/${allPlayerIds.length} players in cache`)
 
   const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
 
@@ -117,6 +123,7 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
   const contentLinks = buildContentLinks(starters)
 
   // ── 8. LLM call ───────────────────────────────────────────────────────────
+  console.log(`[team-eval] Calling LLM — starters=${starters.length} bench=${bench.length} trendingAdds=${trendingAddNames.length}`)
   const systemPrompt = buildSystemPrompt(userContext)
   const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote)
 
@@ -127,6 +134,8 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
       return parsed
     },
   )
+
+  console.log(`[team-eval] LLM complete — model=${result.model} tokens=${tokensUsed} grade=${llmOutput.overallGrade}`)
 
   // ── 9. Assemble final output ───────────────────────────────────────────────
   return {
