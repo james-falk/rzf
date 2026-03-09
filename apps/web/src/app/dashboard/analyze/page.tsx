@@ -24,7 +24,7 @@ type ChatMessage =
   | { id: string; role: 'assistant'; type: 'loading' }
   | { id: string; role: 'assistant'; type: 'result'; result: AgentRunResult }
   | { id: string; role: 'assistant'; type: 'error'; content: string }
-  | { id: string; role: 'user'; content: string }
+  | { id: string; role: 'user'; type: 'user'; content: string }
 
 const QUICK_ACTIONS = [
   { type: 'team_eval', label: 'Team Analysis', icon: '📊', available: true, desc: 'Full roster grade & insights' },
@@ -151,7 +151,7 @@ export default function AnalyzePage() {
 
   const handleQuickAction = useCallback(async (type: string) => {
     if (type !== 'team_eval' || phase !== 'idle') return
-    push({ id: mid(), role: 'user', content: 'Team Analysis' })
+    push({ id: mid(), role: 'user', type: 'user', content: 'Team Analysis' })
     setPhase('league-select')
     await showTypingThen(() => {
       push({ id: mid(), role: 'assistant', type: 'text', content: "Team evaluation — I'll grade every position and give you specific, actionable insights." })
@@ -165,7 +165,7 @@ export default function AnalyzePage() {
   const handleRun = useCallback(async () => {
     if (!selectedLeague) return
     const league = leagues.find((l) => l.league_id === selectedLeague)
-    push({ id: mid(), role: 'user', content: `Analyze ${league?.name ?? 'my team'}${focusNote ? ` — "${focusNote}"` : ''}` })
+    push({ id: mid(), role: 'user', type: 'user', content: `Analyze ${league?.name ?? 'my team'}${focusNote ? ` — "${focusNote}"` : ''}` })
     await startRunning(selectedLeague, focusNote)
   }, [selectedLeague, leagues, focusNote, push, startRunning])
 
@@ -174,7 +174,7 @@ export default function AnalyzePage() {
     const msg = textInput.trim()
     if (!msg) return
     setTextInput('')
-    push({ id: mid(), role: 'user', content: msg })
+    push({ id: mid(), role: 'user', type: 'user', content: msg })
 
     await showTypingThen(async () => {
       try {
