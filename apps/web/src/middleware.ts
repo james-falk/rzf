@@ -10,7 +10,7 @@ export default clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     await auth.protect()
   }
-}, { proxyUrl: process.env.NEXT_PUBLIC_CLERK_PROXY_URL })
+})
 
 export const config = {
   matcher: [

@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
+import { CLERK_PUBLISHABLE_KEY } from '@/lib/client-env'
 
 function getClerkFrontendApiUrl(): string {
-  const key = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? ''
+  const key = CLERK_PUBLISHABLE_KEY
   // Format: pk_test_<base64> — decode to get the frontend API host
   const encoded = key.replace(/^pk_(test|live)_/, '')
   const decoded = Buffer.from(encoded, 'base64').toString('utf-8').replace(/\$$/, '')

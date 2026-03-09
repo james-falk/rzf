@@ -5,3 +5,6 @@
 
 // eslint-disable-next-line no-restricted-syntax
 export const API_BASE_URL = process.env['NEXT_PUBLIC_API_BASE_URL'] ?? 'http://localhost:3001'
+
+// eslint-disable-next-line no-restricted-syntax
+export const CLERK_PUBLISHABLE_KEY = process.env['NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY'] ?? ''

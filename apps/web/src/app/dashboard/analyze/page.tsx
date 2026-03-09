@@ -98,8 +98,7 @@ export default function AnalyzePage() {
         if (list.length === 1) setSelectedLeague(list[0]!.league_id)
       } catch { /* silent */ }
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, []) // intentional one-time init — getToken is stable, leagues loaded via separate state
 
   // Loading message cycle
   useEffect(() => {
@@ -283,7 +282,7 @@ export default function AnalyzePage() {
 
 function MessageBubble({
   msg,
-  leagues,
+  leagues: _leagues,
   selectedLeague,
   onLeagueChange,
   focusNote,
