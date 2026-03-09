@@ -63,7 +63,7 @@ services:
 databases:
   # ── Postgres ─────────────────────────────────────────────────────────────
   - name: rzf-db
-    plan: starter
+    plan: basic-256mb
     region: oregon
     databaseName: rzf_prod
     user: rzf
