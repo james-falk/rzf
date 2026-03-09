@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '@rzf/db'
 import { requireAuth, requireAdmin, requireAdminSecret } from '../middleware/auth.js'
 import { getAgentQueue } from '../lib/queue.js'
+import { AgentJobTypes, TeamEvalInputSchema } from '@rzf/shared/types'
 
 // Internal routes are gated by session-based admin check (web UI)
 // OR by X-Admin-Secret header (OpenClaw gateway)
@@ -164,6 +165,46 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     ])
 
     return reply.send({ events, total, page: query.page, pages: Math.ceil(total / query.limit) })
+  })
+
+  // POST /internal/agents/run — operator-triggered agent run (OpenClaw / on-prem)
+  // Bypasses credit check — for admin use only
+  app.post('/internal/agents/run', { preHandler: adminGuard }, async (req, reply) => {
+    const body = z.object({
+      userId: z.string(),
+      agentType: z.enum([AgentJobTypes.TEAM_EVAL]),
+      input: z.unknown(),
+    }).safeParse(req.body)
+
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
+    }
+
+    const { userId, agentType, input } = body.data
+
+    const user = await db.user.findUnique({ where: { id: userId } })
+    if (!user) return reply.status(404).send({ error: 'User not found' })
+
+    let validatedInput: ReturnType<typeof TeamEvalInputSchema.parse>
+    switch (agentType) {
+      case AgentJobTypes.TEAM_EVAL: {
+        const result = TeamEvalInputSchema.safeParse({ ...input as object, userId })
+        if (!result.success) {
+          return reply.status(400).send({ error: 'Invalid input', details: result.error.flatten() })
+        }
+        validatedInput = result.data
+        break
+      }
+    }
+
+    const agentRun = await db.agentRun.create({
+      data: { userId, agentType, status: 'queued', inputJson: JSON.parse(JSON.stringify(validatedInput!)) },
+    })
+
+    const queue = getAgentQueue()
+    await queue.add(agentType, { agentRunId: agentRun.id, agentType, input: validatedInput! })
+
+    return reply.status(202).send({ agentRunId: agentRun.id, status: 'queued' })
   })
 
   // GET /internal/queue — BullMQ queue stats

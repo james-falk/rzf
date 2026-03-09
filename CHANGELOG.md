@@ -6,6 +6,14 @@ All meaningful changes are logged here. Most recent first.
 
 ## 2026-03-09
 
+### Report history + OpenClaw operator endpoint
+
+- Added `/dashboard/history` page listing a user's last 20 agent runs
+- Added `/dashboard/history/[id]` page for full report replay (reuses shared `TeamEvalResults` component)
+- Extracted `TeamEvalResults` to `apps/web/src/components/TeamEvalResults.tsx` (shared by team-eval and history pages)
+- Added "Report History" nav link to dashboard sidebar
+- Added `POST /internal/agents/run` — operator-triggered agent run that bypasses credit check (for OpenClaw/on-prem use)
+
 ### OpenAI provider support + CORS fix
 
 - Added OpenAI as a fallback LLM provider in `packages/connectors/src/llm/client.ts`

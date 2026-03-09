@@ -99,6 +99,24 @@ export const api = {
     })
   },
 
+  async getRunHistory(token: string) {
+    return apiFetch<{
+      runCredits: number
+      tier: string
+      monthlyTokensUsed: number
+      monthlyRunsUsed: number
+      recentRuns: Array<{
+        id: string
+        agentType: string
+        status: string
+        tokensUsed: number | null
+        durationMs: number | null
+        rating: string | null
+        createdAt: string
+      }>
+    }>('/usage', { token })
+  },
+
   async getUsage(token: string) {
     return apiFetch<{
       runCredits: number
