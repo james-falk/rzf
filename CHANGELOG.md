@@ -4,6 +4,15 @@ All meaningful changes are logged here. Most recent first.
 
 ---
 
+## 2026-03-09
+
+### OpenAI provider support + CORS fix
+
+- Added OpenAI as a fallback LLM provider in `packages/connectors/src/llm/client.ts`
+- `haiku` tier maps to `gpt-4o-mini`, `sonnet` maps to `gpt-4o`
+- Provider auto-selected at runtime: Anthropic preferred, OpenAI fallback (whichever key is present)
+- Fixed CORS origin in `apps/api/src/index.ts` — replaced placeholder with `https://rzf-web.vercel.app`
+
 ## 2026-03-06
 
 ### Lint & typecheck fixes — initial green build

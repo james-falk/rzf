@@ -19,7 +19,7 @@ const app = Fastify({
 await app.register(helmet)
 await app.register(cors, {
   origin: env.NODE_ENV === 'production'
-    ? ['https://your-domain.vercel.app'] // update with actual domain
+    ? ['https://rzf-web.vercel.app']
     : true,
   credentials: true,
 })

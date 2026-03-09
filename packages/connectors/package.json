@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.3",
     "@rzf/shared": "workspace:*",
+    "openai": "^6.27.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

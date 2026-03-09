@@ -1,16 +1,22 @@
 import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { env } from '@rzf/shared/env'
 
 export type LLMModel = 'haiku' | 'sonnet'
 
-const MODEL_IDS: Record<LLMModel, string> = {
+const ANTHROPIC_MODEL_IDS: Record<LLMModel, string> = {
   haiku: 'claude-haiku-4-5',
   sonnet: 'claude-sonnet-4-5',
 }
 
-// Max tokens for structured agent outputs
+// OpenAI equivalents: haiku → gpt-4o-mini (cheap/fast), sonnet → gpt-4o
+const OPENAI_MODEL_IDS: Record<LLMModel, string> = {
+  haiku: 'gpt-4o-mini',
+  sonnet: 'gpt-4o',
+}
+
 const MAX_TOKENS: Record<LLMModel, number> = {
-  haiku: 1024,
+  haiku: 600,
   sonnet: 2048,
 }
 
@@ -27,52 +33,90 @@ export interface LLMResult {
   model: string
 }
 
-let _client: Anthropic | null = null
+type Provider = 'anthropic' | 'openai'
 
-function getClient(): Anthropic {
-  if (!_client) {
-    if (!env.ANTHROPIC_API_KEY) {
-      throw new Error('ANTHROPIC_API_KEY is required for LLMConnector')
-    }
-    _client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
-  }
-  return _client
+function getProvider(): Provider {
+  if (env.ANTHROPIC_API_KEY) return 'anthropic'
+  if (env.OPENAI_API_KEY) return 'openai'
+  throw new Error('No LLM API key configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.')
+}
+
+let _anthropic: Anthropic | null = null
+let _openai: OpenAI | null = null
+
+function getAnthropicClient(): Anthropic {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY! })
+  return _anthropic
+}
+
+function getOpenAIClient(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: env.OPENAI_API_KEY! })
+  return _openai
+}
+
+async function completeViaAnthropic(
+  model: LLMModel,
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+): Promise<LLMResult> {
+  const client = getAnthropicClient()
+  const modelId = ANTHROPIC_MODEL_IDS[model]!
+
+  const response = await client.messages.create({
+    model: modelId,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  })
+
+  const content = response.content
+    .filter((block) => block.type === 'text')
+    .map((block) => (block as { type: 'text'; text: string }).text)
+    .join('')
+
+  const tokensUsed = (response.usage.input_tokens ?? 0) + (response.usage.output_tokens ?? 0)
+  return { content, tokensUsed, model: modelId }
+}
+
+async function completeViaOpenAI(
+  model: LLMModel,
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens: number,
+): Promise<LLMResult> {
+  const client = getOpenAIClient()
+  const modelId = OPENAI_MODEL_IDS[model]!
+
+  const response = await client.chat.completions.create({
+    model: modelId,
+    max_tokens: maxTokens,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+  })
+
+  const content = response.choices[0]?.message?.content ?? ''
+  const tokensUsed = (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0)
+  return { content, tokensUsed, model: modelId }
 }
 
 export const LLMConnector = {
   /**
-   * Send a structured prompt to Claude and return the text response + token usage.
-   * Default model: Haiku (cheap, fast — ~$0.001/run at <2500 tokens).
-   * Use Sonnet only for complex multi-step reasoning.
+   * Send a structured prompt to the configured LLM provider and return the text response.
+   * Prefers Anthropic if ANTHROPIC_API_KEY is set, falls back to OpenAI.
+   * Default model: haiku/gpt-4o-mini (cheap, fast — ~$0.001/run).
    */
   async complete(options: LLMCompleteOptions): Promise<LLMResult> {
-    const {
-      model = 'haiku',
-      systemPrompt,
-      userPrompt,
-      maxTokens,
-    } = options
-
-    const client = getClient()
-    const modelId = MODEL_IDS[model]
+    const { model = 'haiku', systemPrompt, userPrompt, maxTokens } = options
     const resolvedMaxTokens = maxTokens ?? MAX_TOKENS[model]
+    const provider = getProvider()
 
-    const response = await client.messages.create({
-      model: modelId!,
-      max_tokens: resolvedMaxTokens,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    })
-
-    const content = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => (block as { type: 'text'; text: string }).text)
-      .join('')
-
-    const tokensUsed =
-      (response.usage.input_tokens ?? 0) + (response.usage.output_tokens ?? 0)
-
-    return { content, tokensUsed, model: modelId! }
+    if (provider === 'anthropic') {
+      return completeViaAnthropic(model, systemPrompt, userPrompt, resolvedMaxTokens)
+    }
+    return completeViaOpenAI(model, systemPrompt, userPrompt, resolvedMaxTokens)
   },
 
   /**
