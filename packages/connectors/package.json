@@ -9,6 +9,7 @@
     "./llm": "./src/llm/index.ts"
   },
   "scripts": {
+    "build": "tsc --build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

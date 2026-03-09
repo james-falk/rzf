@@ -8,6 +8,7 @@
     "./team-eval": "./src/team-eval/index.ts"
   },
   "scripts": {
+    "build": "tsc --build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

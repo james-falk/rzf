@@ -9,6 +9,7 @@
     "./types": "./src/types/index.ts"
   },
   "scripts": {
+    "build": "tsc --build",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
