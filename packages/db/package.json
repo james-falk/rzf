@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./client": "./src/client.ts",
+    ".": "./dist/index.js",
+    "./client": "./dist/client.js",
     "./schema": "./prisma/schema.prisma"
   },
   "scripts": {

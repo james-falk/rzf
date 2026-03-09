@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./env": "./src/env.ts",
-    "./types": "./src/types/index.ts"
+    ".": "./dist/index.js",
+    "./env": "./dist/env.js",
+    "./types": "./dist/types/index.js"
   },
   "scripts": {
     "build": "tsc --build",

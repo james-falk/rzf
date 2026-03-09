@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./team-eval": "./src/team-eval/index.ts"
+    ".": "./dist/index.js",
+    "./team-eval": "./dist/team-eval/index.js"
   },
   "scripts": {
     "build": "tsc --build",
