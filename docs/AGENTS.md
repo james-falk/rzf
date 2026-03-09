@@ -26,9 +26,9 @@
 **Input schema**:
 ```typescript
 type TeamEvalInput = {
-  userId: string           // our DB User.id
-  sleeperUserId: string    // Sleeper user_id
+  userId: string           // our DB User.id — sleeperUserId derived from DB automatically
   leagueId: string         // Sleeper league_id
+  focusNote?: string       // optional user direction e.g. "check my RB depth"
 }
 ```
 
@@ -72,22 +72,46 @@ type ContentLink = {
 
 ---
 
+## Manager / Intent Agent
+
+Not a queued job — a synchronous API call (`POST /agents/intent`) that classifies user intent and returns required parameters.
+
+**Input**: `{ message: string, context?: { leagueId?: string } }`
+
+**Output**: `{ agentType, agentMeta, gatheredParams, missingParams, clarifyingQuestion, readyToRun, availableAgents }`
+
+Routes free-text queries to the correct agent. Keyword-based classifier for now; upgrades to LLM classification when 3+ agents are live.
+
+---
+
 ## Planned Agents (Phase 2+)
 
+See `ROADMAP.md` for full prioritization. Schemas defined in `packages/shared/src/types/agent.ts`.
+
 ### WaiverAgent
-Weekly ranked pickup recommendations using snap %, target share, injuries, matchups, trending adds.
+Weekly ranked pickup/drop recommendations tailored to the user's specific roster gaps.
+- **Input**: `{ userId, leagueId, focusPositions?: string[] }`
+- **Key data**: roster (live), trending adds (DB), player injury/depth (DB)
 
-### LineupAgent
-Optimal weekly lineup + start/sit explanations based on projections, injury risk, matchup data.
+### StartSitAgent
+Weekly lineup decisions for borderline starters with confidence scores.
+- **Input**: `{ userId, leagueId, week?: number }`
+- **Key data**: starters (live), injury reports (DB), matchup data (TBD)
 
-### InjuryOpportunityAgent
-Daily monitoring — real-time alerts for injury designations and opportunity changes.
+### TradeAnalysisAgent
+Accept/reject trade evaluation with counter-suggestion.
+- **Input**: `{ userId, leagueId, givePlayers: string[], receivePlayers: string[] }`
+- **Key data**: both player values, roster needs, ROS rankings — needs trade value data source
 
-### TradeAnalyzerAgent
-On-demand trade evaluation using team context, positional scarcity, ROS schedule.
+### InjuryWatchAgent
+On-demand risk assessment for a user's starting lineup.
+- **Input**: `{ userId, leagueId }`
+- **Key data**: roster injury statuses (DB), handcuff availability
 
 ### NewsDigestAgent
-Daily personalized digest using directory feed + league roster context.
+Personalized weekly digest (Phase 3 — requires ContentItem pipeline).
+- **Input**: `{ userId, leagueId }`
+- **Key data**: ContentItem table (not yet populated)
 
 ---
 
