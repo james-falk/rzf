@@ -15,6 +15,9 @@ build/
 .next/
 out/
 
+# Prisma generated client (regenerated via pnpm db:generate)
+packages/db/src/generated/
+
 # Turbo
 .turbo/
 
