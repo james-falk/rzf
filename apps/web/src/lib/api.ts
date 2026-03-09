@@ -66,15 +66,37 @@ export const api = {
     return apiFetch<{ leagues: unknown[] }>('/sleeper/leagues', { token })
   },
 
-  async runTeamEval(token: string, sleeperUserId: string, leagueId: string) {
-    return apiFetch<{ agentRunId: string; status: string }>('/agents/run', {
+  async runTeamEval(token: string, leagueId: string, focusNote?: string) {
+    return apiFetch<{ agentRunId: string; status: string; deduplicated?: boolean }>('/agents/run', {
       method: 'POST',
       token,
       body: JSON.stringify({
         agentType: 'team_eval',
-        input: { sleeperUserId, leagueId },
+        input: { leagueId, ...(focusNote ? { focusNote } : {}) },
       }),
     })
+  },
+
+  async callIntent(token: string, message: string, context?: { leagueId?: string }) {
+    return apiFetch<{
+      agentType: string | null
+      agentMeta: { type: string; label: string; description: string; available: boolean; requiredParams: string[] } | null
+      gatheredParams: Record<string, string>
+      missingParams: string[]
+      clarifyingQuestion: string | null
+      readyToRun: boolean
+      availableAgents: Array<{ type: string; label: string; description: string; available: boolean; requiredParams: string[] }>
+    }>('/agents/intent', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ message, context }),
+    })
+  },
+
+  async getAvailableAgents(token: string) {
+    return apiFetch<{
+      agents: Array<{ type: string; label: string; description: string; available: boolean }>
+    }>('/agents/available', { token })
   },
 
   async getAgentRun(token: string, runId: string) {

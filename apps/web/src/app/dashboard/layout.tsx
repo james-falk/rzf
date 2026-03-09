@@ -46,6 +46,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 const navLinks = [
   { href: '/dashboard', icon: '🏈', label: 'Dashboard' },
+  { href: '/dashboard/analyze', icon: '🤖', label: 'Ask RZF' },
   { href: '/dashboard/team-eval', icon: '📊', label: 'Team Evaluation' },
   { href: '/dashboard/history', icon: '📋', label: 'Report History' },
   { href: '/account/usage', icon: '⚡', label: 'Usage' },

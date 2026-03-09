@@ -24,7 +24,6 @@ export default function TeamEvalPage() {
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState('')
   const [upgradePrompt, setUpgradePrompt] = useState(false)
-  const [sleeperUserId, setSleeperUserId] = useState('')
 
   const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -34,17 +33,12 @@ export default function TeamEvalPage() {
       try {
         const token = await getToken()
         if (!token) return
-
         const data = await api.getLeagues(token)
         const leagueList = data.leagues as League[]
         setLeagues(leagueList)
         if (leagueList.length > 0) {
           setSelectedLeague(leagueList[0]!.league_id)
         }
-
-        // Get the user's Sleeper ID from their profile
-        const profile = await fetch('/api/sleeper-profile').then((r) => r.json()).catch(() => null)
-        if (profile?.sleeperId) setSleeperUserId(profile.sleeperId)
       } catch {
         setLeaguesError('Could not load leagues. Make sure your Sleeper account is connected.')
       } finally {
@@ -92,7 +86,7 @@ export default function TeamEvalPage() {
       const token = await getToken()
       if (!token) throw new Error('Not authenticated')
 
-      const { agentRunId } = await api.runTeamEval(token, sleeperUserId, selectedLeague)
+      const { agentRunId } = await api.runTeamEval(token, selectedLeague)
       setRunId(agentRunId)
     } catch (err) {
       setRunning(false)
@@ -159,7 +153,7 @@ export default function TeamEvalPage() {
             </div>
             <button
               onClick={handleRun}
-              disabled={running || !selectedLeague || !sleeperUserId}
+              disabled={running || !selectedLeague}
               className="rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50 sm:whitespace-nowrap"
             >
               {running ? 'Analyzing...' : 'Run Analysis'}

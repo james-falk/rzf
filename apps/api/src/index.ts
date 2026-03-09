@@ -8,6 +8,7 @@ import { agentsRoutes } from './routes/agents.js'
 import { preferencesRoutes } from './routes/preferences.js'
 import { webhooksRoutes } from './routes/webhooks.js'
 import { internalRoutes } from './routes/internal.js'
+import { intentRoutes } from './routes/intent.js'
 
 const app = Fastify({
   logger: {
@@ -32,6 +33,7 @@ await app.register(webhooksRoutes) // webhooks before auth (svix handles its own
 await app.register(usersRoutes)
 await app.register(sleeperRoutes)
 await app.register(agentsRoutes)
+await app.register(intentRoutes)
 await app.register(preferencesRoutes)
 await app.register(internalRoutes)
 

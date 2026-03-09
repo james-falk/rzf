@@ -37,42 +37,63 @@ export default function HomePage() {
       </nav>
 
       {/* Hero */}
-      <section className="flex flex-1 flex-col items-center justify-center px-6 py-24 text-center">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-sm text-red-400">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-          </span>
-          AI Fantasy Analysis — Now Live
+      <section className="relative flex flex-1 flex-col items-center justify-center overflow-hidden px-6 py-24 text-center">
+        {/* Animated background orbs */}
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="animate-orb absolute -right-32 -top-32 h-[500px] w-[500px] rounded-full bg-red-600/10 blur-[100px]" />
+          <div className="animate-orb-reverse absolute -bottom-32 -left-32 h-[500px] w-[500px] rounded-full bg-red-800/10 blur-[100px]" />
+          <div className="animate-orb absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500/5 blur-[80px]" style={{ animationDelay: '4s' }} />
         </div>
 
-        <h1 className="mb-6 max-w-3xl text-5xl font-bold tracking-tight text-white md:text-6xl">
-          NFL RedZone{' '}
-          <span className="text-red-500">for fantasy</span>
-        </h1>
+        {/* Subtle grid */}
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-size-[4rem_4rem]" />
 
-        <p className="mb-10 max-w-2xl text-lg text-zinc-400">
-          Get instant AI analysis of your fantasy roster. Find your strengths, weaknesses, and
-          actionable moves — powered by real-time NFL data.
-        </p>
+        {/* Scan line */}
+        <div className="animate-scan pointer-events-none absolute inset-x-0 h-px bg-linear-to-r from-transparent via-red-500/20 to-transparent" />
 
-        <div className="flex flex-col items-center gap-4 sm:flex-row">
-          <SignedOut>
-            <SignUpButton mode="modal">
-              <button className="rounded-xl bg-red-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-red-900/30 transition hover:bg-red-500">
-                Analyze My Team Free
-              </button>
-            </SignUpButton>
-            <p className="text-sm text-zinc-500">2 free analyses included • No credit card</p>
-          </SignedOut>
-          <SignedIn>
-            <Link
-              href="/dashboard"
-              className="rounded-xl bg-red-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-red-900/30 transition hover:bg-red-500"
-            >
-              Go to Dashboard
-            </Link>
-          </SignedIn>
+        {/* Content */}
+        <div className="relative">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-sm text-red-400">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+            </span>
+            AI Fantasy Analysis — Now Live
+          </div>
+
+          <h1 className="mb-6 max-w-3xl text-5xl font-bold tracking-tight text-white md:text-6xl">
+            NFL RedZone{' '}
+            <span className="bg-linear-to-r from-red-400 to-red-600 bg-clip-text text-transparent">
+              for fantasy
+            </span>
+          </h1>
+
+          <p className="mb-4 max-w-2xl text-lg text-zinc-400">
+            Your AI-powered fantasy assistant. Ask it anything about your roster —
+            get instant grades, waiver targets, trade advice, and weekly lineup calls.
+          </p>
+          <p className="mb-10 text-sm text-zinc-600">Powered by real-time NFL data from Sleeper</p>
+
+          <div className="flex flex-col items-center gap-4 sm:flex-row">
+            <SignedOut>
+              <SignUpButton mode="modal">
+                <button className="group relative overflow-hidden rounded-xl bg-red-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-red-900/40 transition hover:bg-red-500">
+                  <span className="relative z-10">Analyze My Team Free</span>
+                  <div className="absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/10 to-transparent transition-transform duration-500 group-hover:translate-x-full" />
+                </button>
+              </SignUpButton>
+              <p className="text-sm text-zinc-500">2 free analyses included • No credit card</p>
+            </SignedOut>
+            <SignedIn>
+              <Link
+                href="/dashboard/analyze"
+                className="group relative overflow-hidden rounded-xl bg-red-600 px-8 py-4 text-base font-semibold text-white shadow-lg shadow-red-900/40 transition hover:bg-red-500"
+              >
+                <span className="relative z-10">Open RZF Assistant</span>
+                <div className="absolute inset-0 -translate-x-full bg-linear-to-r from-transparent via-white/10 to-transparent transition-transform duration-500 group-hover:translate-x-full" />
+              </Link>
+            </SignedIn>
+          </div>
         </div>
       </section>
 
@@ -82,14 +103,19 @@ export default function HomePage() {
           <h2 className="mb-12 text-center text-3xl font-bold text-white">
             What you get
           </h2>
-          <div className="grid gap-6 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {features.map((f) => (
               <div
                 key={f.title}
-                className="rounded-xl border border-white/10 bg-white/5 p-6"
+                className="group relative rounded-xl border border-white/10 bg-white/5 p-6 transition hover:border-white/20 hover:bg-white/[0.07]"
               >
+                {!f.live && (
+                  <span className="absolute right-3 top-3 rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
+                    Coming soon
+                  </span>
+                )}
                 <div className="mb-3 text-3xl">{f.icon}</div>
-                <h3 className="mb-2 text-lg font-semibold text-white">{f.title}</h3>
+                <h3 className="mb-2 text-base font-semibold text-white">{f.title}</h3>
                 <p className="text-sm text-zinc-400">{f.description}</p>
               </div>
             ))}
@@ -136,21 +162,39 @@ export default function HomePage() {
 
 const features = [
   {
-    icon: '🏈',
+    icon: '🤖',
+    title: 'AI Assistant',
+    description: 'Just ask. Tell RZF what you need and it routes to the right analysis automatically.',
+    live: true,
+  },
+  {
+    icon: '📊',
     title: 'Team Evaluation',
-    description:
-      'Get an A-F grade for every position on your roster with specific insights and actionable recommendations.',
+    description: 'Full roster grade with position scores, strengths, weaknesses, and key insights.',
+    live: true,
+  },
+  {
+    icon: '🔄',
+    title: 'Waiver Wire',
+    description: 'Best available adds and drops tailored to your exact roster gaps — every week.',
+    live: false,
+  },
+  {
+    icon: '💱',
+    title: 'Trade Advice',
+    description: 'Accept or reject trade offers with detailed reasoning and counter-suggestions.',
+    live: false,
+  },
+  {
+    icon: '📋',
+    title: 'Start / Sit',
+    description: 'Confident weekly lineup decisions for every borderline call.',
+    live: false,
   },
   {
     icon: '⚡',
     title: 'Real-Time Data',
-    description:
-      'Powered by live injury reports, depth charts, and consensus rankings updated throughout the week.',
-  },
-  {
-    icon: '🎯',
-    title: 'Personalized',
-    description:
-      'Set your league format, scoring type, and play style. Every report is tailored to how you play.',
+    description: 'Injury reports, depth charts, and consensus rankings updated throughout the week.',
+    live: true,
   },
 ]

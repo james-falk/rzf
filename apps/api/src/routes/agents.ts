@@ -10,6 +10,18 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
   app.post('/agents/run', { preHandler: requireAuth }, async (req, reply) => {
     const user = req.authUser!
 
+    // ── Sleeper profile check ─────────────────────────────────────────────
+    const sleeperProfile = await db.sleeperProfile.findUnique({
+      where: { userId: user.userId },
+      select: { sleeperId: true },
+    })
+    if (!sleeperProfile) {
+      return reply.status(400).send({
+        error: 'No Sleeper account connected',
+        message: 'Visit /account/sleeper to connect your Sleeper account first.',
+      })
+    }
+
     // ── Freemium credit check ──────────────────────────────────────────────
     if (user.runCredits <= 0 && user.tier === 'free') {
       await track('user.upgrade.prompted', { triggeredBy: 'credit_exhaustion' }, user.userId)
@@ -47,6 +59,24 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
       }
       default:
         return reply.status(400).send({ error: 'Unknown agent type' })
+    }
+
+    // ── Duplicate prevention: block double-clicks within 5 minutes ───────
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
+    const existingRun = await db.agentRun.findFirst({
+      where: {
+        userId: user.userId,
+        agentType,
+        status: { in: ['queued', 'running'] },
+        createdAt: { gte: fiveMinutesAgo },
+      },
+    })
+    if (existingRun) {
+      return reply.status(202).send({
+        agentRunId: existingRun.id,
+        status: existingRun.status,
+        deduplicated: true,
+      })
     }
 
     // ── Create AgentRun record ────────────────────────────────────────────

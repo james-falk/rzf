@@ -16,11 +16,38 @@ export type ContentLink = z.infer<typeof ContentLinkSchema>
 
 export const TeamEvalInputSchema = z.object({
   userId: z.string(),
-  sleeperUserId: z.string(),
   leagueId: z.string(),
+  focusNote: z.string().max(200).optional(),
 })
 
 export type TeamEvalInput = z.infer<typeof TeamEvalInputSchema>
+
+// ─── Manager / Intent Agent ───────────────────────────────────────────────────
+
+export const ManagerIntentInputSchema = z.object({
+  message: z.string().max(500),
+  context: z.object({ leagueId: z.string().optional() }).optional(),
+})
+
+export type ManagerIntentInput = z.infer<typeof ManagerIntentInputSchema>
+
+export interface AgentMeta {
+  type: string
+  label: string
+  description: string
+  available: boolean
+  requiredParams: string[]
+}
+
+export interface ManagerIntentOutput {
+  agentType: string | null
+  agentMeta: AgentMeta | null
+  gatheredParams: Record<string, string>
+  missingParams: string[]
+  clarifyingQuestion: string | null
+  readyToRun: boolean
+  availableAgents: AgentMeta[]
+}
 
 export const TeamEvalOutputSchema = z.object({
   overallGrade: z.string(),

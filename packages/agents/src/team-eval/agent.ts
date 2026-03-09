@@ -7,9 +7,16 @@ import type { TeamEvalInput, TeamEvalOutput } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt, buildContentLinks } from './prompt.js'
 
 export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOutput> {
-  const { userId, sleeperUserId, leagueId } = input
+  const { userId, leagueId, focusNote } = input
 
-  // ── 1. Load user preferences for personalized context ──────────────────────
+  // ── 1. Resolve Sleeper user ID from linked profile ─────────────────────────
+  const sleeperProfile = await db.sleeperProfile.findUnique({ where: { userId } })
+  if (!sleeperProfile) {
+    throw new Error('No Sleeper account connected. Visit /account/sleeper to link your account.')
+  }
+  const sleeperUserId = sleeperProfile.sleeperId
+
+  // ── 2. Load user preferences for personalized context ──────────────────────
   const userPrefs = await db.userPreferences.findUnique({ where: { userId } })
   const userContext = buildUserContext(
     userPrefs
@@ -111,7 +118,7 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
 
   // ── 8. LLM call ───────────────────────────────────────────────────────────
   const systemPrompt = buildSystemPrompt(userContext)
-  const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames)
+  const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: 'haiku' },
