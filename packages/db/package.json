@@ -18,12 +18,12 @@
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",
+    "prisma": "^6.3.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22",
     "dotenv-cli": "^8.0.0",
-    "prisma": "^6.3.0",
     "typescript": "^5.7.3"
   }
 }
