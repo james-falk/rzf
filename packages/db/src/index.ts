@@ -24,4 +24,4 @@ export type {
   PlayStyle,
   ReportFormat,
   TrendingType,
-} from './generated/client/index.js'
+} from '@prisma/client'

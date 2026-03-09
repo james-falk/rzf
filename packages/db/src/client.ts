@@ -1,4 +1,4 @@
-import { PrismaClient } from './generated/client/index.js'
+import { PrismaClient } from '@prisma/client'
 
 // PrismaClient is attached to the `globalThis` object in development
 // to prevent exhausting your database connection limit during hot reloads.

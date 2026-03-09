@@ -21,8 +21,6 @@ out/
 # TypeScript
 *.tsbuildinfo
 
-# Prisma generated
-packages/db/src/generated/
 
 # Logs
 *.log
