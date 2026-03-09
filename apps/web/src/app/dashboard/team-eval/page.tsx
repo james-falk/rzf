@@ -75,7 +75,7 @@ export default function TeamEvalPage() {
   }, [runId, getToken])
 
   async function handleRun() {
-    if (!selectedLeague || !sleeperUserId) return
+    if (!selectedLeague) return
 
     setRunning(true)
     setRunError('')
