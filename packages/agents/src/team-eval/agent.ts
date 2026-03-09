@@ -135,7 +135,7 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
     },
   )
 
-  console.log(`[team-eval] LLM complete — model=${result.model} tokens=${tokensUsed} grade=${llmOutput.overallGrade}`)
+  console.log(`[team-eval] LLM complete — tokens=${tokensUsed} grade=${llmOutput.overallGrade}`)
 
   // ── 9. Assemble final output ───────────────────────────────────────────────
   return {

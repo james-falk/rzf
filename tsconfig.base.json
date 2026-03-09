@@ -9,7 +9,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "moduleDetection": "force",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext"
