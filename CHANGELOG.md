@@ -11,6 +11,7 @@ All meaningful changes are logged here. Most recent first.
 - **CORS** — replaced hardcoded stale `rzf-web.vercel.app` origin with `CORS_ORIGIN` env var (comma-separated, parsed at startup); added to `render.yaml` as `sync: false` manual secret
 - **render.yaml** — added `OPENAI_API_KEY` to both `rzf-api` and `rzf-worker` services (LLM connector prefers OpenAI; was missing entirely)
 - **Redis provider migration** — removed Upstash REST fallback from API/worker runtime; both services now require a single `REDIS_URL` value (Render Key Value internal URL)
+- **Redis hostname normalization** — API/worker now normalize short Render Key Value host IDs (e.g. `red-xxxx`) to `red-xxxx.internal` to prevent `ENOTFOUND` DNS failures in Render private networking
 - **`apps/directory/vercel.json`** — created deployment config matching `rostermind` build pattern; directory app now has a defined deploy path
 - **Offensive positions filter** — `runPlayerRefresh()` now filters Sleeper's full player dump to `QB, RB, WR, TE, K, FB` only before upsert; `OFFENSIVE_POSITIONS` constant reused in `runRankingsRefresh()` query; eliminates all defensive/OL player rows from DB (reduces player table size ~60-70%, fewer aliases, faster content mention resolution)
 - **RSS dedup** — replaced per-item `findUnique` loop with a single `findMany({ where: { sourceUrl: { in: [...] } } })` batch query per feed; N queries → 1 query per feed run
