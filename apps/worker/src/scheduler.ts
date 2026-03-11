@@ -36,5 +36,14 @@ export async function scheduleIngestionJobs(): Promise<void> {
     { name: 'content-refresh', data: { type: IngestionJobTypes.CONTENT_REFRESH } },
   )
 
-  console.log('[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min')
+  // Monthly on the 1st at 5am UTC (~12am ET) — reset paid users to 50 run credits
+  await queue.upsertJobScheduler(
+    'credits-refill-monthly',
+    { pattern: '0 5 1 * *' },
+    { name: 'credits-refill', data: { type: IngestionJobTypes.CREDITS_REFILL } },
+  )
+
+  console.log(
+    '[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly',
+  )
 }

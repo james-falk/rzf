@@ -83,7 +83,7 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 - BullMQ consumer — executes agent jobs and ingestion jobs
 - No HTTP exposure — pull-only from Redis queue
 - Writes agent results + analytics events to Postgres
-- Scheduled jobs: PlayerRefreshJob (daily), TrendingRefreshJob (hourly), RankingsRefreshJob (weekly)
+- Scheduled jobs: PlayerRefreshJob (daily), TrendingRefreshJob (hourly), RankingsRefreshJob (weekly), ContentRefreshJob (every 30 min), CreditsRefillJob (monthly)
 
 ### `packages/db`
 - Prisma schema, migrations, generated client
@@ -102,6 +102,7 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 
 ### `packages/agents`
 - Agent logic with strict typed input/output schemas
+- Live agents: TeamEvalAgent, InjuryWatchAgent
 - Agents are pure functions: input → output, no side effects
 - Side effects (DB writes, event tracking) happen in the worker, not in agent code
 
@@ -119,7 +120,7 @@ Worker picks up job
   → Live fetch: Sleeper roster + league settings
   → DB lookup: enrich players with Player table data
   → DB lookup: PlayerRanking for positional context
-  → Build contentLinks (URL construction Phase 1, DB query Phase 2)
+  → Build contentLinks from `ContentItem` + `ContentPlayerMention`
   → Call LLMConnector.complete() with structured prompt
   → Write result to AgentRun.outputJson
   → track("agent.run.completed", { ... })
@@ -141,6 +142,9 @@ Scheduled hourly:
 
 Scheduled weekly (Tuesday):
   RankingsRefreshJob → fetch FantasyPros CSV → parse → upsert PlayerRanking
+
+Scheduled monthly (1st of month):
+  CreditsRefillJob → reset all paid users to 50 runCredits
 ```
 
 ## Deployment

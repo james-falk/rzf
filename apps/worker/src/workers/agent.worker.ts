@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq'
 import { db, track } from '@rzf/db'
-import { runTeamEvalAgent } from '@rzf/agents'
+import { runInjuryWatchAgent, runTeamEvalAgent } from '@rzf/agents'
 import { env } from '@rzf/shared/env'
 import { AgentJobTypes } from '@rzf/shared/types'
 import type { AgentJobData } from '@rzf/shared/types'
@@ -30,6 +30,9 @@ export function createAgentWorker(): Worker<AgentJobData> {
         switch (agentType) {
           case AgentJobTypes.TEAM_EVAL:
             output = await runTeamEvalAgent(input)
+            break
+          case AgentJobTypes.INJURY_WATCH:
+            output = await runInjuryWatchAgent(input)
             break
           default:
             throw new Error(`Unknown agent type: ${agentType}`)

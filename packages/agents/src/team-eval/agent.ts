@@ -4,7 +4,7 @@ import { LLMConnector } from '@rzf/connectors/llm'
 import { buildUserContext } from '@rzf/shared'
 import { TeamEvalOutputSchema } from '@rzf/shared/types'
 import type { TeamEvalInput, TeamEvalOutput } from '@rzf/shared/types'
-import { buildSystemPrompt, buildUserPrompt, buildContentLinks } from './prompt.js'
+import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 
 export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOutput> {
   const { userId, leagueId, focusNote } = input
@@ -119,10 +119,56 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
   const starters = enrichedPlayers.filter((p) => p.isStarter)
   const bench = enrichedPlayers.filter((p) => !p.isStarter)
 
-  // ── 7. Build content links ─────────────────────────────────────────────────
-  const contentLinks = buildContentLinks(starters)
+  // ── 7. Build content links from ingested content ───────────────────────────
+  const starterPlayerIds = starters.map((p) => p.sleeperId)
+  const recentMentions = await db.contentPlayerMention.findMany({
+    where: {
+      playerId: { in: starterPlayerIds },
+      content: { parentId: null },
+    },
+    include: {
+      player: true,
+      content: {
+        select: {
+          sourceUrl: true,
+          title: true,
+          contentType: true,
+          publishedAt: true,
+          fetchedAt: true,
+        },
+      },
+    },
+    take: 100,
+  })
 
-  // ── 8. LLM call ───────────────────────────────────────────────────────────
+  recentMentions.sort((a, b) => {
+    const aTs = (a.content.publishedAt ?? a.content.fetchedAt).getTime()
+    const bTs = (b.content.publishedAt ?? b.content.fetchedAt).getTime()
+    return bTs - aTs
+  })
+
+  const seen = new Set<string>()
+  const contentLinks: TeamEvalOutput['contentLinks'] = []
+
+  for (const mention of recentMentions) {
+    if (seen.has(mention.content.sourceUrl)) continue
+
+    const linkType: TeamEvalOutput['contentLinks'][number]['type'] =
+      mention.content.contentType === 'video' || mention.content.contentType === 'vlog' ? 'youtube' : 'article'
+
+    contentLinks.push({
+      playerId: mention.playerId,
+      playerName: `${mention.player.firstName} ${mention.player.lastName}`.trim(),
+      title: mention.content.title,
+      url: mention.content.sourceUrl,
+      type: linkType,
+    })
+    seen.add(mention.content.sourceUrl)
+
+    if (contentLinks.length >= 6) break
+  }
+
+  // ── 8. LLM call ────────────────────────────────────────────────────────────
   console.log(`[team-eval] Calling LLM — starters=${starters.length} bench=${bench.length} trendingAdds=${trendingAddNames.length}`)
   const systemPrompt = buildSystemPrompt(userContext)
   const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote)

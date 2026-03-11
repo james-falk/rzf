@@ -21,23 +21,39 @@ export default function InternalRunsPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
+  const [agentTypeFilter, setAgentTypeFilter] = useState('')
+  const [autoRefresh, setAutoRefresh] = useState(true)
+
+  async function load(showSpinner = true) {
+    if (showSpinner) setLoading(true)
+    const secret = localStorage.getItem('admin_secret') ?? ''
+    try {
+      const data = await api.getInternalRuns(
+        secret,
+        1,
+        statusFilter || undefined,
+        agentTypeFilter || undefined,
+      ) as { runs: Run[]; total: number }
+      setRuns(data.runs)
+      setTotal(data.total)
+    } catch {
+      // handle
+    } finally {
+      if (showSpinner) setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function load() {
-      setLoading(true)
-      const secret = localStorage.getItem('admin_secret') ?? ''
-      try {
-        const data = await api.getInternalRuns(secret, 1, statusFilter || undefined) as { runs: Run[]; total: number }
-        setRuns(data.runs)
-        setTotal(data.total)
-      } catch {
-        // handle
-      } finally {
-        setLoading(false)
-      }
-    }
     load()
-  }, [statusFilter])
+  }, [statusFilter, agentTypeFilter])
+
+  useEffect(() => {
+    if (!autoRefresh) return
+    const interval = setInterval(() => {
+      void load(false)
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [autoRefresh, statusFilter, agentTypeFilter])
 
   const statusColors: Record<string, string> = {
     done: 'text-emerald-400',
@@ -50,6 +66,27 @@ export default function InternalRunsPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Agent Runs ({total})</h1>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => setAutoRefresh(e.target.checked)}
+              className="rounded border-white/20 bg-zinc-800"
+            />
+            Auto-refresh (5s)
+          </label>
+          <button
+            onClick={() => load()}
+            disabled={loading}
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-zinc-300 transition hover:border-white/20 hover:text-white disabled:opacity-50"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
@@ -60,6 +97,15 @@ export default function InternalRunsPage() {
           <option value="failed">Failed</option>
           <option value="running">Running</option>
           <option value="queued">Queued</option>
+        </select>
+        <select
+          value={agentTypeFilter}
+          onChange={(e) => setAgentTypeFilter(e.target.value)}
+          className="rounded-lg border border-white/10 bg-zinc-800 px-3 py-1.5 text-sm text-white"
+        >
+          <option value="">All agent types</option>
+          <option value="team_eval">team_eval</option>
+          <option value="injury_watch">injury_watch</option>
         </select>
       </div>
 

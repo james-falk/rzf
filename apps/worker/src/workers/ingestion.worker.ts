@@ -27,6 +27,9 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
         case IngestionJobTypes.CONTENT_REFRESH:
           await runContentRefresh()
           break
+        case IngestionJobTypes.CREDITS_REFILL:
+          await runCreditsRefill()
+          break
         default:
           throw new Error(`Unknown ingestion job type: ${type}`)
       }
@@ -243,4 +246,15 @@ async function runContentRefresh(): Promise<void> {
   console.log(
     `[ingestion] Content refresh: ${result.inserted} new items from ${result.sources} sources`,
   )
+}
+
+// ─── CreditsRefillJob ─────────────────────────────────────────────────────────
+// Monthly: reset all paid users back to 50 run credits
+async function runCreditsRefill(): Promise<void> {
+  const result = await db.user.updateMany({
+    where: { tier: 'paid' },
+    data: { runCredits: 50 },
+  })
+
+  console.log(`[ingestion] Credits refill complete: reset ${result.count} paid users to 50 credits`)
 }

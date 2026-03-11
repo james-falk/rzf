@@ -22,6 +22,13 @@ export const TeamEvalInputSchema = z.object({
 
 export type TeamEvalInput = z.infer<typeof TeamEvalInputSchema>
 
+export const InjuryWatchInputSchema = z.object({
+  userId: z.string(),
+  leagueId: z.string(),
+})
+
+export type InjuryWatchInput = z.infer<typeof InjuryWatchInputSchema>
+
 // ─── Manager / Intent Agent ───────────────────────────────────────────────────
 
 export const ManagerIntentInputSchema = z.object({
@@ -61,10 +68,32 @@ export const TeamEvalOutputSchema = z.object({
 
 export type TeamEvalOutput = z.infer<typeof TeamEvalOutputSchema>
 
+export const InjuryAlertSchema = z.object({
+  playerId: z.string(),
+  playerName: z.string(),
+  position: z.string(),
+  team: z.string().nullable(),
+  status: z.string().nullable(),
+  injuryStatus: z.string().nullable(),
+  severity: z.enum(['high', 'medium', 'low']),
+  summary: z.string(),
+  recommendation: z.string(),
+})
+
+export const InjuryWatchOutputSchema = z.object({
+  alerts: z.array(InjuryAlertSchema),
+  riskyStarters: z.number().int().nonnegative(),
+  healthyStarters: z.number().int().nonnegative(),
+  tokensUsed: z.number(),
+})
+
+export type InjuryWatchOutput = z.infer<typeof InjuryWatchOutputSchema>
+
 // ─── Agent Job Payloads (BullMQ queue data) ───────────────────────────────────
 
 export const AgentJobTypes = {
   TEAM_EVAL: 'team_eval',
+  INJURY_WATCH: 'injury_watch',
   WAIVER: 'waiver',
   LINEUP: 'lineup',
 } as const
@@ -74,7 +103,7 @@ export type AgentJobType = (typeof AgentJobTypes)[keyof typeof AgentJobTypes]
 export interface AgentJobData {
   agentRunId: string
   agentType: AgentJobType
-  input: TeamEvalInput
+  input: TeamEvalInput | InjuryWatchInput
 }
 
 // ─── Ingestion Job Payloads ───────────────────────────────────────────────────
@@ -84,6 +113,7 @@ export const IngestionJobTypes = {
   TRENDING_REFRESH: 'trending_refresh',
   RANKINGS_REFRESH: 'rankings_refresh',
   CONTENT_REFRESH: 'content_refresh',
+  CREDITS_REFILL: 'credits_refill',
 } as const
 
 export type IngestionJobType = (typeof IngestionJobTypes)[keyof typeof IngestionJobTypes]

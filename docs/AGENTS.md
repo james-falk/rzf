@@ -59,7 +59,7 @@ type ContentLink = {
 3. `SleeperConnector.getLeagueSettings(leagueId)` — scoring format, roster config
 4. DB: enrich each player with `Player` table (injury, depth chart, search_rank)
 5. DB: `PlayerRanking` for positional context (current week)
-6. Build `contentLinks` — Phase 1: URL construction; Phase 2: DB query from ContentItem
+6. Build `contentLinks` from real `ContentItem` + `ContentPlayerMention` rows tied to starters
 7. Single Claude Haiku call with structured JSON prompt
 8. Parse + validate output against schema
 9. Return `TeamEvalOutput`
@@ -105,8 +105,11 @@ Accept/reject trade evaluation with counter-suggestion.
 
 ### InjuryWatchAgent
 On-demand risk assessment for a user's starting lineup.
+- **Status**: Implemented
 - **Input**: `{ userId, leagueId }`
-- **Key data**: roster injury statuses (DB), handcuff availability
+- **Output**: `{ alerts[], riskyStarters, healthyStarters, tokensUsed }`
+- **Key data**: starter injury/status fields from `Player` table (`injuryStatus`, `status`)
+- **Notes**: deterministic/non-LLM agent (returns `tokensUsed = 0`)
 
 ### NewsDigestAgent
 Personalized weekly digest (Phase 3 — requires ContentItem pipeline).
@@ -125,7 +128,8 @@ These run on a schedule in `apps/worker`. They populate the data tables that age
 | `TrendingRefreshJob` | Hourly | Sleeper trending | `TrendingPlayer` |
 | `RankingsRefreshJob` | Weekly (Tue) | Sleeper `searchRank` proxy (FantasyPros CSV planned) | `PlayerRanking` |
 | `ContentRefreshJob` | Every 30 min | Active RSS `ContentSource` rows | `ContentItem`, `ContentPlayerMention` |
+| `CreditsRefillJob` | Monthly (1st) | Internal system job | `User.runCredits` |
 
-Manual trigger: `POST /internal/ingestion/trigger` with `{ "type": "player_refresh" | "trending_refresh" | "rankings_refresh" | "content_refresh" }` (requires admin secret or admin session).
+Manual trigger: `POST /internal/ingestion/trigger` with `{ "type": "player_refresh" | "trending_refresh" | "rankings_refresh" | "content_refresh" | "credits_refill" }` (requires admin secret or admin session).
 
 `PlayerRefreshJob` now also generates `PlayerAlias` records for every upserted player using `generateAliases()` from `@rzf/shared`. These are used during content ingestion to resolve name mentions to canonical Sleeper player IDs.

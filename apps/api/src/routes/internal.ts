@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '@rzf/db'
 import { requireAuth, requireAdmin, requireAdminSecret } from '../middleware/auth.js'
 import { getAgentQueue, getIngestionQueue } from '../lib/queue.js'
-import { AgentJobTypes, IngestionJobTypes, TeamEvalInputSchema } from '@rzf/shared/types'
+import { AgentJobTypes, IngestionJobTypes, InjuryWatchInputSchema, TeamEvalInputSchema } from '@rzf/shared/types'
 
 // Internal routes are gated by session-based admin check (web UI)
 // OR by X-Admin-Secret header (OpenClaw gateway)
@@ -172,7 +172,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
   app.post('/internal/agents/run', { preHandler: adminGuard }, async (req, reply) => {
     const body = z.object({
       userId: z.string(),
-      agentType: z.enum([AgentJobTypes.TEAM_EVAL]),
+      agentType: z.enum([AgentJobTypes.TEAM_EVAL, AgentJobTypes.INJURY_WATCH]),
       input: z.unknown(),
     }).safeParse(req.body)
 
@@ -185,10 +185,18 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const user = await db.user.findUnique({ where: { id: userId } })
     if (!user) return reply.status(404).send({ error: 'User not found' })
 
-    let validatedInput: ReturnType<typeof TeamEvalInputSchema.parse>
+    let validatedInput: ReturnType<typeof TeamEvalInputSchema.parse> | ReturnType<typeof InjuryWatchInputSchema.parse>
     switch (agentType) {
       case AgentJobTypes.TEAM_EVAL: {
         const result = TeamEvalInputSchema.safeParse({ ...input as object, userId })
+        if (!result.success) {
+          return reply.status(400).send({ error: 'Invalid input', details: result.error.flatten() })
+        }
+        validatedInput = result.data
+        break
+      }
+      case AgentJobTypes.INJURY_WATCH: {
+        const result = InjuryWatchInputSchema.safeParse({ ...input as object, userId })
         if (!result.success) {
           return reply.status(400).send({ error: 'Invalid input', details: result.error.flatten() })
         }
@@ -216,6 +224,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         IngestionJobTypes.TRENDING_REFRESH,
         IngestionJobTypes.RANKINGS_REFRESH,
         IngestionJobTypes.CONTENT_REFRESH,
+        IngestionJobTypes.CREDITS_REFILL,
       ]),
     }).safeParse(req.body)
 
@@ -232,16 +241,33 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
   // GET /internal/queue — BullMQ queue stats
   app.get('/internal/queue', { preHandler: adminGuard }, async (_req, reply) => {
     try {
-      const queue = getAgentQueue()
-      const [waiting, active, completed, failed] = await Promise.all([
-        queue.getWaitingCount(),
-        queue.getActiveCount(),
-        queue.getCompletedCount(),
-        queue.getFailedCount(),
+      const agentQueue = getAgentQueue()
+      const ingestionQueue = getIngestionQueue()
+      const [agentCounts, ingestionCounts] = await Promise.all([
+        agentQueue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed'),
+        ingestionQueue.getJobCounts('waiting', 'active', 'completed', 'failed', 'delayed'),
       ])
-      return reply.send({ agents: { waiting, active, completed, failed } })
+      return reply.send({
+        agents: {
+          waiting: agentCounts.waiting ?? 0,
+          active: agentCounts.active ?? 0,
+          completed: agentCounts.completed ?? 0,
+          failed: agentCounts.failed ?? 0,
+          delayed: agentCounts.delayed ?? 0,
+        },
+        ingestion: {
+          waiting: ingestionCounts.waiting ?? 0,
+          active: ingestionCounts.active ?? 0,
+          completed: ingestionCounts.completed ?? 0,
+          failed: ingestionCounts.failed ?? 0,
+          delayed: ingestionCounts.delayed ?? 0,
+        },
+      })
     } catch {
-      return reply.send({ agents: { waiting: 0, active: 0, completed: 0, failed: 0, error: 'Redis unavailable' } })
+      return reply.send({
+        agents: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, error: 'Redis unavailable' },
+        ingestion: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, error: 'Redis unavailable' },
+      })
     }
   })
 }

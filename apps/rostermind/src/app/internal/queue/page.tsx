@@ -9,6 +9,15 @@ interface QueueStats {
     active: number
     completed: number
     failed: number
+    delayed: number
+    error?: string
+  }
+  ingestion: {
+    waiting: number
+    active: number
+    completed: number
+    failed: number
+    delayed: number
     error?: string
   }
 }
@@ -54,27 +63,54 @@ export default function InternalQueuePage() {
       )}
 
       {stats && (
-        <div>
-          <h2 className="mb-4 text-base font-semibold text-zinc-300">Agents Queue</h2>
-          {stats.agents.error ? (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
-              {stats.agents.error}
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-4">
-              {[
-                { label: 'Waiting', value: stats.agents.waiting, color: 'text-yellow-400' },
-                { label: 'Active', value: stats.agents.active, color: 'text-blue-400' },
-                { label: 'Completed', value: stats.agents.completed, color: 'text-emerald-400' },
-                { label: 'Failed', value: stats.agents.failed, color: stats.agents.failed > 0 ? 'text-red-400' : 'text-zinc-400' },
-              ].map((s) => (
-                <div key={s.label} className="rounded-xl border border-white/10 bg-zinc-900 p-5">
-                  <p className="mb-1 text-xs text-zinc-400">{s.label}</p>
-                  <p className={`text-4xl font-bold ${s.color}`}>{s.value}</p>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="space-y-8">
+          <section>
+            <h2 className="mb-4 text-base font-semibold text-zinc-300">Agents Queue</h2>
+            {stats.agents.error ? (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+                {stats.agents.error}
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-5">
+                {[
+                  { label: 'Waiting', value: stats.agents.waiting, color: 'text-yellow-400' },
+                  { label: 'Active', value: stats.agents.active, color: 'text-blue-400' },
+                  { label: 'Delayed', value: stats.agents.delayed, color: 'text-indigo-400' },
+                  { label: 'Completed', value: stats.agents.completed, color: 'text-emerald-400' },
+                  { label: 'Failed', value: stats.agents.failed, color: stats.agents.failed > 0 ? 'text-red-400' : 'text-zinc-400' },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-xl border border-white/10 bg-zinc-900 p-5">
+                    <p className="mb-1 text-xs text-zinc-400">{s.label}</p>
+                    <p className={`text-4xl font-bold ${s.color}`}>{s.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section>
+            <h2 className="mb-4 text-base font-semibold text-zinc-300">Ingestion Queue</h2>
+            {stats.ingestion.error ? (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+                {stats.ingestion.error}
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-5">
+                {[
+                  { label: 'Waiting', value: stats.ingestion.waiting, color: 'text-yellow-400' },
+                  { label: 'Active', value: stats.ingestion.active, color: 'text-blue-400' },
+                  { label: 'Delayed', value: stats.ingestion.delayed, color: 'text-indigo-400' },
+                  { label: 'Completed', value: stats.ingestion.completed, color: 'text-emerald-400' },
+                  { label: 'Failed', value: stats.ingestion.failed, color: stats.ingestion.failed > 0 ? 'text-red-400' : 'text-zinc-400' },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-xl border border-white/10 bg-zinc-900 p-5">
+                    <p className="mb-1 text-xs text-zinc-400">{s.label}</p>
+                    <p className={`text-4xl font-bold ${s.color}`}>{s.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       )}
     </div>
