@@ -25,6 +25,7 @@ export function getRedisConnection(): ConnectionOptions {
   _connection = {
     host: normalizeRedisHost(url.hostname),
     port: parseInt(url.port || '6379', 10),
+    username: url.username || undefined,
     password: url.password || undefined,
     tls: url.protocol === 'rediss:' ? {} : undefined,
     maxRetriesPerRequest: null,
