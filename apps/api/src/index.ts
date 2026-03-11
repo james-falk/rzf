@@ -18,10 +18,20 @@ const app = Fastify({
 
 // ── Plugins ────────────────────────────────────────────────────────────────────
 await app.register(helmet)
+const allowedOrigins =
+  env.NODE_ENV === 'production'
+    ? (env.CORS_ORIGIN ?? '')
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
+    : []
 await app.register(cors, {
-  origin: env.NODE_ENV === 'production'
-    ? (env.CORS_ORIGIN ?? '').split(',').map((o) => o.trim()).filter(Boolean)
-    : true,
+  origin:
+    env.NODE_ENV === 'production'
+      ? allowedOrigins.length > 0
+        ? allowedOrigins
+        : ['https://rzf-web.vercel.app'] // default when CORS_ORIGIN not set on Render
+      : true,
   credentials: true,
 })
 

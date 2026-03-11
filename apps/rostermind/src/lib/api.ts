@@ -10,7 +10,8 @@ import type {
 } from '@rzf/shared/types'
 import { API_BASE_URL } from './client-env'
 
-const API_BASE = API_BASE_URL
+// Normalize to avoid double slash when path is e.g. /sleeper/connect
+const API_BASE = API_BASE_URL.replace(/\/$/, '')
 
 async function apiFetch<T>(
   path: string,
@@ -175,8 +176,12 @@ export const api = {
     })
   },
 
-  async getInternalRuns(adminSecret: string, page = 1, status?: string) {
-    const params = new URLSearchParams({ page: String(page), ...(status ? { status } : {}) })
+  async getInternalRuns(adminSecret: string, page = 1, status?: string, agentType?: string) {
+    const params = new URLSearchParams({
+      page: String(page),
+      ...(status ? { status } : {}),
+      ...(agentType ? { agentType } : {}),
+    })
     return apiFetch<unknown>(`/internal/runs?${params}`, {
       headers: { 'x-admin-secret': adminSecret },
     })

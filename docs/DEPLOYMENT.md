@@ -129,7 +129,7 @@ OPENAI_API_KEY
 ANTHROPIC_API_KEY
 ADMIN_SECRET
 API_BASE_URL          # https://rzf-api.onrender.com
-CORS_ORIGIN           # comma-separated frontend URLs
+CORS_ORIGIN           # comma-separated frontend URLs (optional; defaults to https://rzf-web.vercel.app if unset)
 NODE_ENV=production
 ```
 

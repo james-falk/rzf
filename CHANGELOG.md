@@ -6,6 +6,11 @@ All meaningful changes are logged here. Most recent first.
 
 ## 2026-03-11
 
+### CORS + API URL double-slash fix
+
+- **CORS**: When `CORS_ORIGIN` is unset in production, API now defaults to allowing `https://rzf-web.vercel.app` so the Vercel frontend works without setting the secret
+- **rostermind**: Normalize `NEXT_PUBLIC_API_BASE_URL` (strip trailing slash) so fetch URLs never get a double slash (`...com//sleeper/connect`), fixing 404/preflight failures
+
 ### Redis host normalization only on Render
 
 - API/worker now append `.internal` to short Redis hostnames only when `RENDER=true` (set by Render platform)
