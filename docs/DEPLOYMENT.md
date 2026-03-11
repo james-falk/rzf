@@ -147,13 +147,15 @@ NODE_ENV=production
 ```
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 CLERK_SECRET_KEY
-NEXT_PUBLIC_API_BASE_URL   # https://rzf-api.onrender.com
+NEXT_PUBLIC_API_BASE_URL   # https://rzf-api.onrender.com (no trailing slash)
 API_BASE_URL               # https://rzf-api.onrender.com
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
 NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/onboarding
 ```
+
+**Clerk (dev or prod):** Use the **same** Clerk application for both Vercel and the API: same `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY` on Vercel, and the same `CLERK_SECRET_KEY` on Render. The API allows JWTs from origins in `CORS_ORIGIN`, or by default `http://localhost:3000` and `https://rzf-web.vercel.app`.
 
 ### `apps/directory` (Vercel)
 ```

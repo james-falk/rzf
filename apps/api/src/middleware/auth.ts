@@ -3,7 +3,10 @@ import { verifyToken, createClerkClient } from '@clerk/backend'
 import { db } from '@rzf/db'
 import { env } from '@rzf/shared/env'
 
-const clerkClient = createClerkClient({ secretKey: env.CLERK_SECRET_KEY })
+function getClerkClient() {
+  if (!env.CLERK_SECRET_KEY) throw new Error('CLERK_SECRET_KEY is not set')
+  return createClerkClient({ secretKey: env.CLERK_SECRET_KEY })
+}
 
 export interface AuthenticatedUser {
   clerkId: string
@@ -24,6 +27,12 @@ declare module 'fastify' {
  * Validates the Bearer token, then looks up our DB User by clerkId.
  * Attaches the user to req.authUser.
  */
+/** Origins allowed for JWT azp (authorized party) — same as CORS or dev defaults. */
+function getAuthorizedParties(): string[] {
+  const list = env.CORS_ORIGIN ?? 'http://localhost:3000,https://rzf-web.vercel.app'
+  return list.split(',').map((o) => o.trim()).filter(Boolean)
+}
+
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
   const authHeader = req.headers.authorization
   if (!authHeader?.startsWith('Bearer ')) {
@@ -31,17 +40,23 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
     return
   }
 
-    const token = authHeader.slice(7)
+  const token = authHeader.slice(7)
+
+  if (!env.CLERK_SECRET_KEY) {
+    await reply.status(503).send({ error: 'Auth not configured', message: 'CLERK_SECRET_KEY is not set' })
+    return
+  }
 
   try {
     const { sub: clerkId } = await verifyToken(token, {
       secretKey: env.CLERK_SECRET_KEY,
+      authorizedParties: getAuthorizedParties(),
     })
 
     let user = await db.user.findUnique({ where: { clerkId } })
     if (!user) {
       // Auto-provision: webhook may not have fired (local dev or missed delivery)
-      const clerkUser = await clerkClient.users.getUser(clerkId)
+      const clerkUser = await getClerkClient().users.getUser(clerkId)
       const email =
         clerkUser.emailAddresses.find((e) => e.verification?.status === 'verified')?.emailAddress ??
         clerkUser.emailAddresses[0]?.emailAddress ??
