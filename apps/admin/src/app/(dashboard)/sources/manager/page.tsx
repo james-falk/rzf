@@ -11,6 +11,7 @@ import {
 } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
 import { formatRelativeTime } from '@/lib/utils'
+import Image from 'next/image'
 import {
   Plus,
   RefreshCw,
@@ -46,8 +47,6 @@ const PLATFORM_COLORS: Record<ContentPlatform, string> = {
   manual: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
 }
 
-// Platforms that are fully wired up on the backend
-const ACTIVE_PLATFORMS: ContentPlatform[] = ['rss', 'youtube', 'reddit']
 // Platforms planned but not yet implemented
 const COMING_SOON_PLATFORMS: ContentPlatform[] = ['twitter', 'podcast', 'api', 'manual']
 
@@ -548,8 +547,7 @@ export default function SourceManagerPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {source.avatarUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={source.avatarUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
+                          <Image src={source.avatarUrl} alt={source.name} width={24} height={24} unoptimized className="h-6 w-6 rounded-full object-cover" />
                         ) : (
                           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-white/10 text-zinc-500">
                             {PLATFORM_ICON[source.platform] ?? <Globe size={12} />}
