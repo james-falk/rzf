@@ -6,6 +6,27 @@ All meaningful changes are logged here. Most recent first.
 
 ## 2026-03-11
 
+### Admin dashboard app (`apps/admin`)
+
+- New standalone Next.js app deployed to its own Vercel project — no Clerk dependency, auth via `ADMIN_SECRET`
+- **Overview page**: system health pills (API, agent queue, ingestion queue), user + run KPI cards, mini charts (runs/day, queue depth)
+- **Agent Runs page**: 6-stat KPI row, runs-over-time area chart (30 days, stacked by status), token usage bar chart, agent-type breakdown chart, filterable + paginated run table with expandable rows showing `inputJson`/`outputJson`/error details, 5s auto-refresh
+- **Content Sources page**: per-source health table (healthy/stale/inactive badges, stale detection at 2× refresh interval), expandable row with recent items, manual trigger buttons for all 5 ingestion job types
+- **Content Analytics page**: KPI cards, items-over-time stacked area chart by content type, platform donut chart, topic distribution bar chart, top-20 player mentions bar chart, content type breakdown table with share bars
+- **Queue page**: real-time agent + ingestion queue depth with auto-refresh
+
+### New internal API endpoints
+
+- `GET /internal/runs/stats` — 30-day daily buckets by status + token usage, per-agent-type summary, success rate, avg duration/tokens
+- `GET /internal/sources` — all content sources with derived health status (stale detection), item counts, last fetch time
+- `GET /internal/sources/:id/items` — paginated items for a single source with player mention counts
+- `GET /internal/content/stats` — daily ingestion buckets by content type, platform distribution, top 20 player mentions resolved to names, topic frequency distribution
+
+### Infrastructure fixes
+
+- Region corrected: API and worker moved from Oregon to Ohio to match Render Postgres and Key Value instances — resolves `Can't reach database server at dpg-xxx:5432` 503 errors on all authenticated routes
+- Redis `username` field now extracted from connection URL for Valkey ACL auth — fixes BullMQ connection hang when Render Key Value has authentication enabled
+
 ### CORS + API URL double-slash fix
 
 - **CORS**: When `CORS_ORIGIN` is unset in production, API now defaults to allowing `https://rzf-web.vercel.app` so the Vercel frontend works without setting the secret

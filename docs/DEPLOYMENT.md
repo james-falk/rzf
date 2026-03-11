@@ -54,6 +54,7 @@ pnpm --filter @rzf/api dev       # Fastify API on :3001
 pnpm --filter @rzf/worker dev    # BullMQ worker
 pnpm --filter @rzf/rostermind dev # Next.js on :3000
 pnpm --filter @rzf/directory dev  # Next.js on :3002
+pnpm --filter @rzf/admin dev      # Admin dashboard on :3002 (set API_BASE_URL in .env)
 ```
 
 ---
@@ -93,12 +94,29 @@ Alternatively, use `render.yaml` in the repo root for infrastructure-as-code set
 
 ## Vercel Deployment
 
+### `apps/rostermind` and `apps/directory`
+
 1. Create a Vercel account at [vercel.com](https://vercel.com)
 2. Import the GitHub repo
-3. Set **Root Directory**: `apps/web`
+3. Set **Root Directory**: `apps/rostermind` (or `apps/directory`)
 4. Framework preset: Next.js (auto-detected)
 5. Set environment variables (Vercel dashboard → Settings → Environment Variables)
 6. Deploy
+
+### `apps/admin` (Internal Admin Dashboard)
+
+Deploy as a separate Vercel project:
+
+1. Import the same GitHub repo into a new Vercel project
+2. Set **Root Directory**: `apps/admin`
+3. Framework preset: Next.js (auto-detected)
+4. Set environment variables:
+   ```
+   NEXT_PUBLIC_API_BASE_URL=https://rzf-api.onrender.com
+   ```
+5. Deploy — the app will be available at `https://rzf-admin-<hash>.vercel.app`
+
+Access: navigate to the deployed URL, enter your `ADMIN_SECRET` on the login page. The secret is stored in `localStorage` for the session.
 
 Vercel auto-deploys on every push to `main`.
 
@@ -160,6 +178,11 @@ NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/onboarding
 ### `apps/directory` (Vercel)
 ```
 DATABASE_URL
+```
+
+### `apps/admin` (Vercel)
+```
+NEXT_PUBLIC_API_BASE_URL   # https://rzf-api.onrender.com (no trailing slash)
 ```
 
 ---

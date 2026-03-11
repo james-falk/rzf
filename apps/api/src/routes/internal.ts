@@ -238,6 +238,265 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(202).send({ jobId: job.id, type: body.data.type, status: 'queued' })
   })
 
+  // GET /internal/runs/stats — aggregate agent run analytics (last 30 days)
+  app.get('/internal/runs/stats', { preHandler: adminGuard }, async (_req, reply) => {
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now)
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const weekStart = new Date(todayStart)
+    weekStart.setDate(weekStart.getDate() - 7)
+
+    const [allRuns, recentRuns, agentTypeAgg] = await Promise.all([
+      db.agentRun.findMany({
+        where: { createdAt: { gte: thirtyDaysAgo } },
+        select: { status: true, tokensUsed: true, durationMs: true, agentType: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      db.agentRun.findMany({
+        where: { createdAt: { gte: todayStart } },
+        select: { status: true },
+      }),
+      db.agentRun.groupBy({
+        by: ['agentType', 'status'],
+        _count: { id: true },
+        _avg: { tokensUsed: true, durationMs: true },
+      }),
+    ])
+
+    // Build daily buckets for the last 30 days
+    const dailyMap = new Map<string, { date: string; done: number; failed: number; queued: number; running: number; tokens: number }>()
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(thirtyDaysAgo)
+      d.setDate(d.getDate() + i)
+      const key = d.toISOString().slice(0, 10)
+      dailyMap.set(key, { date: key, done: 0, failed: 0, queued: 0, running: 0, tokens: 0 })
+    }
+    for (const run of allRuns) {
+      const key = run.createdAt.toISOString().slice(0, 10)
+      const bucket = dailyMap.get(key)
+      if (bucket) {
+        bucket[run.status as 'done' | 'failed' | 'queued' | 'running'] = (bucket[run.status as 'done' | 'failed' | 'queued' | 'running'] ?? 0) + 1
+        bucket.tokens += run.tokensUsed ?? 0
+      }
+    }
+
+    // Per-agent-type summary
+    const agentSummary = new Map<string, { agentType: string; total: number; done: number; failed: number; avgTokens: number; avgDurationMs: number }>()
+    for (const row of agentTypeAgg) {
+      const existing = agentSummary.get(row.agentType) ?? { agentType: row.agentType, total: 0, done: 0, failed: 0, avgTokens: 0, avgDurationMs: 0 }
+      existing.total += row._count.id
+      if (row.status === 'done') {
+        existing.done += row._count.id
+        existing.avgTokens = row._avg.tokensUsed ?? 0
+        existing.avgDurationMs = row._avg.durationMs ?? 0
+      }
+      if (row.status === 'failed') existing.failed += row._count.id
+      agentSummary.set(row.agentType, existing)
+    }
+
+    const doneRuns = allRuns.filter((r) => r.status === 'done')
+    const successRate = allRuns.length > 0 ? Math.round((doneRuns.length / allRuns.length) * 100) : 0
+    const avgTokens = doneRuns.length > 0 ? Math.round(doneRuns.reduce((s, r) => s + (r.tokensUsed ?? 0), 0) / doneRuns.length) : 0
+    const avgDuration = doneRuns.length > 0 ? Math.round(doneRuns.reduce((s, r) => s + (r.durationMs ?? 0), 0) / doneRuns.length) : 0
+
+    return reply.send({
+      summary: {
+        totalLast30Days: allRuns.length,
+        today: recentRuns.length,
+        week: allRuns.filter((r) => r.createdAt >= weekStart).length,
+        successRate,
+        avgTokens,
+        avgDurationMs: avgDuration,
+        failed: allRuns.filter((r) => r.status === 'failed').length,
+      },
+      daily: Array.from(dailyMap.values()),
+      byAgentType: Array.from(agentSummary.values()),
+    })
+  })
+
+  // GET /internal/sources — all content sources with health stats
+  app.get('/internal/sources', { preHandler: adminGuard }, async (_req, reply) => {
+    const sources = await db.contentSource.findMany({
+      include: {
+        _count: { select: { items: true } },
+        items: {
+          orderBy: { fetchedAt: 'desc' },
+          take: 1,
+          select: { fetchedAt: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    const now = new Date()
+    const enriched = sources.map((s) => {
+      const lastFetch = s.items[0]?.fetchedAt ?? s.lastFetchedAt
+      const staleCutoffMs = s.refreshIntervalMins * 2 * 60 * 1000
+      const isStale = lastFetch ? now.getTime() - lastFetch.getTime() > staleCutoffMs : true
+      const health = !s.isActive ? 'inactive' : isStale ? 'stale' : 'healthy'
+      return {
+        id: s.id,
+        name: s.name,
+        platform: s.platform,
+        feedUrl: s.feedUrl,
+        avatarUrl: s.avatarUrl,
+        isActive: s.isActive,
+        refreshIntervalMins: s.refreshIntervalMins,
+        lastFetchedAt: lastFetch,
+        itemCount: s._count.items,
+        health,
+      }
+    })
+
+    const totalItems = enriched.reduce((s, src) => s + src.itemCount, 0)
+    const activeCount = enriched.filter((s) => s.isActive).length
+    const staleCount = enriched.filter((s) => s.health === 'stale').length
+
+    return reply.send({
+      sources: enriched,
+      summary: { total: enriched.length, active: activeCount, stale: staleCount, totalItems },
+    })
+  })
+
+  // GET /internal/sources/:id/items — paginated items for a single source
+  app.get('/internal/sources/:id/items', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const query = z.object({
+      page: z.coerce.number().min(1).default(1),
+      limit: z.coerce.number().min(1).max(100).default(20),
+    }).parse(req.query)
+
+    const skip = (query.page - 1) * query.limit
+
+    const [items, total] = await Promise.all([
+      db.contentItem.findMany({
+        where: { sourceId: id },
+        select: {
+          id: true,
+          title: true,
+          contentType: true,
+          sourceUrl: true,
+          publishedAt: true,
+          fetchedAt: true,
+          topics: true,
+          importanceScore: true,
+          _count: { select: { playerMentions: true } },
+        },
+        orderBy: { fetchedAt: 'desc' },
+        skip,
+        take: query.limit,
+      }),
+      db.contentItem.count({ where: { sourceId: id } }),
+    ])
+
+    return reply.send({ items, total, page: query.page, pages: Math.ceil(total / query.limit) })
+  })
+
+  // GET /internal/content/stats — aggregate content analytics (last 30 days)
+  app.get('/internal/content/stats', { preHandler: adminGuard }, async (_req, reply) => {
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now)
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    const weekStart = new Date(now)
+    weekStart.setDate(weekStart.getDate() - 7)
+
+    const [recentItems, platformAgg, typeAgg, topMentions, totalItems, totalSources, activeSources] = await Promise.all([
+      db.contentItem.findMany({
+        where: { fetchedAt: { gte: thirtyDaysAgo } },
+        select: { contentType: true, fetchedAt: true, topics: true, source: { select: { platform: true } } },
+        orderBy: { fetchedAt: 'asc' },
+      }),
+      db.contentItem.groupBy({
+        by: ['sourceId'],
+        where: { source: { isNot: null } },
+        _count: { id: true },
+      }),
+      db.contentItem.groupBy({
+        by: ['contentType'],
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+      }),
+      db.contentPlayerMention.groupBy({
+        by: ['playerId'],
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 20,
+      }),
+      db.contentItem.count(),
+      db.contentSource.count(),
+      db.contentSource.count({ where: { isActive: true } }),
+    ])
+
+    // Build daily buckets
+    const dailyMap = new Map<string, Record<string, number> & { date: string }>()
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(thirtyDaysAgo)
+      d.setDate(d.getDate() + i)
+      const key = d.toISOString().slice(0, 10)
+      dailyMap.set(key, { date: key })
+    }
+    for (const item of recentItems) {
+      const key = item.fetchedAt.toISOString().slice(0, 10)
+      const bucket = dailyMap.get(key)
+      if (bucket) {
+        bucket[item.contentType] = (bucket[item.contentType] ?? 0) + 1
+      }
+    }
+
+    // Topic distribution
+    const topicMap = new Map<string, number>()
+    for (const item of recentItems) {
+      for (const topic of item.topics) {
+        topicMap.set(topic, (topicMap.get(topic) ?? 0) + 1)
+      }
+    }
+    const topics = Array.from(topicMap.entries())
+      .map(([topic, count]) => ({ topic, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 20)
+
+    // Platform distribution from recent items
+    const platformMap = new Map<string, number>()
+    for (const item of recentItems) {
+      const platform = item.source?.platform ?? 'unknown'
+      platformMap.set(platform, (platformMap.get(platform) ?? 0) + 1)
+    }
+
+    // Resolve top player mentions with names
+    const playerIds = topMentions.map((m) => m.playerId)
+    const players = await db.player.findMany({
+      where: { sleeperId: { in: playerIds } },
+      select: { sleeperId: true, firstName: true, lastName: true, position: true, team: true },
+    })
+    const playerMap = new Map(players.map((p) => [p.sleeperId, p]))
+    const topPlayers = topMentions.map((m) => ({
+      playerId: m.playerId,
+      name: playerMap.has(m.playerId)
+        ? `${playerMap.get(m.playerId)!.firstName} ${playerMap.get(m.playerId)!.lastName}`
+        : m.playerId,
+      position: playerMap.get(m.playerId)?.position ?? '',
+      team: playerMap.get(m.playerId)?.team ?? '',
+      mentions: m._count.id,
+    }))
+
+    return reply.send({
+      summary: {
+        totalItems,
+        itemsThisWeek: recentItems.filter((i) => i.fetchedAt >= weekStart).length,
+        totalSources,
+        activeSources,
+        avgItemsPerSource: activeSources > 0 ? Math.round(totalItems / activeSources) : 0,
+        uniquePlayersMentioned: (await db.contentPlayerMention.groupBy({ by: ['playerId'] })).length,
+      },
+      daily: Array.from(dailyMap.values()),
+      byContentType: typeAgg.map((r) => ({ type: r.contentType, count: r._count.id })),
+      byPlatform: Array.from(platformMap.entries()).map(([platform, count]) => ({ platform, count })),
+      topics,
+      topPlayers,
+    })
+  })
+
   // GET /internal/queue — BullMQ queue stats
   app.get('/internal/queue', { preHandler: adminGuard }, async (_req, reply) => {
     try {

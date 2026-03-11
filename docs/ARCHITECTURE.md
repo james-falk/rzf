@@ -68,6 +68,12 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 - Pages: onboarding, dashboard, team eval, account, preferences, internal admin
 - Server Components for data display; Client Components for interactivity
 
+### `apps/admin` (Vercel)
+- Standalone internal admin dashboard — separate Vercel project, no Clerk dependency
+- Auth via `ADMIN_SECRET` stored in `localStorage`, sent as `x-admin-secret` header
+- Pages: Overview, Agent Runs (with charts), Content Sources (health + manual triggers), Content Analytics (Recharts visualizations), Queue Status
+- Uses `recharts` for time-series and distribution charts
+
 ### `apps/directory` (Vercel)
 - Public Next.js 15 data directory for player search/detail/source browsing
 - Server-rendered pages and route handlers reading from shared Prisma DB
@@ -153,6 +159,7 @@ Scheduled monthly (1st of month):
 |---------|----------|------|------|
 | `apps/rostermind` | Vercel | Free | $0 |
 | `apps/directory` | Vercel | Free | $0 |
+| `apps/admin` | Vercel | Free | $0 |
 | `apps/api` | Render Web Service | Starter | $7/mo |
 | `apps/worker` | Render Background Worker | Starter | $7/mo |
 | Postgres | Render Managed Postgres | Starter | $7/mo |
