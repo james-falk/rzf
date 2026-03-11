@@ -21,6 +21,8 @@ const envSchema = z.object({
   // Render Key Value / Redis connection string
   // Use redis:// (internal) or rediss:// (TLS)
   REDIS_URL: z.string().optional(),
+  // Set by Render platform (RENDER=true). Used to normalize Redis host to .internal only on Render.
+  RENDER: z.string().optional(),
 
   // ── Auth (Clerk) ──────────────────────────────────────────────────────────
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().optional(),

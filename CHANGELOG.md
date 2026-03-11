@@ -4,6 +4,33 @@ All meaningful changes are logged here. Most recent first.
 
 ---
 
+## 2026-03-11
+
+### Redis host normalization only on Render
+
+- API/worker now append `.internal` to short Redis hostnames only when `RENDER=true` (set by Render platform)
+- Fixes `ENOTFOUND red-xxxx.internal` when running API/worker locally or outside Render; local dev should use `REDIS_URL=redis://localhost:6379`
+
+### Monthly paid credit refill cron
+
+- Added `CREDITS_REFILL` ingestion job type and wired it through worker scheduling + execution
+- Added monthly BullMQ scheduler (`credits-refill-monthly`) to run on the 1st and reset all paid users to `runCredits = 50`
+- Ensures paid accounts are automatically reloaded each month without manual admin intervention
+
+### Internal dashboard queue + run monitor upgrades
+
+- `/internal/queue` now returns and renders both **agents** and **ingestion** queue counts (waiting/active/delayed/completed/failed)
+- `/internal/runs` now supports agent-type filtering in UI and adds optional 5-second auto-refresh with manual refresh control
+- Added `credits_refill` to manual ingestion trigger validation (`POST /internal/ingestion/trigger`)
+
+### TeamEval link quality + InjuryWatchAgent
+
+- Replaced TeamEval static FantasyPros URL construction with real content links from `ContentItem` + `ContentPlayerMention` query results
+- Added `INJURY_WATCH` agent type and implemented `runInjuryWatchAgent` using existing player injury/status fields (`injuryStatus`, `status`)
+- Wired InjuryWatch through API validation and worker execution path as a queueable agent run
+
+---
+
 ## 2026-03-10
 
 ### Pre-deploy hardening + offensive positions filter

@@ -8,9 +8,9 @@ function normalizeRedisHost(host: string): string {
   const isLocal = host === 'localhost' || host === '127.0.0.1'
   const hasDomain = host.includes('.')
 
-  // Render Key Value internal URLs can be provided as short host IDs (red-xxxx).
-  // In Render service-to-service networking, these resolve via the .internal suffix.
-  if (!hasDomain && !isIp && !isLocal) return `${host}.internal`
+  // Render Key Value internal URLs: only append .internal when running on Render
+  // (RENDER=true); elsewhere (local, CI) use host as-is to avoid ENOTFOUND.
+  if (env.RENDER === 'true' && !hasDomain && !isIp && !isLocal) return `${host}.internal`
   return host
 }
 

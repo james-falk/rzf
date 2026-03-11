@@ -111,6 +111,8 @@ Vercel auto-deploys on every push to `main`.
 3. Copy the **Internal URL** (`redis://...`)
 4. Set `REDIS_URL` in both `rzf-api` and `rzf-worker`
 
+The API and worker normalize short Render Redis host IDs to `red-xxxx.internal` only when running on Render (`RENDER` is set automatically by the platform). Locally, use `REDIS_URL=redis://localhost:6379` (or your own Redis).
+
 ---
 
 ## Environment Variables
