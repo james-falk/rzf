@@ -16,6 +16,7 @@ export default function LoginPage() {
     setError('')
 
     try {
+      // eslint-disable-next-line no-restricted-syntax
       const apiBase = (process.env['NEXT_PUBLIC_API_BASE_URL'] ?? 'http://localhost:3001').replace(/\/$/, '')
       const res = await fetch(`${apiBase}/internal/overview`, {
         headers: { 'x-admin-secret': secret.trim() },
