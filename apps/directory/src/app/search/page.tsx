@@ -6,11 +6,7 @@ export const metadata: Metadata = {
   title: 'Player Search — Red Zone Fantasy',
 }
 
-export default function SearchPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ q?: string; tab?: string; pos?: string }>
-}) {
+export default function SearchPage() {
   return (
     <div className="min-h-screen" style={{ background: 'rgb(10,10,10)' }}>
       <Navbar />
