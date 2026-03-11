@@ -47,12 +47,20 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
     return
   }
 
+  let clerkId: string
   try {
-    const { sub: clerkId } = await verifyToken(token, {
+    const payload = await verifyToken(token, {
       secretKey: env.CLERK_SECRET_KEY,
       authorizedParties: getAuthorizedParties(),
     })
+    clerkId = payload.sub as string
+  } catch (err) {
+    console.error('[auth] Token verification failed:', err instanceof Error ? err.message : err)
+    await reply.status(401).send({ error: 'Unauthorized', message: 'Invalid token' })
+    return
+  }
 
+  try {
     let user = await db.user.findUnique({ where: { clerkId } })
     if (!user) {
       // Auto-provision: webhook may not have fired (local dev or missed delivery)
@@ -75,8 +83,14 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
       runCredits: user.runCredits,
     }
   } catch (err) {
-    console.error('[auth] Token verification failed:', err instanceof Error ? err.message : err)
-    await reply.status(401).send({ error: 'Unauthorized', message: 'Invalid token' })
+    const msg = err instanceof Error ? err.message : String(err)
+    const isDbError = msg.includes('database') || msg.includes('Can\'t reach') || msg.includes('connection')
+    console.error('[auth] User lookup failed:', msg)
+    if (isDbError) {
+      await reply.status(503).send({ error: 'Service Unavailable', message: 'Database temporarily unavailable' })
+    } else {
+      await reply.status(500).send({ error: 'Internal Server Error', message: 'User lookup failed' })
+    }
   }
 }
 
