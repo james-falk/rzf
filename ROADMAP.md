@@ -11,7 +11,7 @@
 - [x] Monorepo scaffold (API, Worker, Web, all packages)
 - [x] Clerk auth (middleware, sign-in/up pages, webhook → DB user creation)
 - [x] Prisma schema + Render Postgres migrations
-- [x] BullMQ worker + Upstash Redis queue
+- [x] BullMQ worker + Redis queue
 - [x] TeamEvalAgent — full roster grade with position scores, insights, content links
 - [x] Render deploy (rzf-api + rzf-worker)
 - [x] Vercel deploy (rzf-web)

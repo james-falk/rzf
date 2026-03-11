@@ -6,11 +6,12 @@
 
 | Service | Platform | URL |
 |---------|----------|-----|
-| `apps/web` | Vercel (free) | `your-domain.vercel.app` or custom domain |
+| `apps/rostermind` | Vercel | `your-domain.vercel.app` or custom domain |
+| `apps/directory` | Vercel | `your-domain.vercel.app` or custom domain |
 | `apps/api` | Render Web Service | `rzf-api.onrender.com` |
 | `apps/worker` | Render Background Worker | (no public URL) |
 | Postgres | Render Managed Postgres | Internal Render connection string |
-| Redis | Upstash | REST URL + token |
+| Redis | Render Key Value | Internal Redis URL (`redis://...`) |
 
 ---
 
@@ -51,7 +52,8 @@ pnpm dev
 ```bash
 pnpm --filter @rzf/api dev       # Fastify API on :3001
 pnpm --filter @rzf/worker dev    # BullMQ worker
-pnpm --filter @rzf/web dev       # Next.js on :3000
+pnpm --filter @rzf/rostermind dev # Next.js on :3000
+pnpm --filter @rzf/directory dev  # Next.js on :3002
 ```
 
 ---
@@ -102,11 +104,12 @@ Vercel auto-deploys on every push to `main`.
 
 ---
 
-## Upstash Redis Setup
+## Render Key Value Setup
 
-1. Create account at [upstash.com](https://upstash.com)
-2. Create a Redis database (free tier: 10k req/day)
-3. Copy **REST URL** and **REST Token** to env vars
+1. In Render, click **New +** → **Key Value**
+2. Create instance in the same region as API/Worker
+3. Copy the **Internal URL** (`redis://...`)
+4. Set `REDIS_URL` in both `rzf-api` and `rzf-worker`
 
 ---
 
@@ -117,33 +120,42 @@ All vars are documented in `.env.example`. Below is the minimum required for eac
 ### `apps/api` (Render)
 ```
 DATABASE_URL          # Render Postgres internal URL
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
+REDIS_URL             # Render Key Value internal URL
 CLERK_SECRET_KEY
 CLERK_WEBHOOK_SECRET
+OPENAI_API_KEY
 ANTHROPIC_API_KEY
 ADMIN_SECRET
 API_BASE_URL          # https://rzf-api.onrender.com
+CORS_ORIGIN           # comma-separated frontend URLs
 NODE_ENV=production
 ```
 
 ### `apps/worker` (Render)
 ```
 DATABASE_URL
-UPSTASH_REDIS_REST_URL
-UPSTASH_REDIS_REST_TOKEN
+REDIS_URL
+OPENAI_API_KEY
 ANTHROPIC_API_KEY
 WORKER_CONCURRENCY=5
 NODE_ENV=production
 ```
 
-### `apps/web` (Vercel)
+### `apps/rostermind` (Vercel)
 ```
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+CLERK_SECRET_KEY
+NEXT_PUBLIC_API_BASE_URL   # https://rzf-api.onrender.com
+API_BASE_URL               # https://rzf-api.onrender.com
 NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
 NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/dashboard
 NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/onboarding
+```
+
+### `apps/directory` (Vercel)
+```
+DATABASE_URL
 ```
 
 ---

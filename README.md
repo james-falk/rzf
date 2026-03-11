@@ -8,7 +8,8 @@
 fantasy-workspace/
 ├── apps/
 │   ├── api/        — Fastify REST API (Render Web Service)
-│   ├── web/        — Next.js 15 frontend (Vercel)
+│   ├── rostermind/ — Next.js 15 frontend app (Vercel)
+│   ├── directory/  — Next.js 15 data directory app (Vercel)
 │   └── worker/     — BullMQ job consumer (Render Background Worker)
 ├── packages/
 │   ├── agents/     — Agent logic with strict I/O schemas
@@ -50,7 +51,8 @@ pnpm dev
 ```bash
 pnpm --filter @rzf/api dev       # API on :3001
 pnpm --filter @rzf/worker dev    # Worker
-pnpm --filter @rzf/web dev       # Web on :3000
+pnpm --filter @rzf/rostermind dev # RosterMind on :3000
+pnpm --filter @rzf/directory dev  # Directory on :3002
 ```
 
 ## Documentation
@@ -67,8 +69,8 @@ pnpm --filter @rzf/web dev       # Web on :3000
 
 - **Frontend**: Next.js 15 + Tailwind CSS + shadcn/ui
 - **API**: Fastify
-- **Queue**: BullMQ on Redis (Upstash in prod)
+- **Queue**: BullMQ on Redis (Render Key Value in prod)
 - **DB**: Postgres via Prisma (Render managed in prod)
 - **Auth**: Clerk
 - **LLM**: Anthropic Claude (Haiku primary)
-- **Deployment**: Render (API + Worker) + Vercel (Web)
+- **Deployment**: Render (API + Worker + Redis) + Vercel (RosterMind + Directory)

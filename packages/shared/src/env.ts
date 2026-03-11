@@ -18,11 +18,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url('DATABASE_URL must be a valid PostgreSQL connection string'),
 
   // ── Redis ─────────────────────────────────────────────────────────────────
-  // Local dev: standard redis:// URL
-  // Production: Upstash REST (preferred for serverless/edge compatibility)
+  // Render Key Value / Redis connection string
+  // Use redis:// (internal) or rediss:// (TLS)
   REDIS_URL: z.string().optional(),
-  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
-  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
 
   // ── Auth (Clerk) ──────────────────────────────────────────────────────────
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: z.string().optional(),

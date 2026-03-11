@@ -19,10 +19,8 @@ services:
         fromDatabase:
           name: rzf-db
           property: connectionString
-      - key: UPSTASH_REDIS_REST_URL
-        sync: false  # Set manually in Render dashboard
-      - key: UPSTASH_REDIS_REST_TOKEN
-        sync: false
+      - key: REDIS_URL
+        sync: false  # Set manually from Render Key Value internal URL
       - key: CLERK_SECRET_KEY
         sync: false
       - key: CLERK_WEBHOOK_SECRET
@@ -55,10 +53,8 @@ services:
         fromDatabase:
           name: rzf-db
           property: connectionString
-      - key: UPSTASH_REDIS_REST_URL
-        sync: false
-      - key: UPSTASH_REDIS_REST_TOKEN
-        sync: false
+      - key: REDIS_URL
+        sync: false  # Set manually from Render Key Value internal URL
       - key: OPENAI_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY

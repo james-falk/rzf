@@ -1,7 +1,7 @@
 version: '3.9'
 
 # Local development only — mirrors production services.
-# Production: Render Postgres + Upstash Redis (managed).
+# Production: Render Postgres + Render Key Value (managed).
 # Run: docker compose up -d
 
 services:

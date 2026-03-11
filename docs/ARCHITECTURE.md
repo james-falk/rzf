@@ -9,7 +9,7 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                      End Users                          │
-│          apps/web (Next.js 15 — Vercel)                 │
+│   apps/rostermind + apps/directory (Next.js — Vercel)  │
 │   /dashboard  /account  /onboarding  /internal          │
 └─────────────────────┬───────────────────────────────────┘
                       │ HTTPS
@@ -21,7 +21,7 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
        │ Prisma                     │ BullMQ enqueue
        │                            │
 ┌──────▼──────────┐    ┌────────────▼────────────────────┐
-│  Render Postgres │    │  Upstash Redis (free tier)      │
+│  Render Postgres │    │  Render Key Value (Redis)       │
 │  (Primary store) │    │  BullMQ queue backing store     │
 └──────▲──────────┘    └────────────┬────────────────────┘
        │ Prisma                     │ BullMQ consume
@@ -62,11 +62,15 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 
 ## Service Responsibilities
 
-### `apps/web` (Vercel)
+### `apps/rostermind` (Vercel)
 - User-facing Next.js 15 App Router application
 - Clerk auth integration (sign-up, sign-in, account management)
 - Pages: onboarding, dashboard, team eval, account, preferences, internal admin
 - Server Components for data display; Client Components for interactivity
+
+### `apps/directory` (Vercel)
+- Public Next.js 15 data directory for player search/detail/source browsing
+- Server-rendered pages and route handlers reading from shared Prisma DB
 
 ### `apps/api` (Render Web Service)
 - Fastify REST API — all business logic entry point
@@ -143,12 +147,13 @@ Scheduled weekly (Tuesday):
 
 | Service | Platform | Plan | Cost |
 |---------|----------|------|------|
-| `apps/web` | Vercel | Free | $0 |
+| `apps/rostermind` | Vercel | Free | $0 |
+| `apps/directory` | Vercel | Free | $0 |
 | `apps/api` | Render Web Service | Starter | $7/mo |
 | `apps/worker` | Render Background Worker | Starter | $7/mo |
 | Postgres | Render Managed Postgres | Starter | $7/mo |
-| Redis | Upstash | Free tier | $0 |
-| **Total** | | | **$21/mo** |
+| Redis | Render Key Value | Starter | $10/mo |
+| **Total** | | | **$31/mo** |
 
 ## Security Notes
 

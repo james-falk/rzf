@@ -17,7 +17,7 @@ export function getAgentQueue(): Queue<AgentJobData> {
       defaultJobOptions: {
         attempts: 3,
         backoff: { type: 'exponential', delay: 5000 },
-        // Keep only the last 500 completed jobs in Redis to minimize Upstash command usage.
+        // Keep only the last 500 completed jobs in Redis to control storage growth.
         // Failed jobs are kept for debugging (capped at 20).
         removeOnComplete: { count: 500 },
         removeOnFail: { count: 20 },
