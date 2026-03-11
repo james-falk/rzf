@@ -429,7 +429,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     ])
 
     // Build daily buckets
-    const dailyMap = new Map<string, Record<string, number> & { date: string }>()
+    const dailyMap = new Map<string, { date: string; [contentType: string]: number | string }>()
     for (let i = 0; i < 30; i++) {
       const d = new Date(thirtyDaysAgo)
       d.setDate(d.getDate() + i)
@@ -440,7 +440,8 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
       const key = item.fetchedAt.toISOString().slice(0, 10)
       const bucket = dailyMap.get(key)
       if (bucket) {
-        bucket[item.contentType] = (bucket[item.contentType] ?? 0) + 1
+        const current = bucket[item.contentType]
+        bucket[item.contentType] = (typeof current === 'number' ? current : 0) + 1
       }
     }
 
