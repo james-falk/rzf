@@ -7,7 +7,10 @@
     ".": "./dist/index.js",
     "./sleeper": "./dist/sleeper/index.js",
     "./llm": "./dist/llm/index.js",
-    "./rss": "./dist/rss/index.js"
+    "./rss": "./dist/rss/index.js",
+    "./youtube": "./dist/youtube/index.js",
+    "./fantasycalc": "./dist/fantasycalc/index.js",
+    "./ffc": "./dist/ffc/index.js"
   },
   "scripts": {
     "build": "tsc --build",

@@ -6,6 +6,18 @@ All meaningful changes are logged here. Most recent first.
 
 ## 2026-03-11
 
+### New data sources, four new agents, and Source Manager UI
+
+- **YouTube ingestion**: New `YouTubeConnector` polls upload playlists every 2 hours using quota-efficient `playlistItems.list` (1 unit/call vs `search.list`'s 100 units). Seeded 25 top fantasy football channels. Stores as `ContentItem` with `platform: youtube`.
+- **Sleeper trade transactions**: Added `getTransactions()` to `SleeperConnector`. New `TRADE_REFRESH` job pulls completed trades for all stored leagues daily, stored in new `TradeTransaction` model.
+- **FantasyCalc trade values**: New `FantasyCalcConnector` fetches dynasty 1QB/SF and redraft values from the free public API. Stored in new `PlayerTradeValue` model. Weekly refresh.
+- **Fantasy Football Calculator ADP**: New `FFCConnector` pulls PPR/half-PPR/standard ADP into `PlayerRanking` with `source: ffc_adp_*`. Weekly refresh.
+- **Four new agents**: Waiver Wire, Trade Analyzer (uses `sonnet` for richer analysis), Lineup Optimizer, and Player Scout — all with strict Zod input/output contracts. Registered in `agents.ts` and `agent.worker.ts`.
+- **Admin sidebar restructure**: Two labeled sections — SOURCES (Overview, Analytics, Source Manager) and AGENTS (Agent Runs, Queue). Added Data Sources reference page.
+- **Source Manager UI** (`/sources/manager`): Full CRUD for `ContentSource` rows — add, edit, delete, active toggle, manual refresh trigger. Platform selector with "Coming Soon" states for unimplemented connectors. Inline delete confirm, toast feedback, 60s auto-refresh.
+- **Internal source CRUD API**: Four new endpoints — `POST /internal/sources`, `PUT /internal/sources/:id`, `DELETE /internal/sources/:id`, `POST /internal/sources/:id/refresh`.
+- **Schema**: Added `TradeTransaction` and `PlayerTradeValue` models; `Player.tradeValues` relation.
+
 ### Admin dashboard app (`apps/admin`)
 
 - New standalone Next.js app deployed to its own Vercel project — no Clerk dependency, auth via `ADMIN_SECRET`

@@ -43,7 +43,35 @@ export async function scheduleIngestionJobs(): Promise<void> {
     { name: 'credits-refill', data: { type: IngestionJobTypes.CREDITS_REFILL } },
   )
 
+  // Every 2 hours — YouTube video refresh (quota-efficient: ~50 units per run)
+  await queue.upsertJobScheduler(
+    'youtube-refresh-2h',
+    { pattern: '0 */2 * * *' },
+    { name: 'youtube-refresh', data: { type: IngestionJobTypes.YOUTUBE_REFRESH } },
+  )
+
+  // Daily at 1pm UTC (8am ET) — trade transactions refresh for all known leagues
+  await queue.upsertJobScheduler(
+    'trade-refresh-daily',
+    { pattern: '0 13 * * *' },
+    { name: 'trade-refresh', data: { type: IngestionJobTypes.TRADE_REFRESH } },
+  )
+
+  // Weekly on Tuesday at 3pm UTC (10am ET) — trade values from FantasyCalc
+  await queue.upsertJobScheduler(
+    'trade-values-refresh-weekly',
+    { pattern: '0 15 * * 2' },
+    { name: 'trade-values-refresh', data: { type: IngestionJobTypes.TRADE_VALUES_REFRESH } },
+  )
+
+  // Weekly on Tuesday at 3:30pm UTC — ADP from Fantasy Football Calculator
+  await queue.upsertJobScheduler(
+    'adp-refresh-weekly',
+    { pattern: '30 15 * * 2' },
+    { name: 'adp-refresh', data: { type: IngestionJobTypes.ADP_REFRESH } },
+  )
+
   console.log(
-    '[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly',
+    '[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly',
   )
 }

@@ -301,6 +301,7 @@ model Player {
   trending        TrendingPlayer[]
   aliases         PlayerAlias[]
   contentMentions ContentPlayerMention[]
+  tradeValues     PlayerTradeValue[]
 
   @@index([position])
   @@index([team])
@@ -524,6 +525,69 @@ model ContentItem {
   @@index([publishedAt])
   @@index([parentId])
   @@map("content_items")
+}
+
+/// Trade transactions ingested from Sleeper league transactions API.
+/// Populated via TRADE_REFRESH ingestion job — one record per unique trade.
+model TradeTransaction {
+  id            String @id @default(cuid())
+  leagueId      String
+  transactionId String @unique
+
+  /// NFL week the trade occurred
+  week   Int
+  season String
+
+  /// Map of { playerId: rosterId } — players/picks received per team
+  adds Json
+  /// Map of { playerId: rosterId } — players/picks given up per team
+  drops Json
+
+  /// Draft picks traded: [{ season, round, roster_id, previous_owner_id, owner_id }]
+  draftPicks Json @default("[]")
+
+  /// FAAB dollars transferred: [{ sender, receiver, amount }]
+  waiverBudget Json @default("[]")
+
+  /// Roster IDs of teams involved
+  rosterIds Int[]
+
+  /// Unix ms timestamp from Sleeper
+  createdAt DateTime
+
+  fetchedAt DateTime @default(now())
+
+  @@index([leagueId, week, season])
+  @@index([createdAt])
+  @@map("trade_transactions")
+}
+
+/// Dynasty and redraft trade values sourced from FantasyCalc (free public API).
+/// Updated weekly on Tuesdays alongside rankings.
+model PlayerTradeValue {
+  id String @id @default(cuid())
+
+  sleeperId String
+  player    Player @relation(fields: [sleeperId], references: [sleeperId], onDelete: Cascade)
+
+  /// "fantasycalc" — extensible to other sources
+  source String @default("fantasycalc")
+
+  /// Dynasty 1QB value (0-9999 scale, FantasyCalc scoring)
+  dynasty1qb Int?
+  /// Dynasty Superflex / 2QB value
+  dynastySf Int?
+  /// Redraft value (0-9999 scale)
+  redraft Int?
+  /// 30-day value change (positive = rising, negative = falling)
+  trend30d Int?
+
+  fetchedAt DateTime @default(now())
+
+  @@unique([sleeperId, source])
+  @@index([dynasty1qb])
+  @@index([redraft])
+  @@map("player_trade_values")
 }
 
 /// Join table: which players are mentioned in which content, with context.

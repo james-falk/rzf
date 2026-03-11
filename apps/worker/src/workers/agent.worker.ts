@@ -1,6 +1,13 @@
 import { Worker } from 'bullmq'
 import { db, track } from '@rzf/db'
-import { runInjuryWatchAgent, runTeamEvalAgent } from '@rzf/agents'
+import {
+  runInjuryWatchAgent,
+  runTeamEvalAgent,
+  runWaiverAgent,
+  runTradeAnalysisAgent,
+  runLineupAgent,
+  runPlayerScoutAgent,
+} from '@rzf/agents'
 import { env } from '@rzf/shared/env'
 import { AgentJobTypes } from '@rzf/shared/types'
 import type { AgentJobData } from '@rzf/shared/types'
@@ -33,6 +40,18 @@ export function createAgentWorker(): Worker<AgentJobData> {
             break
           case AgentJobTypes.INJURY_WATCH:
             output = await runInjuryWatchAgent(input)
+            break
+          case AgentJobTypes.WAIVER:
+            output = await runWaiverAgent(input as Parameters<typeof runWaiverAgent>[0])
+            break
+          case AgentJobTypes.LINEUP:
+            output = await runLineupAgent(input as Parameters<typeof runLineupAgent>[0])
+            break
+          case AgentJobTypes.TRADE_ANALYSIS:
+            output = await runTradeAnalysisAgent(input as Parameters<typeof runTradeAnalysisAgent>[0])
+            break
+          case AgentJobTypes.PLAYER_SCOUT:
+            output = await runPlayerScoutAgent(input as Parameters<typeof runPlayerScoutAgent>[0])
             break
           default:
             throw new Error(`Unknown agent type: ${agentType}`)

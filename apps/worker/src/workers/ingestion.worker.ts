@@ -2,6 +2,9 @@ import { Worker } from 'bullmq'
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { RSSConnector } from '@rzf/connectors/rss'
+import { YouTubeConnector } from '@rzf/connectors/youtube'
+import { FantasyCalcConnector } from '@rzf/connectors/fantasycalc'
+import { FFCConnector } from '@rzf/connectors/ffc'
 import { IngestionJobTypes, generateAliases } from '@rzf/shared'
 import type { IngestionJobType } from '@rzf/shared/types'
 import { getRedisConnection } from '../redis.js'
@@ -29,6 +32,18 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
           break
         case IngestionJobTypes.CREDITS_REFILL:
           await runCreditsRefill()
+          break
+        case IngestionJobTypes.YOUTUBE_REFRESH:
+          await runYouTubeRefresh()
+          break
+        case IngestionJobTypes.TRADE_REFRESH:
+          await runTradeRefresh()
+          break
+        case IngestionJobTypes.TRADE_VALUES_REFRESH:
+          await runTradeValuesRefresh()
+          break
+        case IngestionJobTypes.ADP_REFRESH:
+          await runADPRefresh()
           break
         default:
           throw new Error(`Unknown ingestion job type: ${type}`)
@@ -257,4 +272,113 @@ async function runCreditsRefill(): Promise<void> {
   })
 
   console.log(`[ingestion] Credits refill complete: reset ${result.count} paid users to 50 credits`)
+}
+
+// ─── YouTubeRefreshJob ────────────────────────────────────────────────────────
+// Every 2 hours: fetch latest videos from all active YouTube channels
+async function runYouTubeRefresh(): Promise<void> {
+  const result = await YouTubeConnector.run()
+  if (result.errors.length > 0) {
+    console.warn(
+      `[ingestion] YouTube refresh completed with ${result.errors.length} error(s):`,
+      result.errors,
+    )
+  }
+  console.log(
+    `[ingestion] YouTube refresh: ${result.inserted} new videos from ${result.sources} channels`,
+  )
+}
+
+// ─── TradeRefreshJob ──────────────────────────────────────────────────────────
+// Daily: fetch trade transactions for all leagues from all linked Sleeper profiles
+async function runTradeRefresh(): Promise<void> {
+  const nflState = await SleeperConnector.getNFLState()
+  const season = nflState.season
+  const currentWeek = nflState.week
+
+  // Fetch transactions for current week and prior week to catch recent activity
+  const weeksToFetch = currentWeek > 1 ? [currentWeek, currentWeek - 1] : [currentWeek]
+
+  // Get all unique league IDs across all stored SleeperProfiles
+  const profiles = await db.sleeperProfile.findMany({
+    select: { leagues: true },
+  })
+
+  const leagueIds = new Set<string>()
+  for (const profile of profiles) {
+    const leagues = profile.leagues as Array<{ league_id: string }>
+    if (Array.isArray(leagues)) {
+      for (const league of leagues) {
+        if (league.league_id) leagueIds.add(league.league_id)
+      }
+    }
+  }
+
+  if (leagueIds.size === 0) {
+    console.log('[ingestion] No leagues found — skipping trade refresh')
+    return
+  }
+
+  console.log(`[ingestion] Trade refresh: ${leagueIds.size} leagues, weeks ${weeksToFetch.join(',')}`)
+
+  let totalUpserted = 0
+  let errors = 0
+
+  for (const leagueId of leagueIds) {
+    for (const week of weeksToFetch) {
+      try {
+        const transactions = await SleeperConnector.getTransactions(leagueId, week)
+        const trades = transactions.filter((t) => t.type === 'trade' && t.status === 'complete')
+
+        for (const trade of trades) {
+          await db.tradeTransaction.upsert({
+            where: { transactionId: trade.transaction_id },
+            create: {
+              leagueId,
+              transactionId: trade.transaction_id,
+              week,
+              season,
+              adds: trade.adds ?? {},
+              drops: trade.drops ?? {},
+              draftPicks: trade.draft_picks,
+              waiverBudget: trade.waiver_budget,
+              rosterIds: trade.roster_ids,
+              createdAt: new Date(trade.created),
+            },
+            update: {},
+          })
+          totalUpserted++
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.warn(`[ingestion] Trade refresh error — league ${leagueId} week ${week}: ${msg}`)
+        errors++
+      }
+    }
+  }
+
+  console.log(`[ingestion] Trade refresh complete: ${totalUpserted} trades upserted, ${errors} errors`)
+}
+
+// ─── TradeValuesRefreshJob ────────────────────────────────────────────────────
+// Weekly: fetch dynasty + redraft trade values from FantasyCalc
+async function runTradeValuesRefresh(): Promise<void> {
+  const result = await FantasyCalcConnector.run()
+  if (result.errors.length > 0) {
+    console.warn(
+      `[ingestion] Trade values refresh had ${result.errors.length} error(s)`,
+    )
+  }
+  console.log(
+    `[ingestion] Trade values refresh: ${result.upserted} upserted, ${result.matched} matched, ${result.unmatched} unmatched`,
+  )
+}
+
+// ─── ADPRefreshJob ────────────────────────────────────────────────────────────
+// Weekly: fetch ADP data from Fantasy Football Calculator
+async function runADPRefresh(): Promise<void> {
+  const result = await FFCConnector.run()
+  console.log(
+    `[ingestion] ADP refresh: ${result.upserted} rankings upserted (week ${result.week} / ${result.year})`,
+  )
 }

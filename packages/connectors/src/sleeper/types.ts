@@ -89,3 +89,37 @@ export const SleeperNFLStateSchema = z.object({
 })
 
 export type SleeperNFLState = z.infer<typeof SleeperNFLStateSchema>
+
+// ─── Sleeper Transactions ─────────────────────────────────────────────────────
+
+const SleeperDraftPickSchema = z.object({
+  season: z.string(),
+  round: z.number(),
+  roster_id: z.number(),
+  previous_owner_id: z.number(),
+  owner_id: z.number(),
+})
+
+const SleeperWaiverBudgetSchema = z.object({
+  sender: z.number(),
+  receiver: z.number(),
+  amount: z.number(),
+})
+
+export const SleeperTransactionSchema = z.object({
+  transaction_id: z.string(),
+  type: z.string(),
+  status: z.string(),
+  leg: z.number(),
+  created: z.number(),
+  status_updated: z.number().optional(),
+  roster_ids: z.array(z.number()),
+  adds: z.record(z.string(), z.number()).nullable(),
+  drops: z.record(z.string(), z.number()).nullable(),
+  draft_picks: z.array(SleeperDraftPickSchema).nullable().default([]),
+  waiver_budget: z.array(SleeperWaiverBudgetSchema).nullable().default([]),
+  consenter_ids: z.array(z.number()).nullable().optional(),
+  creator: z.string().nullable().optional(),
+})
+
+export type SleeperTransaction = z.infer<typeof SleeperTransactionSchema>

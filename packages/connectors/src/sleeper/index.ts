@@ -6,4 +6,5 @@ export type {
   SleeperPlayer,
   SleeperTrendingPlayer,
   SleeperNFLState,
+  SleeperTransaction,
 } from './types.js'

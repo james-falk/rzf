@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 
-type BadgeVariant = 'healthy' | 'stale' | 'inactive' | 'done' | 'failed' | 'running' | 'queued' | 'free' | 'paid' | 'default'
+type BadgeVariant = 'healthy' | 'stale' | 'inactive' | 'done' | 'failed' | 'running' | 'queued' | 'free' | 'paid' | 'default' | 'success' | 'warning'
 
 const badgeStyles: Record<BadgeVariant, string> = {
   healthy: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
@@ -13,6 +13,8 @@ const badgeStyles: Record<BadgeVariant, string> = {
   free: 'bg-zinc-700/50 text-zinc-400 border-zinc-600/20',
   paid: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
   default: 'bg-zinc-700/50 text-zinc-300 border-zinc-600/20',
+  success: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+  warning: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
 }
 
 interface BadgeProps {

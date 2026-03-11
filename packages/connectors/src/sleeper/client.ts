@@ -5,12 +5,14 @@ import {
   SleeperPlayerSchema,
   SleeperTrendingPlayerSchema,
   SleeperNFLStateSchema,
+  SleeperTransactionSchema,
   type SleeperUser,
   type SleeperLeague,
   type SleeperRoster,
   type SleeperPlayer,
   type SleeperTrendingPlayer,
   type SleeperNFLState,
+  type SleeperTransaction,
 } from './types.js'
 import { z } from 'zod'
 
@@ -98,5 +100,23 @@ export const SleeperConnector = {
   async getUserRoster(leagueId: string, ownerId: string): Promise<SleeperRoster | null> {
     const rosters = await SleeperConnector.getRosters(leagueId)
     return rosters.find((r) => r.owner_id === ownerId) ?? null
+  },
+
+  /**
+   * Get all transactions for a league in a given week.
+   * Returns all types (trade, free_agent, waiver) — filter client-side if needed.
+   * Week is the NFL week number (1–18).
+   */
+  async getTransactions(leagueId: string, week: number) {
+    const results = await sleeperFetch(
+      `/league/${leagueId}/transactions/${week}`,
+      z.array(SleeperTransactionSchema),
+    )
+    // Normalize nullable array fields
+    return results.map((t) => ({
+      ...t,
+      draft_picks: t.draft_picks ?? [],
+      waiver_budget: t.waiver_budget ?? [],
+    })) as SleeperTransaction[]
   },
 }

@@ -5,7 +5,12 @@
   "type": "module",
   "exports": {
     ".": "./dist/index.js",
-    "./team-eval": "./dist/team-eval/index.js"
+    "./team-eval": "./dist/team-eval/index.js",
+    "./injury-watch": "./dist/injury-watch/index.js",
+    "./waiver": "./dist/waiver/index.js",
+    "./trade-analysis": "./dist/trade-analysis/index.js",
+    "./lineup": "./dist/lineup/index.js",
+    "./player-scout": "./dist/player-scout/index.js"
   },
   "scripts": {
     "build": "tsc --build",

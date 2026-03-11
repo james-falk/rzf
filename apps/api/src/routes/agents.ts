@@ -2,7 +2,15 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db, track } from '@rzf/db'
 import { getAgentQueue } from '../lib/queue.js'
-import { AgentJobTypes, InjuryWatchInputSchema, TeamEvalInputSchema } from '@rzf/shared/types'
+import {
+  AgentJobTypes,
+  InjuryWatchInputSchema,
+  TeamEvalInputSchema,
+  WaiverInputSchema,
+  TradeAnalysisInputSchema,
+  LineupInputSchema,
+  PlayerScoutInputSchema,
+} from '@rzf/shared/types'
 import { requireAuth } from '../middleware/auth.js'
 
 export async function agentsRoutes(app: FastifyInstance): Promise<void> {
@@ -35,7 +43,14 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
 
     // ── Parse + validate agent-specific input ─────────────────────────────
     const bodySchema = z.object({
-      agentType: z.enum([AgentJobTypes.TEAM_EVAL, AgentJobTypes.INJURY_WATCH]),
+      agentType: z.enum([
+        AgentJobTypes.TEAM_EVAL,
+        AgentJobTypes.INJURY_WATCH,
+        AgentJobTypes.WAIVER,
+        AgentJobTypes.LINEUP,
+        AgentJobTypes.TRADE_ANALYSIS,
+        AgentJobTypes.PLAYER_SCOUT,
+      ]),
       input: z.unknown(),
     })
 
@@ -45,29 +60,24 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { agentType, input } = body.data
+    const inputWithUser = { ...(input as object), userId: user.userId }
 
     // Validate agent-specific input
-    let validatedInput: z.infer<typeof TeamEvalInputSchema> | z.infer<typeof InjuryWatchInputSchema>
-    switch (agentType) {
-      case AgentJobTypes.TEAM_EVAL: {
-        const result = TeamEvalInputSchema.safeParse({ ...input as object, userId: user.userId })
-        if (!result.success) {
-          return reply.status(400).send({ error: 'Invalid team eval input', details: result.error.flatten() })
-        }
-        validatedInput = result.data
-        break
-      }
-      case AgentJobTypes.INJURY_WATCH: {
-        const result = InjuryWatchInputSchema.safeParse({ ...input as object, userId: user.userId })
-        if (!result.success) {
-          return reply.status(400).send({ error: 'Invalid injury watch input', details: result.error.flatten() })
-        }
-        validatedInput = result.data
-        break
-      }
-      default:
-        return reply.status(400).send({ error: 'Unknown agent type' })
+    const schemaMap = {
+      [AgentJobTypes.TEAM_EVAL]: TeamEvalInputSchema,
+      [AgentJobTypes.INJURY_WATCH]: InjuryWatchInputSchema,
+      [AgentJobTypes.WAIVER]: WaiverInputSchema,
+      [AgentJobTypes.LINEUP]: LineupInputSchema,
+      [AgentJobTypes.TRADE_ANALYSIS]: TradeAnalysisInputSchema,
+      [AgentJobTypes.PLAYER_SCOUT]: PlayerScoutInputSchema,
+    } as const
+
+    const schema = schemaMap[agentType]
+    const result = schema.safeParse(inputWithUser)
+    if (!result.success) {
+      return reply.status(400).send({ error: `Invalid ${agentType} input`, details: result.error.flatten() })
     }
+    const validatedInput = result.data
 
     // ── Duplicate prevention: block double-clicks within 5 minutes ───────
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)

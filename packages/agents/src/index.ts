@@ -1,2 +1,6 @@
 export * from './team-eval/index.js'
 export * from './injury-watch/index.js'
+export * from './waiver/index.js'
+export * from './trade-analysis/index.js'
+export * from './lineup/index.js'
+export * from './player-scout/index.js'

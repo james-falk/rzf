@@ -117,6 +117,34 @@ export interface QueueStats {
   ingestion: { waiting: number; active: number; completed: number; failed: number; delayed: number; error?: string }
 }
 
+export type ContentPlatform = 'rss' | 'youtube' | 'twitter' | 'podcast' | 'reddit' | 'api' | 'manual'
+
+export interface SourceCreateInput {
+  name: string
+  platform: ContentPlatform
+  feedUrl: string
+  refreshIntervalMins?: number
+  isActive?: boolean
+  avatarUrl?: string
+  platformConfig?: Record<string, unknown>
+}
+
+export interface SourceUpdateInput {
+  name?: string
+  feedUrl?: string
+  refreshIntervalMins?: number
+  isActive?: boolean
+  avatarUrl?: string | null
+  platformConfig?: Record<string, unknown>
+}
+
+export interface RefreshJobResult {
+  success: boolean
+  jobId: string
+  sourceId: string
+  sourceName: string
+}
+
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 export const api = {
@@ -144,6 +172,28 @@ export const api = {
     adminFetch<{ jobId: string; type: string; status: string }>('/internal/ingestion/trigger', {
       method: 'POST',
       body: JSON.stringify({ type }),
+    }),
+
+  createSource: (data: SourceCreateInput) =>
+    adminFetch<SourceSummary>('/internal/sources', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateSource: (id: string, data: SourceUpdateInput) =>
+    adminFetch<SourceSummary>(`/internal/sources/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteSource: (id: string) =>
+    adminFetch<{ success: boolean; deleted: string }>(`/internal/sources/${id}`, {
+      method: 'DELETE',
+    }),
+
+  refreshSource: (id: string) =>
+    adminFetch<RefreshJobResult>(`/internal/sources/${id}/refresh`, {
+      method: 'POST',
     }),
 
   pingHealth: () =>

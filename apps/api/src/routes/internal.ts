@@ -498,6 +498,111 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     })
   })
 
+  // POST /internal/sources — create a new content source
+  app.post('/internal/sources', { preHandler: adminGuard }, async (req, reply) => {
+    const body = z.object({
+      name: z.string().min(1).max(200),
+      platform: z.enum(['rss', 'youtube', 'twitter', 'podcast', 'reddit', 'api', 'manual']),
+      feedUrl: z.string().min(1),
+      refreshIntervalMins: z.number().int().min(5).max(1440).default(60),
+      isActive: z.boolean().default(true),
+      avatarUrl: z.string().url().optional(),
+      platformConfig: z.record(z.string(), z.unknown()).default({}),
+    }).safeParse(req.body)
+
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid input', details: body.error.flatten() })
+    }
+
+    const existing = await db.contentSource.findFirst({
+      where: { platform: body.data.platform, feedUrl: body.data.feedUrl },
+    })
+    if (existing) {
+      return reply.status(409).send({ error: 'Source with this platform + feedUrl already exists', id: existing.id })
+    }
+
+    const source = await db.contentSource.create({
+      data: {
+        name: body.data.name,
+        platform: body.data.platform,
+        feedUrl: body.data.feedUrl,
+        refreshIntervalMins: body.data.refreshIntervalMins,
+        isActive: body.data.isActive,
+        avatarUrl: body.data.avatarUrl ?? null,
+        platformConfig: body.data.platformConfig as Record<string, string>,
+      },
+    })
+
+    return reply.status(201).send(source)
+  })
+
+  // PUT /internal/sources/:id — update an existing source
+  app.put('/internal/sources/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+
+    const body = z.object({
+      name: z.string().min(1).max(200).optional(),
+      feedUrl: z.string().min(1).optional(),
+      refreshIntervalMins: z.number().int().min(5).max(1440).optional(),
+      isActive: z.boolean().optional(),
+      avatarUrl: z.string().url().nullable().optional(),
+      platformConfig: z.record(z.string(), z.unknown()).optional(),
+    }).safeParse(req.body)
+
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid input', details: body.error.flatten() })
+    }
+
+    const existing = await db.contentSource.findUnique({ where: { id } })
+    if (!existing) return reply.status(404).send({ error: 'Source not found' })
+
+    const updated = await db.contentSource.update({
+      where: { id },
+      data: {
+        ...(body.data.name !== undefined && { name: body.data.name }),
+        ...(body.data.feedUrl !== undefined && { feedUrl: body.data.feedUrl }),
+        ...(body.data.refreshIntervalMins !== undefined && { refreshIntervalMins: body.data.refreshIntervalMins }),
+        ...(body.data.isActive !== undefined && { isActive: body.data.isActive }),
+        ...(body.data.avatarUrl !== undefined && { avatarUrl: body.data.avatarUrl }),
+        ...(body.data.platformConfig !== undefined && {
+          platformConfig: { ...(existing.platformConfig as Record<string, unknown>), ...body.data.platformConfig } as Record<string, string>,
+        }),
+      },
+    })
+
+    return reply.send(updated)
+  })
+
+  // DELETE /internal/sources/:id — remove source and cascade items
+  app.delete('/internal/sources/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+
+    const existing = await db.contentSource.findUnique({ where: { id } })
+    if (!existing) return reply.status(404).send({ error: 'Source not found' })
+
+    // Cascade: delete content items first (playerMentions cascade from items)
+    await db.contentItem.deleteMany({ where: { sourceId: id } })
+    await db.contentSource.delete({ where: { id } })
+
+    return reply.send({ success: true, deleted: id })
+  })
+
+  // POST /internal/sources/:id/refresh — enqueue a targeted content refresh
+  app.post('/internal/sources/:id/refresh', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+
+    const source = await db.contentSource.findUnique({ where: { id } })
+    if (!source) return reply.status(404).send({ error: 'Source not found' })
+
+    const queue = getIngestionQueue()
+    const job = await queue.add(
+      'content-refresh-targeted',
+      { type: IngestionJobTypes.CONTENT_REFRESH },
+    )
+
+    return reply.send({ success: true, jobId: job.id, sourceId: id, sourceName: source.name })
+  })
+
   // GET /internal/queue — BullMQ queue stats
   app.get('/internal/queue', { preHandler: adminGuard }, async (_req, reply) => {
     try {
