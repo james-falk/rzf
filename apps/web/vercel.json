@@ -1,3 +1,0 @@
-{
-  "buildCommand": "pnpm --filter @rzf/db db:generate && pnpm --filter @rzf/shared build && pnpm --filter @rzf/web build"
-}

@@ -121,6 +121,11 @@ These run on a schedule in `apps/worker`. They populate the data tables that age
 
 | Job | Schedule | Source | Target table |
 |-----|----------|--------|--------------|
-| `PlayerRefreshJob` | Daily 6am ET | Sleeper `/players/nfl` | `Player` |
+| `PlayerRefreshJob` | Daily 6am ET | Sleeper `/players/nfl` | `Player`, `PlayerAlias` |
 | `TrendingRefreshJob` | Hourly | Sleeper trending | `TrendingPlayer` |
-| `RankingsRefreshJob` | Weekly (Tue) | FantasyPros CSV | `PlayerRanking` |
+| `RankingsRefreshJob` | Weekly (Tue) | Sleeper `searchRank` proxy (FantasyPros CSV planned) | `PlayerRanking` |
+| `ContentRefreshJob` | Every 30 min | Active RSS `ContentSource` rows | `ContentItem`, `ContentPlayerMention` |
+
+Manual trigger: `POST /internal/ingestion/trigger` with `{ "type": "player_refresh" | "trending_refresh" | "rankings_refresh" | "content_refresh" }` (requires admin secret or admin session).
+
+`PlayerRefreshJob` now also generates `PlayerAlias` records for every upserted player using `generateAliases()` from `@rzf/shared`. These are used during content ingestion to resolve name mentions to canonical Sleeper player IDs.

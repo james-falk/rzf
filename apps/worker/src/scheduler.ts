@@ -29,5 +29,12 @@ export async function scheduleIngestionJobs(): Promise<void> {
     { name: 'rankings-refresh', data: { type: IngestionJobTypes.RANKINGS_REFRESH } },
   )
 
-  console.log('[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly')
+  // Every 30 minutes — RSS content refresh (articles + player mentions)
+  await queue.upsertJobScheduler(
+    'content-refresh-30min',
+    { pattern: '*/30 * * * *' },
+    { name: 'content-refresh', data: { type: IngestionJobTypes.CONTENT_REFRESH } },
+  )
+
+  console.log('[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min')
 }

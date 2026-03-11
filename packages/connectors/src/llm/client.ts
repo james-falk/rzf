@@ -36,9 +36,10 @@ export interface LLMResult {
 type Provider = 'anthropic' | 'openai'
 
 function getProvider(): Provider {
-  if (env.ANTHROPIC_API_KEY) return 'anthropic'
+  // Prefer OpenAI — more cost-effective for our use case (gpt-4o-mini)
   if (env.OPENAI_API_KEY) return 'openai'
-  throw new Error('No LLM API key configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.')
+  if (env.ANTHROPIC_API_KEY) return 'anthropic'
+  throw new Error('No LLM API key configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.')
 }
 
 let _anthropic: Anthropic | null = null

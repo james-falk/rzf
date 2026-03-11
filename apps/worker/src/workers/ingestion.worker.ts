@@ -1,7 +1,8 @@
 import { Worker } from 'bullmq'
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
-import { IngestionJobTypes } from '@rzf/shared/types'
+import { RSSConnector } from '@rzf/connectors/rss'
+import { IngestionJobTypes, generateAliases } from '@rzf/shared'
 import type { IngestionJobType } from '@rzf/shared/types'
 import { getRedisConnection } from '../redis.js'
 import { QUEUE_NAMES } from '../queues.js'
@@ -23,6 +24,9 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
         case IngestionJobTypes.RANKINGS_REFRESH:
           await runRankingsRefresh()
           break
+        case IngestionJobTypes.CONTENT_REFRESH:
+          await runContentRefresh()
+          break
         default:
           throw new Error(`Unknown ingestion job type: ${type}`)
       }
@@ -38,13 +42,19 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
   return worker
 }
 
+// Fantasy-relevant offensive positions only — excludes all defensive/special teams
+// positions that add no value to the system and waste storage + alias resolution.
+const OFFENSIVE_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'FB'])
+
 // ─── PlayerRefreshJob ─────────────────────────────────────────────────────────
 // Daily: fetch all NFL players from Sleeper and upsert into Player table
 
 async function runPlayerRefresh(): Promise<void> {
   console.log('[ingestion] Fetching all players from Sleeper...')
   const players = await SleeperConnector.getAllPlayers()
-  const entries = Object.values(players)
+  const entries = Object.values(players).filter(
+    (p) => p.position && OFFENSIVE_POSITIONS.has(p.position),
+  )
 
   console.log(`[ingestion] Upserting ${entries.length} players...`)
 
@@ -55,13 +65,16 @@ async function runPlayerRefresh(): Promise<void> {
     const batch = entries.slice(i, i + BATCH_SIZE)
 
     await Promise.all(
-      batch.map((p) =>
-        db.player.upsert({
+      batch.map(async (p) => {
+        const firstName = p.first_name ?? ''
+        const lastName = p.last_name ?? ''
+
+        await db.player.upsert({
           where: { sleeperId: p.player_id },
-            create: {
+          create: {
             sleeperId: p.player_id,
-            firstName: p.first_name ?? '',
-            lastName: p.last_name ?? '',
+            firstName,
+            lastName,
             position: p.position ?? 'UNKNOWN',
             team: p.team ?? null,
             status: p.status ?? 'Unknown',
@@ -86,8 +99,28 @@ async function runPlayerRefresh(): Promise<void> {
             metadata: JSON.parse(JSON.stringify(p)),
             lastRefreshedAt: new Date(),
           },
-        }),
-      ),
+        })
+
+        // Generate and upsert name aliases for entity resolution
+        if (firstName && lastName) {
+          const aliases = generateAliases({
+            sleeperId: p.player_id,
+            firstName,
+            lastName,
+          })
+
+          if (aliases.length > 0) {
+            await db.playerAlias.createMany({
+              data: aliases.map((a) => ({
+                playerId: a.playerId,
+                alias: a.alias,
+                aliasType: a.aliasType,
+              })),
+              skipDuplicates: true,
+            })
+          }
+        }
+      }),
     )
     updated += batch.length
     console.log(`[ingestion] Player refresh progress: ${updated}/${entries.length}`)
@@ -146,6 +179,7 @@ async function runRankingsRefresh(): Promise<void> {
     where: {
       searchRank: { not: null },
       status: 'Active',
+      position: { in: [...OFFENSIVE_POSITIONS] },
     },
     orderBy: { searchRank: 'asc' },
   })
@@ -193,4 +227,20 @@ async function runRankingsRefresh(): Promise<void> {
   )
 
   console.log(`[ingestion] Rankings refresh: ${rankingData.length} players ranked for week ${week}`)
+}
+
+// ─── ContentRefreshJob ────────────────────────────────────────────────────────
+// Scheduled: fetch all active RSS sources from DB and ingest new articles
+
+async function runContentRefresh(): Promise<void> {
+  const result = await RSSConnector.run()
+  if (result.errors.length > 0) {
+    console.warn(
+      `[ingestion] Content refresh completed with ${result.errors.length} error(s):`,
+      result.errors,
+    )
+  }
+  console.log(
+    `[ingestion] Content refresh: ${result.inserted} new items from ${result.sources} sources`,
+  )
 }

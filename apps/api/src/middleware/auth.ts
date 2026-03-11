@@ -1,7 +1,9 @@
 import type { FastifyRequest, FastifyReply } from 'fastify'
-import { verifyToken } from '@clerk/backend'
+import { verifyToken, createClerkClient } from '@clerk/backend'
 import { db } from '@rzf/db'
 import { env } from '@rzf/shared/env'
+
+const clerkClient = createClerkClient({ secretKey: env.CLERK_SECRET_KEY })
 
 export interface AuthenticatedUser {
   clerkId: string
@@ -36,10 +38,18 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
       secretKey: env.CLERK_SECRET_KEY,
     })
 
-    const user = await db.user.findUnique({ where: { clerkId } })
+    let user = await db.user.findUnique({ where: { clerkId } })
     if (!user) {
-      await reply.status(401).send({ error: 'Unauthorized', message: 'User not found in DB' })
-      return
+      // Auto-provision: webhook may not have fired (local dev or missed delivery)
+      const clerkUser = await clerkClient.users.getUser(clerkId)
+      const email =
+        clerkUser.emailAddresses.find((e) => e.verification?.status === 'verified')?.emailAddress ??
+        clerkUser.emailAddresses[0]?.emailAddress ??
+        ''
+      user = await db.user.create({
+        data: { clerkId, email, tier: 'free', role: 'user', runCredits: 2 },
+      })
+      console.log(`[auth] Auto-provisioned user for Clerk ID: ${clerkId}`)
     }
 
     req.authUser = {
@@ -49,7 +59,8 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
       role: user.role,
       runCredits: user.runCredits,
     }
-  } catch {
+  } catch (err) {
+    console.error('[auth] Token verification failed:', err instanceof Error ? err.message : err)
     await reply.status(401).send({ error: 'Unauthorized', message: 'Invalid token' })
   }
 }

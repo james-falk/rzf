@@ -83,6 +83,7 @@ export const IngestionJobTypes = {
   PLAYER_REFRESH: 'player_refresh',
   TRENDING_REFRESH: 'trending_refresh',
   RANKINGS_REFRESH: 'rankings_refresh',
+  CONTENT_REFRESH: 'content_refresh',
 } as const
 
 export type IngestionJobType = (typeof IngestionJobTypes)[keyof typeof IngestionJobTypes]

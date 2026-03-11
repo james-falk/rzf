@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+:root {
+  /* RosterMind AI — Neural dark theme */
+  --background: 6 8 15;
+  --foreground: 236 240 255;
+  --card: 10 13 24;
+  --card-foreground: 236 240 255;
+  --border: 30 36 64;
+  --input: 14 18 32;
+
+  /* Electric blue primary */
+  --primary: 99 179 237;
+  --primary-foreground: 6 8 15;
+
+  /* Purple accent */
+  --accent-purple: 139 92 246;
+  --accent-cyan: 34 211 238;
+
+  --secondary: 14 18 32;
+  --secondary-foreground: 180 190 220;
+  --muted: 14 18 32;
+  --muted-foreground: 100 116 160;
+  --accent: 20 26 48;
+  --accent-foreground: 236 240 255;
+  --destructive: 239 68 68;
+  --ring: 99 179 237;
+  --radius: 0.5rem;
+
+  /* Neural glow colors */
+  --neural-blue: 59 130 246;
+  --neural-purple: 139 92 246;
+  --neural-cyan: 34 211 238;
+  --neural-glow: 99 102 241;
+}
+
+* {
+  border-color: rgb(var(--border));
+}
+
+body {
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Neural glow utilities ─────────────────────────────────── */
+.neural-glow-blue {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3), 0 0 60px rgba(59, 130, 246, 0.1);
+}
+.neural-glow-purple {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.3), 0 0 60px rgba(139, 92, 246, 0.1);
+}
+.text-glow-blue {
+  text-shadow: 0 0 20px rgba(99, 179, 237, 0.6), 0 0 40px rgba(99, 179, 237, 0.3);
+}
+.text-glow-purple {
+  text-shadow: 0 0 20px rgba(139, 92, 246, 0.6), 0 0 40px rgba(139, 92, 246, 0.3);
+}
+
+/* ── Neural node pulse ──────────────────────────────────────── */
+@keyframes neural-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.4); }
+}
+@keyframes neural-pulse-delayed {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.2); }
+}
+.animate-neural-pulse { animation: neural-pulse 2.5s ease-in-out infinite; }
+.animate-neural-pulse-delayed { animation: neural-pulse-delayed 3.5s ease-in-out infinite 0.8s; }
+
+/* ── Signal travel along edge ───────────────────────────────── */
+@keyframes signal-travel {
+  0% { stroke-dashoffset: 200; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+.animate-signal { animation: signal-travel 2s ease-in-out infinite; }
+
+/* ── Background orb drift ───────────────────────────────────── */
+@keyframes orb-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -20px) scale(1.05); }
+  66% { transform: translate(-20px, 15px) scale(0.97); }
+}
+@keyframes orb-drift-reverse {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-25px, 20px) scale(1.03); }
+  66% { transform: translate(20px, -15px) scale(0.98); }
+}
+.animate-orb { animation: orb-drift 14s ease-in-out infinite; }
+.animate-orb-reverse { animation: orb-drift-reverse 18s ease-in-out infinite; }
+
+/* ── Scanline sweep ─────────────────────────────────────────── */
+@keyframes scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100vh); opacity: 0; }
+}
+.animate-scan { animation: scan 10s ease-in-out infinite; animation-delay: 2s; }
+
+/* ── Float subtle ───────────────────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+.animate-float { animation: float 6s ease-in-out infinite; }
+
+/* ── Gradient text ──────────────────────────────────────────── */
+.gradient-neural {
+  background: linear-gradient(135deg, #60a5fa, #a78bfa, #22d3ee);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.gradient-neural-subtle {
+  background: linear-gradient(135deg, #93c5fd, #c4b5fd);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: rgb(var(--background)); }
+::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgb(30 36 64); }

@@ -4,6 +4,106 @@ All meaningful changes are logged here. Most recent first.
 
 ---
 
+## 2026-03-10
+
+### Pre-deploy hardening + offensive positions filter
+
+- **CORS** — replaced hardcoded stale `rzf-web.vercel.app` origin with `CORS_ORIGIN` env var (comma-separated, parsed at startup); added to `render.yaml` as `sync: false` manual secret
+- **render.yaml** — added `OPENAI_API_KEY` to both `rzf-api` and `rzf-worker` services (LLM connector prefers OpenAI; was missing entirely)
+- **`apps/directory/vercel.json`** — created deployment config matching `rostermind` build pattern; directory app now has a defined deploy path
+- **Offensive positions filter** — `runPlayerRefresh()` now filters Sleeper's full player dump to `QB, RB, WR, TE, K, FB` only before upsert; `OFFENSIVE_POSITIONS` constant reused in `runRankingsRefresh()` query; eliminates all defensive/OL player rows from DB (reduces player table size ~60-70%, fewer aliases, faster content mention resolution)
+- **RSS dedup** — replaced per-item `findUnique` loop with a single `findMany({ where: { sourceUrl: { in: [...] } } })` batch query per feed; N queries → 1 query per feed run
+- **AGENTS.md** — updated ingestion jobs table to include `ContentRefreshJob` (every 30 min), corrected `RankingsRefreshJob` source description
+
+---
+
+### Wire CONTENT_REFRESH cron into scheduler
+
+- Added `content-refresh-30min` job scheduler to `apps/worker/src/scheduler.ts` (runs every 30 min via `*/30 * * * *`)
+- Completes the RSS pipeline — content now refreshes automatically on worker startup without manual trigger
+- All four ingestion jobs are now scheduled: player-daily, trending-hourly, rankings-weekly, content-30min
+
+---
+
+### Post-MVP backlog items captured
+
+#### KTC dynasty value scraper connector
+- KeepTradeCut (`keeptradecut.com`) confirmed fully scrapable — `robots.txt` is `Allow: /`, all data server-side rendered, no auth required
+- Player URLs encode a numeric ID (e.g. `/dynasty-rankings/players/bijan-robinson-1414`) — enumerable from the main rankings page
+- Data available per player: dynasty value (0–9999), overall rank, positional rank, tier, 30-day trend, age, height/weight, college, draft info, recent KTC vote pairings (K/T/C), value-adjacent players
+- Plan: new `packages/connectors/src/ktc/index.ts` connector + `KTC_REFRESH` ingestion job type; daily cron (~2am ET); store values in `PlayerRanking` table with `source: 'ktc'`; KTC vote pairings (K/T/C) are high-signal trade value context for agents
+
+#### Internal dashboard — ingestion jobs monitor
+- Current `/internal/queue` only shows BullMQ agent queue counts; needs a second section for the ingestion queue (player, trending, rankings, content jobs)
+- Desired view: per-job-type cards showing last run time, next scheduled run, items inserted on last run, error count, manual trigger button
+- Requires: ingestion queue stats exposed via API (`GET /internal/ingestion/queue`), last-run metadata stored on `ContentSource` table (already has `lastFetchedAt`) and surfaced for other job types
+
+#### Internal dashboard — agent execution monitor
+- Current `/internal/runs` is a basic table; needs a richer real-time view for monitoring end-user agent executions
+- Desired view: live-updating feed of agent runs with status badges (queued/running/done/failed), user, agent type, duration, input summary, output preview; filter by status/agent type; click-to-expand full input/output JSON
+- Requires: websocket or polling with auto-refresh, run detail endpoint (`GET /internal/runs/:id`)
+
+---
+
+### Phase 3b: RSS content pipeline
+
+- Added `CONTENT_REFRESH` to `IngestionJobTypes` in `@rzf/shared`
+- Created `packages/connectors/src/rss/index.ts` — `RSSConnector.run()` reads active RSS sources from `ContentSource` DB table, fetches feeds, normalizes to `ContentItem`, resolves player entity mentions via `PlayerAlias`, and upserts `ContentPlayerMention` rows
+- Wired `CONTENT_REFRESH` case into `ingestion.worker.ts`
+- Added `CONTENT_REFRESH` to the `/internal/ingestion/trigger` endpoint enum
+- Created `packages/db/prisma/seeds/content-sources.ts` — seed script for initial RSS sources (Rotowire, NFL.com, ESPN, Pro Football Talk); DB is the runtime source of truth, seed is the initial bootstrap
+- `@rzf/db` added as dependency to `@rzf/connectors` (connector reads sources + aliases from DB directly)
+- Sources are managed in DB (`ContentSource` table) — admin UI management is the planned follow-on
+
+---
+
+### Phase 3a: Scaffold apps/directory — Red Zone Fantasy data hub
+
+- New `apps/directory` Next.js app on port 3002, separate from RosterMind AI
+- Dark + red theme mirroring the original RZF design language
+- Pages: home (hero + category grid + RosterMind CTA), `/search` (player search with position filter), `/sources` (source registry grouped by platform), `/players/[id]` (player detail with rankings, projections, content mentions)
+- Server-side API route at `/api/players/search` querying the shared Prisma DB
+- Turborepo/pnpm workspace automatically picks up the new app via `apps/*` glob
+
+### Phase 2: RosterMind AI rebrand — rename, neural theme, landing page
+
+- Renamed `apps/web` → `apps/rostermind`, updated package name to `@rzf/rostermind`, updated `vercel.json` build command
+- Recreated `apps/rostermind/.env.local` (gitignored, carries over Clerk + DB keys)
+- Installed `framer-motion` for neural animations
+- New neural dark theme in `globals.css`: electric blue/purple palette, glow utilities, neural pulse keyframes, signal-travel animation, gradient text utilities
+- Built `src/components/neural/NeuralNetwork.tsx`: canvas-based animated neural network with pulsing nodes, signal propagation along edges, mouse-reactive repulsion, floating NFL position labels (QB, RB, WR, etc.)
+- Rebuilt landing page (`page.tsx`) with RosterMind AI branding, neural hero section using `NeuralNetwork` canvas component, updated features/pricing sections
+- Updated dashboard layout logo from "RZF / Red Zone Fantasy" to RosterMind AI neural SVG mark
+- Updated all remaining RZF/Red Zone copy across analyze, onboarding, dashboard pages
+- Updated root layout metadata (title, description, og tags)
+- Added `outputFileTracingRoot` to `next.config.ts` to silence monorepo lockfile warning
+- All TypeScript checks passing
+
+### Redis cost optimisation — removeOnComplete + local dev routing
+
+- Added `removeOnComplete: { count: 500 }` and `removeOnFail: { count: 20 }` to agent queue in `apps/api/src/lib/queue.ts` (was missing — completed jobs were accumulating in Upstash)
+- Added `removeOnComplete: true` and `removeOnFail: { count: 10 }` to ingestion queue (fire-and-forget jobs don't need Redis retention)
+- Updated Redis connection logic in both API and worker: in `NODE_ENV=development` the `REDIS_URL` is now preferred over Upstash, routing local dev traffic to a local Redis instance instead of consuming free-tier Upstash quota
+- Updated `.env` to set `REDIS_URL=redis://localhost:6379` for local dev with instructions to run Redis via Docker
+
+### Phase 0 + 1: Data architecture foundation, LLM provider switch, search infrastructure
+
+- Redesigned Prisma schema with unified content model: `ContentSource` (enum platform), `ContentItem` (enum contentType, summary, mediaMeta, sentimentScore, chunking via parentId), `ContentPlayerMention` join table, `PlayerAlias`, `PlayerProjection`, `NFLTeamDefense`
+- Enabled `pgvector`, `pg_trgm`, `unaccent` extensions; added `embedding vector(1536)` column to `content_items` (schema-ready, unfilled until post-MVP)
+- Full-text search: `searchVector tsvector` column on `content_items` with GIN index and auto-update trigger (title=A, summary=B, rawContent=C, authorName=D)
+- Built `packages/shared/src/player-resolver.ts`: `generateAliases()`, `resolvePlayerMentions()`, `extractSnippet()`, `inferMentionContext()` utilities for player entity resolution during content ingestion
+- Switched LLM provider preference from Anthropic to OpenAI (`getProvider()` now prefers `OPENAI_API_KEY` first) — uses `gpt-4o-mini` by default
+- Added `YOUTUBE_API_KEY` and `TWITTER_BEARER_TOKEN` to shared env schema (optional, for Phase 3 connectors)
+- Applied schema to database via `prisma db push`
+
+### Two-step onboarding welcome page
+
+- Replaced the direct Sleeper connect form with a landing step showing platform cards (Sleeper, ESPN/Yahoo as "coming soon")
+- Clicking Connect Sleeper transitions to the connect form inline (step 2) with a Back button
+- Added "Skip for now" link so users can reach the dashboard without connecting immediately
+
+---
+
 ## 2026-03-09
 
 ### Report history + OpenClaw operator endpoint

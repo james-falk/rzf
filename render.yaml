@@ -27,12 +27,16 @@ services:
         sync: false
       - key: CLERK_WEBHOOK_SECRET
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ADMIN_SECRET
         sync: false
       - key: API_BASE_URL
         value: https://rzf-api.onrender.com
+      - key: CORS_ORIGIN
+        sync: false  # Set to comma-separated Vercel URLs e.g. https://rzf-rostermind.vercel.app,https://rzf-directory.vercel.app
       - key: WORKER_CONCURRENCY
         value: "5"
 
@@ -54,6 +58,8 @@ services:
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false

@@ -4,12 +4,14 @@
 // Run `pnpm db:generate` to regenerate the Prisma client
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector, pg_trgm, unaccent]
 }
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
@@ -62,6 +64,38 @@ enum ReportFormat {
 enum TrendingType {
   add
   drop
+}
+
+/// The platform a ContentSource originates from.
+enum ContentPlatform {
+  rss
+  youtube
+  twitter
+  podcast
+  reddit
+  api
+  manual
+}
+
+/// The type of a single ContentItem.
+enum ContentType {
+  article
+  video
+  social_post
+  podcast_episode
+  vlog
+  stat_update
+}
+
+/// How a player alias was generated.
+enum AliasType {
+  full_name
+  last_name
+  first_last_initial
+  nickname
+  social_handle
+  abbreviation
+  custom
 }
 
 // ─── Core User Models ────────────────────────────────────────────────────────
@@ -262,13 +296,35 @@ model Player {
   lastRefreshedAt DateTime @default(now())
 
   // Relations
-  rankings  PlayerRanking[]
-  trending  TrendingPlayer[]
+  rankings        PlayerRanking[]
+  projections     PlayerProjection[]
+  trending        TrendingPlayer[]
+  aliases         PlayerAlias[]
+  contentMentions ContentPlayerMention[]
 
   @@index([position])
   @@index([team])
   @@index([injuryStatus])
+  @@index([lastName])
   @@map("players")
+}
+
+/// All known name variants for a player used during content entity resolution.
+/// Auto-generated on player ingest; can be extended with custom entries.
+model PlayerAlias {
+  id String @id @default(cuid())
+
+  playerId String
+  player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
+
+  /// The alias string — e.g. "Mahomes", "Patrick Mahomes", "pmahomes15"
+  alias String
+
+  aliasType AliasType @default(full_name)
+
+  @@unique([alias, aliasType])
+  @@index([alias])
+  @@map("player_aliases")
 }
 
 /// Consensus rankings from FantasyPros and other sources.
@@ -279,7 +335,7 @@ model PlayerRanking {
   playerId String
   player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
 
-  /// "fantasypros" | "sleeper_trending"
+  /// "fantasypros" | "sleeper_trending" | "espn"
   source String
 
   rankOverall  Int
@@ -293,6 +349,36 @@ model PlayerRanking {
   @@unique([playerId, source, week, season])
   @@index([source, week, season])
   @@map("player_rankings")
+}
+
+/// Weekly fantasy point projections per player per source.
+model PlayerProjection {
+  id String @id @default(cuid())
+
+  playerId String
+  player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
+
+  /// "fantasypros" | "espn" | "numberfire"
+  source  String
+  week    Int
+  season  Int
+
+  passYds    Float?
+  passTd     Float?
+  rushYds    Float?
+  rushTd     Float?
+  recYds     Float?
+  recTd      Float?
+  receptions Float?
+
+  /// Total projected fantasy points
+  fpts Float
+
+  fetchedAt DateTime @default(now())
+
+  @@unique([playerId, source, week, season])
+  @@index([source, week, season])
+  @@map("player_projections")
 }
 
 /// Waiver wire trending data from Sleeper. Updated hourly.
@@ -312,64 +398,156 @@ model TrendingPlayer {
   @@map("trending_players")
 }
 
-// ─── Content (Phase 2 — schema defined now, pipeline built later) ────────────
-
-/// Normalized content from all ingested sources.
-/// Raw content preserved for reprocessing as extraction improves.
-model ContentItem {
+/// NFL team defensive rankings vs each position.
+/// Used to assess matchup quality (e.g. "KC allows fewest points to WRs").
+model NFLTeamDefense {
   id String @id @default(cuid())
 
-  /// "article" | "youtube" | "podcast" | "tweet"
-  sourceType String
+  /// NFL team abbreviation e.g. "KC", "BUF"
+  team   String
+  season Int
+  week   Int
 
-  sourceUrl  String @unique
-  title      String
-  publishedAt DateTime?
-  authorName String?
+  /// Average fantasy points allowed to each position
+  ptsAllowedQB Float?
+  ptsAllowedRB Float?
+  ptsAllowedWR Float?
+  ptsAllowedTE Float?
 
-  /// Full raw content text — preserved for reprocessing
-  rawContent String @db.Text
-
-  /// Structured extraction: players mentioned, sentiment, event type, etc.
-  /// See docs/DATA.md for format.
-  extractedFacts Json @default("{}")
-
-  /// Sleeper player IDs mentioned in this content
-  playerIds String[]
-
-  /// NFL team abbreviations mentioned
-  teamSlugs String[]
-
-  /// Content topics e.g. ["injury", "usage_spike", "depth_chart_change"]
-  topics String[]
-
-  importanceScore Float?
-  noveltyScore    Float?
+  /// Rank 1-32 vs each position (1 = toughest matchup, 32 = easiest)
+  rankVsQB Int?
+  rankVsRB Int?
+  rankVsWR Int?
+  rankVsTE Int?
 
   fetchedAt DateTime @default(now())
+
+  @@unique([team, week, season])
+  @@index([week, season])
+  @@map("nfl_team_defense")
+}
+
+// ─── Content Sources ─────────────────────────────────────────────────────────
+
+/// Registry of all content ingestion sources.
+/// Each source maps to a platform type and feed URL.
+model ContentSource {
+  id   String @id @default(cuid())
+
+  /// Human-readable name e.g. "The Fantasy Footballers", "Adam Schefter"
+  name String
+
+  platform ContentPlatform
+
+  /// RSS URL, YouTube channel URL, X user URL, podcast feed, etc.
+  feedUrl String
+
+  /// URL to source logo/avatar for directory UI
+  avatarUrl String?
+
+  /// Platform-specific config: YouTube channel ID, X user ID, RSS selectors, etc.
+  platformConfig Json @default("{}")
+
+  /// How often to re-fetch in minutes
+  refreshIntervalMins Int      @default(60)
+  lastFetchedAt       DateTime?
+  isActive            Boolean  @default(true)
+
+  items ContentItem[]
+
+  @@unique([platform, feedUrl])
+  @@map("content_sources")
+}
+
+/// Normalized content from all ingested sources.
+/// All platforms (RSS, YouTube, Twitter, podcast) map to this unified shape.
+model ContentItem {
+  id String @id @default(cuid())
 
   sourceId String?
   source   ContentSource? @relation(fields: [sourceId], references: [id])
 
-  @@index([sourceType])
+  contentType ContentType
+
+  /// Canonical URL — used for deduplication
+  sourceUrl String @unique
+
+  title     String
+  /// AI-generated or extracted summary (~2-3 sentences)
+  summary   String? @db.Text
+
+  /// Full text content or video transcript — stored for search and future embedding
+  rawContent String @db.Text
+
+  /// For video/social: thumbnail or preview image URL
+  thumbnailUrl String?
+
+  authorName  String?
+  publishedAt DateTime?
+
+  /// Platform-specific metadata:
+  /// - video: { duration, viewCount, likeCount, channelId }
+  /// - podcast: { duration, episodeNumber, showName }
+  /// - tweet: { likeCount, retweetCount, replyCount, tweetId }
+  mediaMeta Json @default("{}")
+
+  /// Content topic tags e.g. ["injury", "trade", "waiver", "matchup", "breakout", "depth_chart"]
+  topics String[]
+
+  /// 0-1 importance score (set during ingestion or by a scoring job)
+  importanceScore Float?
+  /// 0-1 novelty vs. already-known info
+  noveltyScore    Float?
+  /// -1 to 1 overall sentiment
+  sentimentScore  Float?
+
+  /// Postgres full-text search vector. Auto-updated via DB trigger.
+  /// Weights: title=A, summary=B, rawContent=C, authorName=D
+  searchVector Unsupported("tsvector")?
+
+  /// pgvector embedding (1536-dim, text-embedding-3-small).
+  /// NULL until embedding generation is activated post-MVP.
+  embedding Unsupported("vector(1536)")?
+
+  /// For chunked content: references the parent item this chunk belongs to
+  parentId String?
+  parent   ContentItem?  @relation("ContentChunks", fields: [parentId], references: [id])
+  chunks   ContentItem[] @relation("ContentChunks")
+
+  fetchedAt DateTime @default(now())
+
+  // Relations
+  playerMentions ContentPlayerMention[]
+
+  @@index([contentType])
   @@index([fetchedAt])
+  @@index([publishedAt])
+  @@index([parentId])
   @@map("content_items")
 }
 
-/// Registry of all content ingestion sources.
-model ContentSource {
-  id   String @id @default(cuid())
-  name String
+/// Join table: which players are mentioned in which content, with context.
+/// Populated during ingestion via player entity resolution.
+model ContentPlayerMention {
+  id String @id @default(cuid())
 
-  /// "rss" | "youtube_channel" | "podcast_feed"
-  type String
+  contentId String
+  content   ContentItem @relation(fields: [contentId], references: [id], onDelete: Cascade)
 
-  url                  String
-  refreshIntervalMins  Int      @default(60)
-  lastFetchedAt        DateTime?
-  isActive             Boolean  @default(true)
+  playerId String
+  player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
 
-  items ContentItem[]
+  /// Type of mention: "injury_update" | "trade_rumor" | "start_recommendation" |
+  /// "breakout_candidate" | "depth_chart_change" | "general"
+  context String @default("general")
 
-  @@map("content_sources")
+  /// -1 to 1 sentiment about this player in this specific content item
+  sentiment Float?
+
+  /// Short excerpt from the content mentioning the player (~1-2 sentences)
+  snippet String? @db.Text
+
+  @@unique([contentId, playerId])
+  @@index([playerId, contentId])
+  @@map("content_player_mentions")
 }

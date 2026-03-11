@@ -1,6 +1,6 @@
 # Data
 
-> Last updated: 2026-03-06
+> Last updated: 2026-03-10
 > Schema section auto-regenerated from `packages/db/prisma/schema.prisma` via `pnpm sync:docs`
 
 ## Data Strategy
@@ -115,6 +115,8 @@ Cached NFL player data from Sleeper. Refreshed daily.
 | yearsExp | Int? | Years of NFL experience |
 | metadata | Json | Full raw Sleeper player object |
 | lastRefreshedAt | DateTime | |
+| aliases | PlayerAlias[] | Name variants for entity resolution |
+| contentMentions | ContentPlayerMention[] | Content items that mention this player |
 
 ### `PlayerRanking`
 Consensus rankings from FantasyPros (and future sources). Refreshed weekly.
@@ -153,38 +155,92 @@ Flexible event store for behavioral analytics and system telemetry. No schema mi
 | payload | Json | Event-specific data |
 | createdAt | DateTime | |
 
-### `ContentItem` *(Phase 2 — schema defined now)*
-Normalized content from all ingested sources.
+### `ContentSource`
+Registry of all content ingestion sources. Each entry drives a scheduled fetch job.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | String | Primary key |
-| sourceType | String | `article` \| `youtube` \| `podcast` \| `tweet` |
-| sourceUrl | String | Original URL |
-| title | String | |
-| publishedAt | DateTime? | |
-| authorName | String? | |
-| rawContent | String | Full raw content (preserved for reprocessing) |
-| extractedFacts | Json | Structured extraction (see format below) |
-| playerIds | String[] | Sleeper player IDs mentioned |
-| teamSlugs | String[] | Team abbreviations mentioned |
-| topics | String[] | e.g. `["injury", "usage_spike", "depth_chart"]` |
-| importanceScore | Float? | 0–1, computed by extraction agent |
-| noveltyScore | Float? | 0–1, how much changed vs yesterday |
-| fetchedAt | DateTime | |
-
-### `ContentSource` *(Phase 2)*
-Registry of all ingestion sources.
-
-| Field | Type | Notes |
-|-------|------|-------|
-| id | String | Primary key |
-| name | String | Human-readable name |
-| type | String | `rss` \| `youtube_channel` \| `podcast_feed` |
-| url | String | Feed URL |
-| refreshIntervalMins | Int | How often to poll |
+| name | String | Human-readable name e.g. "The Fantasy Footballers" |
+| platform | Enum | `rss` \| `youtube` \| `twitter` \| `podcast` \| `reddit` \| `api` \| `manual` |
+| feedUrl | String | RSS URL, YouTube channel URL, podcast feed, etc. |
+| avatarUrl | String? | Source logo for directory UI |
+| platformConfig | Json | Platform-specific config (channel ID, selectors, etc.) |
+| refreshIntervalMins | Int | Poll interval in minutes (default 60) |
 | lastFetchedAt | DateTime? | |
 | isActive | Boolean | Default true |
+
+### `ContentItem`
+Unified content record. All platforms (RSS articles, YouTube videos, tweets, podcast episodes) normalize to this shape.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | String | Primary key |
+| sourceId | String? | FK → ContentSource |
+| contentType | Enum | `article` \| `video` \| `social_post` \| `podcast_episode` \| `vlog` \| `stat_update` |
+| sourceUrl | String | Canonical URL — deduplication key |
+| title | String | |
+| summary | String? | AI-generated or extracted 2-3 sentence summary |
+| rawContent | String | Full text or video transcript — stored for search + future embedding |
+| thumbnailUrl | String? | For video/social content |
+| authorName | String? | |
+| publishedAt | DateTime? | |
+| mediaMeta | Json | Platform-specific metadata (video duration, tweet counts, etc.) |
+| topics | String[] | e.g. `["injury", "waiver", "breakout", "matchup"]` |
+| importanceScore | Float? | 0–1 importance |
+| noveltyScore | Float? | 0–1 novelty vs known info |
+| sentimentScore | Float? | -1 to 1 sentiment |
+| searchVector | tsvector? | Auto-updated by DB trigger — powers full-text search |
+| embedding | vector(1536)? | pgvector embedding — schema-ready, unfilled until post-MVP |
+| parentId | String? | For chunked content: FK → parent ContentItem |
+| fetchedAt | DateTime | |
+
+### `ContentPlayerMention`
+Join table linking content to players, populated during ingestion via entity resolution.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | String | Primary key |
+| contentId | String | FK → ContentItem |
+| playerId | String | FK → Player (sleeperId) |
+| context | String | `injury_update` \| `trade_rumor` \| `start_recommendation` \| `breakout_candidate` \| `depth_chart_change` \| `waiver_wire` \| `general` |
+| sentiment | Float? | -1 to 1 sentiment for this player in this item |
+| snippet | String? | ~1-2 sentence excerpt mentioning the player |
+
+### `PlayerAlias`
+All known name variants for a player. Used during content ingestion to resolve "Mahomes" → player ID 4046.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | String | Primary key |
+| playerId | String | FK → Player |
+| alias | String | e.g. "Mahomes", "Patrick Mahomes", "P. Mahomes" |
+| aliasType | Enum | `full_name` \| `last_name` \| `first_last_initial` \| `nickname` \| `social_handle` \| `abbreviation` \| `custom` |
+
+### `PlayerProjection`
+Weekly fantasy point projections per player per source.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | String | Primary key |
+| playerId | String | FK → Player |
+| source | String | `fantasypros` \| `espn` \| `numberfire` |
+| week / season | Int | NFL week and season year |
+| passYds, rushYds, recYds, etc. | Float? | Stat-line projections |
+| fpts | Float | Total projected fantasy points |
+| fetchedAt | DateTime | |
+
+### `NFLTeamDefense`
+Defensive rankings vs each position. Used for matchup quality assessment.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| id | String | Primary key |
+| team | String | NFL team abbreviation e.g. "KC" |
+| season / week | Int | |
+| ptsAllowedQB/RB/WR/TE | Float? | Avg fantasy points allowed to that position |
+| rankVsQB/RB/WR/TE | Int? | 1–32 rank (1 = toughest, 32 = easiest matchup) |
+| fetchedAt | DateTime | |
 
 ---
 
@@ -217,20 +273,40 @@ All events are tracked via `db.track(eventType, userId?, payload)`.
 
 ---
 
-## ContentItem extractedFacts Format
+## ContentItem mediaMeta Format
 
+The `mediaMeta` JSON field stores platform-specific metadata that doesn't fit the normalized columns.
+
+**Video (YouTube/Vlog)**:
 ```json
-{
-  "players_mentioned": ["4046", "1234"],
-  "injury_mentioned": true,
-  "sentiment": "negative",
-  "event_type": "injury_update",
-  "key_quote": "expected to miss 2-4 weeks",
-  "source_credibility": "beat_reporter"
-}
+{ "duration": 2340, "viewCount": 18500, "likeCount": 412, "channelId": "UC..." }
 ```
 
-New source types add new JSON shapes — no migration needed.
+**Podcast episode**:
+```json
+{ "duration": 3600, "episodeNumber": 42, "showName": "Fantasy Footballers", "enclosureUrl": "..." }
+```
+
+**Social post (Twitter/X)**:
+```json
+{ "likeCount": 1200, "retweetCount": 340, "replyCount": 88, "tweetId": "17..." }
+```
+
+## Search Architecture
+
+### Full-Text Search (active)
+- `content_items."searchVector"` column of type `tsvector`
+- Auto-updated by Postgres trigger on INSERT/UPDATE of `title`, `summary`, `rawContent`, `authorName`
+- Weighted: title=A, summary=B, rawContent=C, authorName=D
+- GIN index: `content_items_search_vector_idx`
+- Query pattern: `WHERE "searchVector" @@ plainto_tsquery('english', $1)`
+
+### Vector Search (schema-ready, post-MVP)
+- `content_items."embedding"` column of type `vector(1536)`
+- Will use OpenAI `text-embedding-3-small` (1536 dims, $0.02/1M tokens)
+- HNSW index: `content_items_embedding_hnsw_idx` (cosine similarity)
+- Query pattern: `ORDER BY embedding <=> $embedding LIMIT 20`
+- Embedding generation deferred — column is nullable, index only applies to non-NULL rows
 
 ---
 

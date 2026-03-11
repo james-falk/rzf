@@ -20,7 +20,7 @@ const app = Fastify({
 await app.register(helmet)
 await app.register(cors, {
   origin: env.NODE_ENV === 'production'
-    ? ['https://rzf-web.vercel.app']
+    ? (env.CORS_ORIGIN ?? '').split(',').map((o) => o.trim()).filter(Boolean)
     : true,
   credentials: true,
 })

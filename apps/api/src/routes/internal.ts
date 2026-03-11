@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '@rzf/db'
 import { requireAuth, requireAdmin, requireAdminSecret } from '../middleware/auth.js'
-import { getAgentQueue } from '../lib/queue.js'
-import { AgentJobTypes, TeamEvalInputSchema } from '@rzf/shared/types'
+import { getAgentQueue, getIngestionQueue } from '../lib/queue.js'
+import { AgentJobTypes, IngestionJobTypes, TeamEvalInputSchema } from '@rzf/shared/types'
 
 // Internal routes are gated by session-based admin check (web UI)
 // OR by X-Admin-Secret header (OpenClaw gateway)
@@ -205,6 +205,28 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     await queue.add(agentType, { agentRunId: agentRun.id, agentType, input: validatedInput! })
 
     return reply.status(202).send({ agentRunId: agentRun.id, status: 'queued' })
+  })
+
+  // POST /internal/ingestion/trigger — manually kick off an ingestion job
+  // Useful for seeding data without waiting for the scheduled cron
+  app.post('/internal/ingestion/trigger', { preHandler: adminGuard }, async (req, reply) => {
+    const body = z.object({
+      type: z.enum([
+        IngestionJobTypes.PLAYER_REFRESH,
+        IngestionJobTypes.TRENDING_REFRESH,
+        IngestionJobTypes.RANKINGS_REFRESH,
+        IngestionJobTypes.CONTENT_REFRESH,
+      ]),
+    }).safeParse(req.body)
+
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
+    }
+
+    const queue = getIngestionQueue()
+    const job = await queue.add(body.data.type, { type: body.data.type })
+
+    return reply.status(202).send({ jobId: job.id, type: body.data.type, status: 'queued' })
   })
 
   // GET /internal/queue — BullMQ queue stats
