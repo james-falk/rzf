@@ -557,8 +557,18 @@ model TradeTransaction {
 
   fetchedAt DateTime @default(now())
 
+  /// Dynasty, redraft, or keeper — from Sleeper league settings (type 0=redraft,1=keeper,2=dynasty)
+  leagueType    LeagueStyle?
+  /// Number of teams in the league
+  teamCount     Int?
+  /// Whether the league uses a SUPER_FLEX roster spot
+  isSuperflex   Boolean?
+  /// Scoring format derived from Sleeper settings.rec (0=standard, 0.5=half_ppr, 1=ppr)
+  scoringFormat ScoringPriority?
+
   @@index([leagueId, week, season])
   @@index([createdAt])
+  @@index([leagueType])
   @@map("trade_transactions")
 }
 

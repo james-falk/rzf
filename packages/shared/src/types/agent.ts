@@ -246,6 +246,7 @@ export const IngestionJobTypes = {
   TRADE_REFRESH: 'trade_refresh',
   TRADE_VALUES_REFRESH: 'trade_values_refresh',
   ADP_REFRESH: 'adp_refresh',
+  DYNASTY_DADDY_REFRESH: 'dynasty_daddy_refresh',
 } as const
 
 export type IngestionJobType = (typeof IngestionJobTypes)[keyof typeof IngestionJobTypes]

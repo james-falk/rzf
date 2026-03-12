@@ -5,6 +5,7 @@ import { RSSConnector } from '@rzf/connectors/rss'
 import { YouTubeConnector } from '@rzf/connectors/youtube'
 import { FantasyCalcConnector } from '@rzf/connectors/fantasycalc'
 import { FFCConnector } from '@rzf/connectors/ffc'
+import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { IngestionJobTypes, generateAliases } from '@rzf/shared'
 import type { IngestionJobType } from '@rzf/shared/types'
 import { getRedisConnection } from '../redis.js'
@@ -44,6 +45,9 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
           break
         case IngestionJobTypes.ADP_REFRESH:
           await runADPRefresh()
+          break
+        case IngestionJobTypes.DYNASTY_DADDY_REFRESH:
+          await runDynastyDaddyRefresh()
           break
         default:
           throw new Error(`Unknown ingestion job type: ${type}`)
@@ -321,10 +325,38 @@ async function runTradeRefresh(): Promise<void> {
 
   console.log(`[ingestion] Trade refresh: ${leagueIds.size} leagues, weeks ${weeksToFetch.join(',')}`)
 
+  // Cache league metadata per leagueId to avoid redundant API calls
+  const leagueMetaCache = new Map<string, {
+    leagueType: 'dynasty' | 'keeper' | 'redraft'
+    teamCount: number
+    isSuperflex: boolean
+    scoringFormat: 'ppr' | 'half_ppr' | 'standard'
+  }>()
+
+  async function fetchLeagueMeta(leagueId: string) {
+    if (leagueMetaCache.has(leagueId)) return leagueMetaCache.get(leagueId)!
+    try {
+      const league = await SleeperConnector.getLeague(leagueId)
+      const typeNum = typeof league.settings['type'] === 'number' ? league.settings['type'] as number : 0
+      const leagueType = typeNum === 2 ? 'dynasty' : typeNum === 1 ? 'keeper' : 'redraft'
+      const teamCount = league.total_rosters
+      const isSuperflex = league.roster_positions.includes('SUPER_FLEX')
+      const rec = typeof league.scoring_settings['rec'] === 'number' ? league.scoring_settings['rec'] : 0
+      const scoringFormat = rec >= 1 ? 'ppr' : rec >= 0.5 ? 'half_ppr' : 'standard'
+      const meta = { leagueType, teamCount, isSuperflex, scoringFormat } as const
+      leagueMetaCache.set(leagueId, meta)
+      return meta
+    } catch {
+      return null
+    }
+  }
+
   let totalUpserted = 0
   let errors = 0
 
   for (const leagueId of leagueIds) {
+    const meta = await fetchLeagueMeta(leagueId)
+
     for (const week of weeksToFetch) {
       try {
         const transactions = await SleeperConnector.getTransactions(leagueId, week)
@@ -340,12 +372,25 @@ async function runTradeRefresh(): Promise<void> {
               season,
               adds: trade.adds ?? {},
               drops: trade.drops ?? {},
-              draftPicks: trade.draft_picks,
-              waiverBudget: trade.waiver_budget,
+              draftPicks: trade.draft_picks ?? [],
+              waiverBudget: trade.waiver_budget ?? [],
               rosterIds: trade.roster_ids,
               createdAt: new Date(trade.created),
+              ...(meta && {
+                leagueType: meta.leagueType,
+                teamCount: meta.teamCount,
+                isSuperflex: meta.isSuperflex,
+                scoringFormat: meta.scoringFormat,
+              }),
             },
-            update: {},
+            update: {
+              ...(meta && {
+                leagueType: meta.leagueType,
+                teamCount: meta.teamCount,
+                isSuperflex: meta.isSuperflex,
+                scoringFormat: meta.scoringFormat,
+              }),
+            },
           })
           totalUpserted++
         }
@@ -380,5 +425,21 @@ async function runADPRefresh(): Promise<void> {
   const result = await FFCConnector.run()
   console.log(
     `[ingestion] ADP refresh: ${result.upserted} rankings upserted (week ${result.week} / ${result.year})`,
+  )
+}
+
+// ─── DynastyDaddyRefreshJob ───────────────────────────────────────────────────
+// Weekly: sync KTC dynasty (market=0) + KTC redraft (market=4) values and
+// Dynasty Daddy's own aggregated values into PlayerTradeValue.
+async function runDynastyDaddyRefresh(): Promise<void> {
+  const result = await DynastyDaddyConnector.syncValues()
+  if (result.errors.length > 0) {
+    console.warn(
+      `[ingestion] Dynasty Daddy refresh had ${result.errors.length} error(s):`,
+      result.errors.slice(0, 5),
+    )
+  }
+  console.log(
+    `[ingestion] Dynasty Daddy refresh: KTC upserted=${result.ktcUpserted}, DD upserted=${result.ddUpserted}, unmatched=${result.unmatched}`,
   )
 }

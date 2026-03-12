@@ -1,5 +1,6 @@
 import { db } from '@rzf/db'
 import { LLMConnector } from '@rzf/connectors/llm'
+import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { buildUserContext } from '@rzf/shared'
 import { TradeAnalysisOutputSchema } from '@rzf/shared/types'
 import type { TradeAnalysisInput, TradeAnalysisOutput } from '@rzf/shared/types'
@@ -54,19 +55,29 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput): Promise<
     newsMap.set(mention.playerId, existing)
   }
 
-  // ── 3. Count recent trades for each player across all leagues ─────────────
-  const tradeCounts = new Map<string, number>()
-  for (const playerId of allPlayerIds) {
-    // Count how many TradeTransaction records contain this player in adds or drops
-    // Using raw query since we need to search inside JSON
-    const count = await db.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(*)::bigint as count
-      FROM trade_transactions
-      WHERE league_id = ${leagueId}
-        AND (adds::jsonb ? ${playerId} OR drops::jsonb ? ${playerId})
-    `
-    tradeCounts.set(playerId, Number(count[0]?.count ?? 0))
-  }
+  // ── 3. Get community trade context from Dynasty Daddy ─────────────────────
+  // Returns last 10 real trades + 8-week volume for each player involved.
+  // Falls back gracefully if the DD API is unavailable.
+  const communityTradeData = new Map<string, { recentCount: number; weeklyVolume: number }>()
+  await Promise.all(
+    allPlayerIds.map(async (playerId) => {
+      const player = playerMap.get(playerId)
+      if (!player) return
+      try {
+        const nameId = DynastyDaddyConnector.nameIdFromPlayer(
+          player.firstName,
+          player.lastName,
+          player.position ?? '',
+        )
+        const ddData = await DynastyDaddyConnector.getPlayerTrades(nameId)
+        const recentCount = ddData.trades?.length ?? 0
+        const weeklyVolume = ddData.tradeVolume?.find((v: { week_interval: number; count: number }) => v.week_interval === 1)?.count ?? 0
+        communityTradeData.set(playerId, { recentCount, weeklyVolume })
+      } catch {
+        communityTradeData.set(playerId, { recentCount: 0, weeklyVolume: 0 })
+      }
+    }),
+  )
 
   // ── 4. Build enriched player context ──────────────────────────────────────
   const enrichPlayer = (id: string) => {
@@ -83,7 +94,8 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput): Promise<
       rankOverall: r?.rankOverall ?? null,
       injuryStatus: p?.injuryStatus ?? null,
       recentNews: newsMap.get(id) ?? [],
-      recentTradeCount: tradeCounts.get(id) ?? 0,
+      recentTradeCount: communityTradeData.get(id)?.recentCount ?? 0,
+      weeklyTradeVolume: communityTradeData.get(id)?.weeklyVolume ?? 0,
     }
   }
 

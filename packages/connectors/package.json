@@ -10,7 +10,8 @@
     "./rss": "./dist/rss/index.js",
     "./youtube": "./dist/youtube/index.js",
     "./fantasycalc": "./dist/fantasycalc/index.js",
-    "./ffc": "./dist/ffc/index.js"
+    "./ffc": "./dist/ffc/index.js",
+    "./dynastydaddy": "./dist/dynastydaddy/index.js"
   },
   "scripts": {
     "build": "tsc --build",
@@ -21,6 +22,7 @@
     "@anthropic-ai/sdk": "^0.36.3",
     "@rzf/db": "workspace:*",
     "@rzf/shared": "workspace:*",
+    "cheerio": "^1.2.0",
     "openai": "^6.27.0",
     "rss-parser": "^3.13.0",
     "zod": "^3.24.1"

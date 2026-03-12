@@ -4,6 +4,19 @@ All meaningful changes are logged here. Most recent first.
 
 ---
 
+## 2026-03-12
+
+### Dynasty Daddy connector, trade context enrichment, and Source Manager improvements
+
+- **Dynasty Daddy connector**: New `DynastyDaddyConnector` syncs KTC dynasty (market=0), KTC redraft (market=4), and Dynasty Daddy own values (via `/player/all/today`) into `PlayerTradeValue` weekly. Sources labeled `source='ktc'` and `source='dynastydaddy'`. Also provides query-time `getPlayerTrades()` and `searchTrades()` for community trade history across 3.6M+ real trades.
+- **KTC values via Dynasty Daddy**: No HTML scraping needed — Dynasty Daddy aggregates KTC rankings natively and exposes them through their unauthenticated server-side API.
+- **TradeTransaction enriched**: Added `leagueType`, `teamCount`, `isSuperflex`, and `scoringFormat` (all nullable) to `TradeTransaction`. TRADE_REFRESH job now calls `GET /v1/league/{id}` once per league to capture format metadata for every trade stored.
+- **YouTube @handle support**: `YouTubeConnector` now resolves `@handle` format via `channels.list?forHandle=` on first run, caching the resolved channel ID in `platformConfig`. 25 channels seeded.
+- **Source Manager modal improvements**: Per-platform field labels and help text. YouTube accepts @handle, channel URL, or raw ID with client-side normalization before save. Reddit unlocked (it's standard RSS — no new connector needed). Coming-soon platforms disable the identifier field.
+- **Agent trade context**: `TradeAnalysisAgent` and `PlayerScoutAgent` now call Dynasty Daddy's community trade API at query time, adding real community trade frequency and weekly volume to LLM context.
+- **DYNASTY_DADDY_REFRESH cron**: Weekly Tuesday 4pm UTC job added to scheduler.
+- **`YOUTUBE_API_KEY`** added to `.env.example` with setup instructions.
+
 ## 2026-03-11
 
 ### New data sources, four new agents, and Source Manager UI

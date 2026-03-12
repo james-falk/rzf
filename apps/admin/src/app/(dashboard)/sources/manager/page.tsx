@@ -47,7 +47,7 @@ const PLATFORM_COLORS: Record<ContentPlatform, string> = {
   manual: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
 }
 
-// Platforms planned but not yet implemented
+// Platforms planned but not yet implemented (reddit is active — it's just an RSS feed)
 const COMING_SOON_PLATFORMS: ContentPlatform[] = ['twitter', 'podcast', 'api', 'manual']
 
 const PLATFORM_ICON: Record<string, React.ReactNode> = {
@@ -61,6 +61,40 @@ function HealthBadge({ health }: { health: string }) {
   if (health === 'healthy') return <Badge variant="success">Healthy</Badge>
   if (health === 'stale') return <Badge variant="warning">Stale</Badge>
   return <Badge variant="default">Inactive</Badge>
+}
+
+// ─── Platform Input Normalization ─────────────────────────────────────────────
+
+/**
+ * Normalize a YouTube channel input into a canonical identifier for storage.
+ * Handles: full URLs, @handles, channel/UCxxxxxx paths, and raw IDs.
+ * The YouTubeConnector resolves @handles to channel IDs on first run.
+ */
+function normalizeYouTubeInput(input: string): string {
+  const trimmed = input.trim()
+  // Extract @handle from full URL: youtube.com/@Handle
+  const handleMatch = trimmed.match(/youtube\.com\/@([\w.-]+)/i)
+  if (handleMatch) return `@${handleMatch[1]}`
+  // Extract channel ID from: youtube.com/channel/UCxxxxxx
+  const channelMatch = trimmed.match(/youtube\.com\/channel\/(UC[\w-]+)/i)
+  if (channelMatch) return channelMatch[1]!
+  // Bare @handle
+  if (trimmed.startsWith('@')) return trimmed
+  // Raw UCxxxxxx channel ID
+  if (/^UC[\w-]{20,}$/.test(trimmed)) return trimmed
+  // Return as-is for anything else (connector will attempt resolution)
+  return trimmed
+}
+
+/**
+ * Normalize a Reddit input into an RSS feed URL.
+ * Accepts: subreddit name, r/name, or full .rss URL.
+ */
+function normalizeRedditInput(input: string): string {
+  const trimmed = input.trim()
+  if (trimmed.startsWith('https://')) return trimmed
+  const sub = trimmed.replace(/^r\//, '').replace(/\/$/, '')
+  return `https://www.reddit.com/r/${sub}/.rss`
 }
 
 // ─── Add / Edit Modal ─────────────────────────────────────────────────────────
@@ -103,16 +137,45 @@ function SourceModal({
   const set = (key: keyof SourceFormState, value: string | number | boolean) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
-  const feedUrlPlaceholder =
-    form.platform === 'rss'
-      ? 'https://example.com/feed.rss'
-      : form.platform === 'youtube'
-        ? 'YouTube Channel ID (e.g. UCnoHDX3YkCPfkTHLOYCdsBQ)'
-        : form.platform === 'reddit'
-          ? 'https://www.reddit.com/r/fantasyfootball/.rss'
-          : 'Feed URL or identifier'
-
   const isComingSoon = COMING_SOON_PLATFORMS.includes(form.platform)
+
+  const feedUrlLabel: Record<ContentPlatform, string> = {
+    rss: 'Feed URL',
+    youtube: 'Channel URL, @handle, or Channel ID',
+    reddit: 'Subreddit (name, r/name, or full .rss URL)',
+    podcast: 'Podcast RSS Feed URL',
+    twitter: 'Twitter Handle or Search Term',
+    api: 'API Endpoint',
+    manual: 'Source Identifier',
+  }
+
+  const feedUrlPlaceholder: Record<ContentPlatform, string> = {
+    rss: 'https://example.com/feed.rss',
+    youtube: '@FantasyPros  or  UCxxxxxx  or  youtube.com/@FantasyPros',
+    reddit: 'fantasyfootball  or  r/fantasyfootball  or  full .rss URL',
+    podcast: 'https://example.com/podcast.rss',
+    twitter: '@FantasyPros',
+    api: 'https://api.example.com/feed',
+    manual: 'source-identifier',
+  }
+
+  const feedUrlHint: Partial<Record<ContentPlatform, string>> = {
+    youtube:
+      'Accepts: @handle, channel URL, or raw UCxxxxxx ID. Handle resolution happens on first sync.',
+    reddit:
+      'Reddit RSS feeds require no API key. Public subreddits only.',
+    rss: 'Must be a valid, publicly accessible RSS or Atom feed URL.',
+  }
+
+  // Normalize feedUrl on save based on platform
+  function handleSave() {
+    let normalized = form.feedUrl.trim()
+    if (form.platform === 'youtube') normalized = normalizeYouTubeInput(normalized)
+    if (form.platform === 'reddit') normalized = normalizeRedditInput(normalized)
+    onSave({ ...form, feedUrl: normalized })
+  }
+
+  const canSave = form.name.trim().length > 0 && (isComingSoon || form.feedUrl.trim().length > 0)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -181,21 +244,20 @@ function SourceModal({
             />
           </div>
 
-          {/* Feed URL */}
+          {/* Feed URL / Channel Identifier */}
           <div>
             <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-              {form.platform === 'youtube' ? 'Channel ID' : 'Feed URL'}
+              {feedUrlLabel[form.platform]}
             </label>
             <input
               value={form.feedUrl}
               onChange={(e) => set('feedUrl', e.target.value)}
-              placeholder={feedUrlPlaceholder}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white placeholder-zinc-600 focus:border-white/20 focus:outline-none"
+              placeholder={feedUrlPlaceholder[form.platform]}
+              disabled={isComingSoon}
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white placeholder-zinc-600 focus:border-white/20 focus:outline-none disabled:opacity-40"
             />
-            {form.platform === 'youtube' && (
-              <p className="mt-1 text-[11px] text-zinc-500">
-                Find in the YouTube channel URL: youtube.com/channel/<strong>CHANNEL_ID</strong>
-              </p>
+            {feedUrlHint[form.platform] && (
+              <p className="mt-1 text-[11px] text-zinc-500">{feedUrlHint[form.platform]}</p>
             )}
           </div>
 
@@ -258,8 +320,8 @@ function SourceModal({
 
         <div className="mt-6 flex gap-3">
           <button
-            onClick={() => onSave(form)}
-            disabled={saving || !form.name.trim() || !form.feedUrl.trim()}
+            onClick={handleSave}
+            disabled={saving || !canSave}
             className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}

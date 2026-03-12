@@ -1,6 +1,7 @@
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { LLMConnector } from '@rzf/connectors/llm'
+import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { buildUserContext } from '@rzf/shared'
 import { PlayerScoutOutputSchema } from '@rzf/shared/types'
 import type { PlayerScoutInput, PlayerScoutOutput } from '@rzf/shared/types'
@@ -30,7 +31,7 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput): Promise<Play
   const week = nflState.week
   const season = parseInt(nflState.season, 10)
 
-  const [player, tradeValue, ranking, recentMentions, recentTradeCount] = await Promise.all([
+  const [player, tradeValue, ranking, recentMentions, recentTradeCount, ddTrades] = await Promise.all([
     db.player.findUnique({ where: { sleeperId: playerId } }),
     db.playerTradeValue.findFirst({ where: { sleeperId: playerId, source: 'fantasycalc' } }),
     db.playerRanking.findFirst({
@@ -49,6 +50,20 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput): Promise<Play
         ],
       },
     }).catch(() => 0), // Graceful fallback if JSON query fails
+    // Community trade data from Dynasty Daddy (query-time, graceful fallback)
+    (async () => {
+      try {
+        const p = await db.player.findUnique({
+          where: { sleeperId: playerId },
+          select: { firstName: true, lastName: true, position: true },
+        })
+        if (!p) return null
+        const nameId = DynastyDaddyConnector.nameIdFromPlayer(p.firstName, p.lastName, p.position ?? '')
+        return await DynastyDaddyConnector.getPlayerTrades(nameId)
+      } catch {
+        return null
+      }
+    })(),
   ])
 
   if (!player) {
@@ -68,7 +83,12 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput): Promise<Play
     // use the fallback count
   }
 
-  const recentNews = recentMentions.map((m) => m.content.title).slice(0, 8)
+  const recentNews = recentMentions.map((m: { content: { title: string } }) => m.content.title).slice(0, 8)
+
+  // Community trade volume from Dynasty Daddy (last 7 days)
+  const communityTradeCount = ddTrades?.trades?.length ?? 0
+  const weeklyTradeVolume =
+    ddTrades?.tradeVolume?.find((v: { week_interval: number; count: number }) => v.week_interval === 1)?.count ?? 0
 
   // ── 3. Determine trend ─────────────────────────────────────────────────────
   const determineTrend = (): 'rising' | 'falling' | 'stable' | 'unknown' => {
@@ -95,6 +115,8 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput): Promise<Play
     rankPosition: ranking?.rankPosition ?? null,
     recentNews,
     recentTrades: tradeCount,
+    communityTradeCount,
+    weeklyTradeVolume,
     context,
   }
 
@@ -124,7 +146,7 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput): Promise<Play
     rankPosition: ranking?.rankPosition ?? null,
     dynasty1qbValue: tradeValue?.dynasty1qb ?? null,
     redraftValue: tradeValue?.redraft ?? null,
-    recentTradesCount: tradeCount,
+    recentTradesCount: Math.max(tradeCount, communityTradeCount),
     ...llmOutput,
     tokensUsed,
   }

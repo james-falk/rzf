@@ -100,8 +100,17 @@ Weekly lineup decisions for borderline starters with confidence scores.
 
 ### TradeAnalysisAgent
 Accept/reject trade evaluation with counter-suggestion.
-- **Input**: `{ userId, leagueId, givePlayers: string[], receivePlayers: string[] }`
-- **Key data**: both player values, roster needs, ROS rankings — needs trade value data source
+- **Status**: Implemented
+- **Input**: `{ userId, leagueId, giving: string[], receiving: string[] }`
+- **Output**: `{ verdict, confidence, reasoning, counterOffer?, tokensUsed }`
+- **Key data**: `PlayerTradeValue` (fantasycalc + ktc + dynastydaddy sources), `PlayerRanking`, `ContentPlayerMention`, Dynasty Daddy community trade frequency (query-time via `DynastyDaddyConnector.getPlayerTrades`)
+
+### PlayerScoutAgent
+Deep per-player evaluation on demand.
+- **Status**: Implemented
+- **Input**: `{ userId, playerId, context? }`
+- **Output**: `{ trend, summary, strengths, risks, buyLowRating, sellHighRating, ... }`
+- **Key data**: `PlayerTradeValue` (all sources), `PlayerRanking`, `ContentPlayerMention`, Dynasty Daddy community trade volume (query-time)
 
 ### InjuryWatchAgent
 On-demand risk assessment for a user's starting lineup.
@@ -128,6 +137,11 @@ These run on a schedule in `apps/worker`. They populate the data tables that age
 | `TrendingRefreshJob` | Hourly | Sleeper trending | `TrendingPlayer` |
 | `RankingsRefreshJob` | Weekly (Tue) | Sleeper `searchRank` proxy (FantasyPros CSV planned) | `PlayerRanking` |
 | `ContentRefreshJob` | Every 30 min | Active RSS `ContentSource` rows | `ContentItem`, `ContentPlayerMention` |
+| `YouTubeRefreshJob` | Every 2 hours | Active YouTube `ContentSource` rows | `ContentItem`, `ContentPlayerMention` |
+| `TradeRefreshJob` | Daily 8am ET | Sleeper transactions for all stored leagues | `TradeTransaction` (with `leagueType`, `teamCount`, `isSuperflex`, `scoringFormat`) |
+| `TradeValuesRefreshJob` | Weekly (Tue 10am ET) | FantasyCalc public API | `PlayerTradeValue` (`source='fantasycalc'`) |
+| `DynastyDaddyRefreshJob` | Weekly (Tue 11am ET) | Dynasty Daddy API (KTC market=0/4 + DD own) | `PlayerTradeValue` (`source='ktc'` and `source='dynastydaddy'`) |
+| `ADPRefreshJob` | Weekly (Tue 10:30am ET) | Fantasy Football Calculator | `PlayerRanking` (`source='ffc_adp_*'`) |
 | `CreditsRefillJob` | Monthly (1st) | Internal system job | `User.runCredits` |
 
 Manual trigger: `POST /internal/ingestion/trigger` with `{ "type": "player_refresh" | "trending_refresh" | "rankings_refresh" | "content_refresh" | "credits_refill" }` (requires admin secret or admin session).

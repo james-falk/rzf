@@ -36,10 +36,10 @@ export function createAgentWorker(): Worker<AgentJobData> {
 
         switch (agentType) {
           case AgentJobTypes.TEAM_EVAL:
-            output = await runTeamEvalAgent(input)
+            output = await runTeamEvalAgent(input as Parameters<typeof runTeamEvalAgent>[0])
             break
           case AgentJobTypes.INJURY_WATCH:
-            output = await runInjuryWatchAgent(input)
+            output = await runInjuryWatchAgent(input as Parameters<typeof runInjuryWatchAgent>[0])
             break
           case AgentJobTypes.WAIVER:
             output = await runWaiverAgent(input as Parameters<typeof runWaiverAgent>[0])

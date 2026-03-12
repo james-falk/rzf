@@ -71,7 +71,14 @@ export async function scheduleIngestionJobs(): Promise<void> {
     { name: 'adp-refresh', data: { type: IngestionJobTypes.ADP_REFRESH } },
   )
 
+  // Weekly on Tuesday at 4pm UTC (11am ET) — Dynasty Daddy: KTC values + DD own values
+  await queue.upsertJobScheduler(
+    'dynasty-daddy-refresh-weekly',
+    { pattern: '0 16 * * 2' },
+    { name: 'dynasty-daddy-refresh', data: { type: IngestionJobTypes.DYNASTY_DADDY_REFRESH } },
+  )
+
   console.log(
-    '[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly',
+    '[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly',
   )
 }

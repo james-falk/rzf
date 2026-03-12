@@ -98,6 +98,24 @@ async function ytFetch<T>(path: string, params: Record<string, string>): Promise
   return res.json() as Promise<T>
 }
 
+/**
+ * Resolve a channel identifier to a raw channel ID.
+ * Handles @handle format via the forHandle parameter (1 unit).
+ * Raw UCxxxxxx IDs are returned as-is.
+ */
+async function resolveChannelId(identifier: string): Promise<string> {
+  if (identifier.startsWith('@')) {
+    const data = await ytFetch<YouTubeChannelResponse>('/channels', {
+      part: 'id',
+      forHandle: identifier,
+    })
+    const channelId = data.items?.[0]?.id
+    if (!channelId) throw new Error(`YouTube channel not found for handle: ${identifier}`)
+    return channelId
+  }
+  return identifier
+}
+
 async function getUploadPlaylistId(channelId: string): Promise<string> {
   const data = await ytFetch<YouTubeChannelResponse>('/channels', {
     part: 'contentDetails',
@@ -142,13 +160,15 @@ async function processChannel(
   const config = (source.platformConfig ?? {}) as Record<string, string>
   let uploadPlaylistId = config.uploadPlaylistId as string | undefined
 
-  // Resolve and cache upload playlist ID on first run
+  // Resolve and cache channel ID + upload playlist ID on first run
   if (!uploadPlaylistId) {
-    const channelId = config.channelId ?? source.feedUrl
-    uploadPlaylistId = await getUploadPlaylistId(channelId)
+    const rawIdentifier = config.channelId ?? source.feedUrl
+    // Resolve @handle to a real channel ID (1 unit, result cached below)
+    const resolvedChannelId = await resolveChannelId(rawIdentifier)
+    uploadPlaylistId = await getUploadPlaylistId(resolvedChannelId)
     await db.contentSource.update({
       where: { id: source.id },
-      data: { platformConfig: { ...config, uploadPlaylistId } },
+      data: { platformConfig: { ...config, channelId: resolvedChannelId, uploadPlaylistId } },
     })
   }
 
