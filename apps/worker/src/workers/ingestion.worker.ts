@@ -429,17 +429,29 @@ async function runADPRefresh(): Promise<void> {
 }
 
 // ─── DynastyDaddyRefreshJob ───────────────────────────────────────────────────
-// Weekly: sync KTC dynasty (market=0) + KTC redraft (market=4) values and
-// Dynasty Daddy's own aggregated values into PlayerTradeValue.
+// Weekly: sync KTC (markets 0+4), DynastyProcess (2), DynastySuperflex (3),
+// DD own values (/today) into PlayerTradeValue, plus bulk trade volume into
+// PlayerTradeVolume via /trade/volume.
 async function runDynastyDaddyRefresh(): Promise<void> {
-  const result = await DynastyDaddyConnector.syncValues()
-  if (result.errors.length > 0) {
+  const [valuesResult, volumeResult] = await Promise.all([
+    DynastyDaddyConnector.syncValues(),
+    DynastyDaddyConnector.syncTradeVolume(),
+  ])
+
+  if (valuesResult.errors.length > 0) {
     console.warn(
-      `[ingestion] Dynasty Daddy refresh had ${result.errors.length} error(s):`,
-      result.errors.slice(0, 5),
+      `[ingestion] Dynasty Daddy values had ${valuesResult.errors.length} error(s):`,
+      valuesResult.errors.slice(0, 5),
     )
   }
+  if (volumeResult.errors.length > 0) {
+    console.warn(
+      `[ingestion] Dynasty Daddy volume had ${volumeResult.errors.length} error(s):`,
+      volumeResult.errors.slice(0, 5),
+    )
+  }
+
   console.log(
-    `[ingestion] Dynasty Daddy refresh: KTC upserted=${result.ktcUpserted}, DD upserted=${result.ddUpserted}, unmatched=${result.unmatched}`,
+    `[ingestion] Dynasty Daddy refresh: KTC=${valuesResult.ktcUpserted}, DP=${valuesResult.dpUpserted}, DS=${valuesResult.dsUpserted}, DD=${valuesResult.ddUpserted}, unmatched=${valuesResult.unmatched} | volume upserted=${volumeResult.upserted}`,
   )
 }

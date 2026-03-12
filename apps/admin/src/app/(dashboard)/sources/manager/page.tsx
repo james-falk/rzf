@@ -378,14 +378,86 @@ function DeleteConfirm({
   )
 }
 
+// ─── Automated APIs Tab Data ──────────────────────────────────────────────────
+
+interface AutoConnector {
+  name: string
+  description: string
+  data: string
+  schedule: string
+  jobType: string
+  status: 'live' | 'coming_soon'
+}
+
+const AUTOMATED_CONNECTORS: AutoConnector[] = [
+  {
+    name: 'Sleeper — Players',
+    description: 'Full NFL player roster: injuries, depth chart, status, practice participation',
+    data: 'Player table',
+    schedule: 'Daily 6am ET',
+    jobType: 'player_refresh',
+    status: 'live',
+  },
+  {
+    name: 'Sleeper — Trending',
+    description: 'Top 25 adds and drops across all Sleeper leagues (last 24 hours)',
+    data: 'TrendingPlayer table',
+    schedule: 'Hourly',
+    jobType: 'trending_refresh',
+    status: 'live',
+  },
+  {
+    name: 'Sleeper — Trades',
+    description: 'Trade transactions from all linked user leagues, with dynasty/redraft/superflex/teamCount metadata',
+    data: 'TradeTransaction table',
+    schedule: 'Daily 8am ET',
+    jobType: 'trade_refresh',
+    status: 'live',
+  },
+  {
+    name: 'FantasyCalc',
+    description: 'Dynasty 1QB + Superflex and redraft trade values derived from millions of real trades',
+    data: 'PlayerTradeValue (source=fantasycalc)',
+    schedule: 'Weekly — Tue 10am ET',
+    jobType: 'trade_values_refresh',
+    status: 'live',
+  },
+  {
+    name: 'Dynasty Daddy',
+    description: 'KTC dynasty + redraft, DynastyProcess, DynastySuperflex values, plus 8-week community trade volume for every player',
+    data: 'PlayerTradeValue (ktc/dynastydaddy/dynastyprocess/dynastysuperflex) + PlayerTradeVolume',
+    schedule: 'Weekly — Tue 11am ET',
+    jobType: 'dynasty_daddy_refresh',
+    status: 'live',
+  },
+  {
+    name: 'Fantasy Football Calculator — ADP',
+    description: 'Average Draft Position across PPR, half-PPR, and standard scoring formats',
+    data: 'PlayerRanking (source=ffc_adp_*)',
+    schedule: 'Weekly — Tue 10:30am ET',
+    jobType: 'adp_refresh',
+    status: 'live',
+  },
+  {
+    name: 'Rankings Proxy',
+    description: 'Consensus rankings derived from Sleeper searchRank field (FantasyPros CSV planned)',
+    data: 'PlayerRanking (source=fantasypros)',
+    schedule: 'Weekly — Tue 9am ET',
+    jobType: 'rankings_refresh',
+    status: 'live',
+  },
+]
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SourceManagerPage() {
+  const [activeTab, setActiveTab] = useState<'managed' | 'automated'>('managed')
   const [sources, setSources] = useState<SourceSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [platformFilter, setPlatformFilter] = useState<ContentPlatform | 'all'>('all')
+  const [triggering, setTriggering] = useState<Set<string>>(new Set())
 
   // Modal state
   const [addModalOpen, setAddModalOpen] = useState(false)
@@ -490,6 +562,18 @@ export default function SourceManagerPage() {
     }
   }
 
+  async function handleTrigger(jobType: string) {
+    setTriggering((prev) => new Set(prev).add(jobType))
+    try {
+      await api.triggerIngestion(jobType)
+      showToast(`Job "${jobType}" queued successfully`)
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : 'Failed to trigger job')
+    } finally {
+      setTriggering((prev) => { const next = new Set(prev); next.delete(jobType); return next })
+    }
+  }
+
   async function handleRefresh(source: SourceSummary) {
     setRefreshing((prev) => new Set(prev).add(source.id))
     try {
@@ -530,17 +614,104 @@ export default function SourceManagerPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Source Manager</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Manage all content ingestion sources. Add RSS feeds, YouTube channels, and more.
+            Manage content sources and monitor automated data connectors.
           </p>
         </div>
+        {activeTab === 'managed' && (
+          <button
+            onClick={() => { setAddModalOpen(true); setModalError(null) }}
+            className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-200"
+          >
+            <Plus size={15} />
+            Add Source
+          </button>
+        )}
+      </div>
+
+      {/* Tab Toggle */}
+      <div className="flex gap-1 rounded-lg border border-white/10 bg-white/[0.03] p-1 w-fit">
         <button
-          onClick={() => { setAddModalOpen(true); setModalError(null) }}
-          className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-zinc-200"
+          onClick={() => setActiveTab('managed')}
+          className={[
+            'rounded-md px-4 py-1.5 text-sm font-medium transition',
+            activeTab === 'managed'
+              ? 'bg-white text-zinc-900'
+              : 'text-zinc-400 hover:text-zinc-200',
+          ].join(' ')}
         >
-          <Plus size={15} />
-          Add Source
+          Managed Sources
+        </button>
+        <button
+          onClick={() => setActiveTab('automated')}
+          className={[
+            'rounded-md px-4 py-1.5 text-sm font-medium transition',
+            activeTab === 'automated'
+              ? 'bg-white text-zinc-900'
+              : 'text-zinc-400 hover:text-zinc-200',
+          ].join(' ')}
+        >
+          Automated APIs
         </button>
       </div>
+
+      {/* Automated APIs Tab */}
+      {activeTab === 'automated' && (
+        <div className="space-y-4">
+          <p className="text-sm text-zinc-400">
+            These connectors run automatically on a schedule. No configuration needed — data lands directly in the database.
+            Use the trigger button to run a job immediately.
+          </p>
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <table className="w-full text-sm">
+              <thead className="border-b border-white/10 bg-white/[0.03]">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Connector</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Data Stored</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-zinc-500">Schedule</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-zinc-500">Status</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-zinc-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {AUTOMATED_CONNECTORS.map((connector) => (
+                  <tr key={connector.jobType} className="hover:bg-white/[0.02]">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-white">{connector.name}</p>
+                      <p className="mt-0.5 text-xs text-zinc-500">{connector.description}</p>
+                    </td>
+                    <td className="px-4 py-3 text-xs font-mono text-zinc-400 max-w-[200px]">
+                      {connector.data}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-zinc-400 whitespace-nowrap">
+                      {connector.schedule}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {connector.status === 'live'
+                        ? <Badge variant="success">Live</Badge>
+                        : <Badge variant="warning">Soon</Badge>
+                      }
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        onClick={() => handleTrigger(connector.jobType)}
+                        disabled={triggering.has(connector.jobType)}
+                        title="Run this job now"
+                        className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-50 ml-auto"
+                      >
+                        <RefreshCw size={11} className={triggering.has(connector.jobType) ? 'animate-spin' : ''} />
+                        Trigger
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Managed Sources Tab */}
+      {activeTab === 'managed' && (<>
 
       {/* Stats strip */}
       <div className="flex flex-wrap gap-3">
@@ -762,6 +933,7 @@ export default function SourceManagerPage() {
           error={modalError}
         />
       )}
+      </>)}
 
       {/* Toast */}
       {toast && (

@@ -302,6 +302,7 @@ model Player {
   aliases         PlayerAlias[]
   contentMentions ContentPlayerMention[]
   tradeValues     PlayerTradeValue[]
+  tradeVolume     PlayerTradeVolume?
 
   @@index([position])
   @@index([team])
@@ -598,6 +599,33 @@ model PlayerTradeValue {
   @@index([dynasty1qb])
   @@index([redraft])
   @@map("player_trade_values")
+}
+
+/// Community trade frequency sourced from Dynasty Daddy /trade/volume endpoint.
+/// Updated weekly alongside other Dynasty Daddy data. One row per player.
+model PlayerTradeVolume {
+  sleeperId String @id
+  player    Player @relation(fields: [sleeperId], references: [sleeperId], onDelete: Cascade)
+
+  /// Number of community trades in the last 7 days
+  count1w Int?
+  /// Number of community trades in the last 14 days
+  count2w Int?
+  /// Number of community trades in the last 28 days
+  count4w Int?
+  /// Number of community trades in the last 56 days (8 weeks)
+  count8w Int?
+
+  /// Trade volume rank among all players, last 7 days
+  rank1w Int?
+  /// Trade volume rank among all players, last 28 days
+  rank4w Int?
+  /// Trade volume rank among all players, last 56 days
+  rank8w Int?
+
+  fetchedAt DateTime @default(now())
+
+  @@map("player_trade_volume")
 }
 
 /// Join table: which players are mentioned in which content, with context.

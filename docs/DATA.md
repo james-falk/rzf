@@ -320,5 +320,8 @@ The `mediaMeta` JSON field stores platform-specific metadata that doesn't fit th
 | `AgentRun` | ~1 MB/1000 runs | Grows with usage |
 | `AnalyticsEvent` | ~5 MB/10K events | Grows with usage |
 | `ContentItem` | ~500 MB/year | Phase 2: depends on sources (text storage) |
+| `PlayerTradeValue` | < 5 MB | ~1,500 players × 5 sources (ktc/fantasycalc/dynastydaddy/dynastyprocess/dynastysuperflex), updated weekly |
+| `PlayerTradeVolume` | < 1 MB | ~1,500 players × 7 fields, updated weekly from Dynasty Daddy /trade/volume |
+| `TradeTransaction` | ~10 MB/season | Grows with user league count; includes leagueType/teamCount/isSuperflex/scoringFormat metadata |
 
 Render Postgres Starter (1 GB) handles all Phase 1 + Phase 2 content comfortably.

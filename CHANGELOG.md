@@ -6,6 +6,13 @@ All meaningful changes are logged here. Most recent first.
 
 ## 2026-03-12
 
+### Dynasty Daddy full data pull, PlayerTradeVolume, and Source Manager Automated APIs tab
+
+- **Dynasty Daddy markets 2+3**: `syncValues()` now pulls DynastyProcess (market=2) and DynastySuperflex (market=3) into `PlayerTradeValue` with `source='dynastyprocess'` and `source='dynastysuperflex'`. Five markets total per weekly run (KTC dynasty, KTC redraft, DP, DS, DD own).
+- **PlayerTradeVolume**: New schema model and table storing 8-week community trade frequency per player (count1w/2w/4w/8w + rank1w/4w/8w). Populated by new `syncTradeVolume()` which calls Dynasty Daddy's `/trade/volume` endpoint in the same weekly job.
+- **Ingestion trigger endpoint expanded**: `POST /internal/ingestion/trigger` now accepts all job types including `youtube_refresh`, `trade_refresh`, `trade_values_refresh`, `adp_refresh`, and `dynasty_daddy_refresh`.
+- **Source Manager — Automated APIs tab**: New read-only tab showing all 7 automated connectors (Sleeper Players/Trending/Trades, FantasyCalc, Dynasty Daddy, FFC ADP, Rankings) with schedule, data target, and a Trigger button for each.
+
 ### Dynasty Daddy connector, trade context enrichment, and Source Manager improvements
 
 - **Dynasty Daddy connector**: New `DynastyDaddyConnector` syncs KTC dynasty (market=0), KTC redraft (market=4), and Dynasty Daddy own values (via `/player/all/today`) into `PlayerTradeValue` weekly. Sources labeled `source='ktc'` and `source='dynastydaddy'`. Also provides query-time `getPlayerTrades()` and `searchTrades()` for community trade history across 3.6M+ real trades.

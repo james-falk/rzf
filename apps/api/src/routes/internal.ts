@@ -225,6 +225,11 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         IngestionJobTypes.RANKINGS_REFRESH,
         IngestionJobTypes.CONTENT_REFRESH,
         IngestionJobTypes.CREDITS_REFILL,
+        IngestionJobTypes.YOUTUBE_REFRESH,
+        IngestionJobTypes.TRADE_REFRESH,
+        IngestionJobTypes.TRADE_VALUES_REFRESH,
+        IngestionJobTypes.ADP_REFRESH,
+        IngestionJobTypes.DYNASTY_DADDY_REFRESH,
       ]),
     }).safeParse(req.body)
 

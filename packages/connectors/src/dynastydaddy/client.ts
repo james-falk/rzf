@@ -12,6 +12,9 @@
  *   3 = DynastySuperflex
  *   4 = KTC redraft
  *   5 = FantasyCalc redraft
+ *
+ * Value sync pulls markets 0, 2, 3, 4 + /today into PlayerTradeValue.
+ * Trade volume sync pulls /trade/volume into PlayerTradeVolume.
  */
 
 import { db } from '@rzf/db'
@@ -52,6 +55,15 @@ interface DDTradeResponse {
   tradeVolume: Array<{ week_interval: number; count: number; rank: number }>
 }
 
+interface DDTradeVolumeEntry {
+  id: string          // sleeper_id
+  week_interval: number
+  count: number
+  rank: number
+  position: string
+  position_rank: number
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function ddFetch<T>(path: string, init?: RequestInit): Promise<T> {
@@ -84,126 +96,203 @@ export function nameIdFromPlayer(firstName: string, lastName: string, position: 
 export interface DynastyDaddySyncResult {
   ktcUpserted: number
   ddUpserted: number
+  dpUpserted: number
+  dsUpserted: number
   unmatched: number
   errors: string[]
+}
+
+export interface DynastyDaddyVolumeResult {
+  upserted: number
+  skipped: number
+  errors: string[]
+}
+
+/**
+ * Upsert helper for a single source into PlayerTradeValue.
+ * dynasty1qb = trade_value, dynastySf = sf_trade_value, redraft = trade_value (for KTC redraft only).
+ */
+async function upsertPlayerValue(
+  sleeperId: string,
+  source: string,
+  entry: DDMarketPlayer,
+  redraftEntry?: DDMarketPlayer,
+): Promise<void> {
+  const trend =
+    entry.trade_value != null && entry.last_month_value != null
+      ? entry.trade_value - entry.last_month_value
+      : null
+
+  const data = {
+    sleeperId,
+    source,
+    dynasty1qb: entry.trade_value ?? null,
+    dynastySf: entry.sf_trade_value ?? null,
+    redraft: redraftEntry?.trade_value ?? null,
+    trend30d: trend,
+    fetchedAt: new Date(),
+  }
+
+  await db.playerTradeValue.upsert({
+    where: { sleeperId_source: { sleeperId, source } },
+    create: data,
+    update: {
+      dynasty1qb: data.dynasty1qb,
+      dynastySf: data.dynastySf,
+      redraft: data.redraft,
+      trend30d: data.trend30d,
+      fetchedAt: data.fetchedAt,
+    },
+  })
 }
 
 /**
  * Batch sync player trade values from Dynasty Daddy into PlayerTradeValue.
  *
- * Pulls three market endpoints in parallel:
- *   market=0 (KTC dynasty) → dynasty1qb + dynastySf → source='ktc'
- *   market=4 (KTC redraft) → redraft                → merged into source='ktc'
- *   /today   (DD own)      → dynasty1qb + dynastySf → source='dynastydaddy'
+ * Pulls five market endpoints in parallel:
+ *   market=0 (KTC dynasty)      → source='ktc'           (dynasty1qb, dynastySf)
+ *   market=4 (KTC redraft)      → merged into source='ktc' (redraft)
+ *   market=2 (DynastyProcess)   → source='dynastyprocess' (dynasty1qb, dynastySf)
+ *   market=3 (DynastySuperflex) → source='dynastysuperflex' (dynasty1qb, dynastySf)
+ *   /today   (DD own values)    → source='dynastydaddy'   (dynasty1qb, dynastySf)
  *
- * Matching is done by Sleeper ID (if available on the DD player object) with
- * a name-based fallback.
+ * Matching is done by name_id (firstnamelastnamePOSITION, lowercase alpha only).
  */
 export async function syncValues(): Promise<DynastyDaddySyncResult> {
-  console.log('[dynastydaddy] Fetching market values...')
+  console.log('[dynastydaddy] Fetching market values (markets 0, 2, 3, 4 + today)...')
 
-  const [ktcDynastyData, ktcRedraftData, ddTodayData] = await Promise.all([
+  const [ktcDynastyData, ktcRedraftData, dpData, dsData, ddTodayData] = await Promise.all([
     ddFetch<DDMarketPlayer[]>('/player/all/market/0'),
     ddFetch<DDMarketPlayer[]>('/player/all/market/4'),
+    ddFetch<DDMarketPlayer[]>('/player/all/market/2'),
+    ddFetch<DDMarketPlayer[]>('/player/all/market/3'),
     ddFetch<DDMarketPlayer[]>('/player/all/today'),
   ])
 
   console.log(
-    `[dynastydaddy] Fetched ${ktcDynastyData.length} KTC dynasty, ${ktcRedraftData.length} KTC redraft, ${ddTodayData.length} DD today`,
+    `[dynastydaddy] Fetched KTC=${ktcDynastyData.length}, KTCrd=${ktcRedraftData.length}, DP=${dpData.length}, DS=${dsData.length}, DD=${ddTodayData.length}`,
   )
 
-  // Build lookup maps by name_id (e.g. "justinjeffersonwr")
   const ktcDynMap = new Map(ktcDynastyData.map((p) => [p.name_id, p]))
-  const ktcRdMap = new Map(ktcRedraftData.map((p) => [p.name_id, p]))
-  const ddMap = new Map(ddTodayData.map((p) => [p.name_id, p]))
+  const ktcRdMap  = new Map(ktcRedraftData.map((p) => [p.name_id, p]))
+  const dpMap     = new Map(dpData.map((p) => [p.name_id, p]))
+  const dsMap     = new Map(dsData.map((p) => [p.name_id, p]))
+  const ddMap     = new Map(ddTodayData.map((p) => [p.name_id, p]))
 
   const players = await db.player.findMany({
     select: { sleeperId: true, firstName: true, lastName: true, position: true },
   })
 
   let ktcUpserted = 0
-  let ddUpserted = 0
-  let unmatched = 0
+  let ddUpserted  = 0
+  let dpUpserted  = 0
+  let dsUpserted  = 0
+  let unmatched   = 0
   const errors: string[] = []
 
   for (const player of players) {
     const nameId = nameIdFromPlayer(player.firstName, player.lastName, player.position ?? '')
 
     const ktcDyn = ktcDynMap.get(nameId)
-    const ktcRd = ktcRdMap.get(nameId)
-    const ddEntry = ddMap.get(nameId)
+    const ktcRd  = ktcRdMap.get(nameId)
+    const dp     = dpMap.get(nameId)
+    const ds     = dsMap.get(nameId)
+    const dd     = ddMap.get(nameId)
 
-    const hasKtc = ktcDyn ?? ktcRd
-    const hasDD = !!ddEntry
-
-    if (!hasKtc && !hasDD) {
+    if (!ktcDyn && !ktcRd && !dp && !ds && !dd) {
       unmatched++
       continue
     }
 
     try {
-      if (hasKtc) {
-        await db.playerTradeValue.upsert({
-          where: { sleeperId_source: { sleeperId: player.sleeperId, source: 'ktc' } },
-          create: {
-            sleeperId: player.sleeperId,
-            source: 'ktc',
-            dynasty1qb: ktcDyn?.trade_value ?? null,
-            dynastySf: ktcDyn?.sf_trade_value ?? null,
-            redraft: ktcRd?.trade_value ?? null,
-            trend30d: ktcDyn
-              ? ((ktcDyn.trade_value ?? 0) - (ktcDyn.last_month_value ?? ktcDyn.trade_value ?? 0))
-              : null,
-            fetchedAt: new Date(),
-          },
-          update: {
-            dynasty1qb: ktcDyn?.trade_value ?? null,
-            dynastySf: ktcDyn?.sf_trade_value ?? null,
-            redraft: ktcRd?.trade_value ?? null,
-            trend30d: ktcDyn
-              ? ((ktcDyn.trade_value ?? 0) - (ktcDyn.last_month_value ?? ktcDyn.trade_value ?? 0))
-              : null,
-            fetchedAt: new Date(),
-          },
-        })
+      if (ktcDyn ?? ktcRd) {
+        const base = ktcDyn ?? ({ trade_value: null, sf_trade_value: null, last_month_value: null } as DDMarketPlayer)
+        await upsertPlayerValue(player.sleeperId, 'ktc', base, ktcRd)
         ktcUpserted++
       }
-
-      if (hasDD) {
-        await db.playerTradeValue.upsert({
-          where: { sleeperId_source: { sleeperId: player.sleeperId, source: 'dynastydaddy' } },
-          create: {
-            sleeperId: player.sleeperId,
-            source: 'dynastydaddy',
-            dynasty1qb: ddEntry.trade_value ?? null,
-            dynastySf: ddEntry.sf_trade_value ?? null,
-            redraft: null,
-            trend30d: ddEntry.trade_value != null && ddEntry.last_month_value != null
-              ? ddEntry.trade_value - ddEntry.last_month_value
-              : null,
-            fetchedAt: new Date(),
-          },
-          update: {
-            dynasty1qb: ddEntry.trade_value ?? null,
-            dynastySf: ddEntry.sf_trade_value ?? null,
-            redraft: null,
-            trend30d: ddEntry.trade_value != null && ddEntry.last_month_value != null
-              ? ddEntry.trade_value - ddEntry.last_month_value
-              : null,
-            fetchedAt: new Date(),
-          },
-        })
-        ddUpserted++
-      }
+      if (dp) { await upsertPlayerValue(player.sleeperId, 'dynastyprocess', dp); dpUpserted++ }
+      if (ds) { await upsertPlayerValue(player.sleeperId, 'dynastysuperflex', ds); dsUpserted++ }
+      if (dd) { await upsertPlayerValue(player.sleeperId, 'dynastydaddy', dd); ddUpserted++ }
     } catch (err) {
       errors.push(`${player.firstName} ${player.lastName}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
   console.log(
-    `[dynastydaddy] Sync done — KTC upserted: ${ktcUpserted}, DD upserted: ${ddUpserted}, unmatched: ${unmatched}`,
+    `[dynastydaddy] Sync done — KTC=${ktcUpserted}, DP=${dpUpserted}, DS=${dsUpserted}, DD=${ddUpserted}, unmatched=${unmatched}`,
   )
-  return { ktcUpserted, ddUpserted, unmatched, errors }
+  return { ktcUpserted, ddUpserted, dpUpserted, dsUpserted, unmatched, errors }
+}
+
+// ─── Trade Volume Sync ────────────────────────────────────────────────────────
+
+/**
+ * Bulk sync 8-week community trade frequency for all players from Dynasty Daddy.
+ * One API call returns data for all players. Upserts into PlayerTradeVolume.
+ */
+export async function syncTradeVolume(): Promise<DynastyDaddyVolumeResult> {
+  console.log('[dynastydaddy] Fetching bulk trade volume...')
+
+  const volumeData = await ddFetch<DDTradeVolumeEntry[]>('/trade/volume')
+
+  console.log(`[dynastydaddy] Trade volume entries received: ${volumeData.length}`)
+
+  // Group by sleeper_id, collect all week intervals per player
+  const byPlayer = new Map<string, Map<number, DDTradeVolumeEntry>>()
+  for (const entry of volumeData) {
+    if (!entry.id) continue
+    if (!byPlayer.has(entry.id)) byPlayer.set(entry.id, new Map())
+    byPlayer.get(entry.id)!.set(entry.week_interval, entry)
+  }
+
+  let upserted = 0
+  let skipped  = 0
+  const errors: string[] = []
+
+  for (const [sleeperId, intervals] of byPlayer) {
+    const w1 = intervals.get(1)
+    const w2 = intervals.get(2)
+    const w4 = intervals.get(4)
+    const w8 = intervals.get(8)
+
+    try {
+      await db.playerTradeVolume.upsert({
+        where: { sleeperId },
+        create: {
+          sleeperId,
+          count1w: w1?.count ?? null,
+          count2w: w2?.count ?? null,
+          count4w: w4?.count ?? null,
+          count8w: w8?.count ?? null,
+          rank1w:  w1?.rank  ?? null,
+          rank4w:  w4?.rank  ?? null,
+          rank8w:  w8?.rank  ?? null,
+          fetchedAt: new Date(),
+        },
+        update: {
+          count1w: w1?.count ?? null,
+          count2w: w2?.count ?? null,
+          count4w: w4?.count ?? null,
+          count8w: w8?.count ?? null,
+          rank1w:  w1?.rank  ?? null,
+          rank4w:  w4?.rank  ?? null,
+          rank8w:  w8?.rank  ?? null,
+          fetchedAt: new Date(),
+        },
+      })
+      upserted++
+    } catch (err) {
+      // Player may not exist in our DB yet — skip silently
+      if (err instanceof Error && err.message.includes('Foreign key')) {
+        skipped++
+      } else {
+        errors.push(`${sleeperId}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+
+  console.log(`[dynastydaddy] Trade volume sync done — upserted=${upserted}, skipped=${skipped}`)
+  return { upserted, skipped, errors }
 }
 
 // ─── Query-Time Trade Lookups ──────────────────────────────────────────────────
@@ -248,6 +337,7 @@ export async function searchTrades(
 
 export const DynastyDaddyConnector = {
   syncValues,
+  syncTradeVolume,
   getPlayerTrades,
   searchTrades,
   nameIdFromPlayer,
