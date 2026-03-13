@@ -180,18 +180,6 @@ export const api = {
     }>('/usage', { token })
   },
 
-  async getPreferences(token: string) {
-    return apiFetch<{ preferences: unknown }>('/preferences', { token })
-  },
-
-  async updatePreferences(token: string, prefs: Record<string, unknown>) {
-    return apiFetch<{ preferences: unknown }>('/preferences', {
-      method: 'PUT',
-      token,
-      body: JSON.stringify(prefs),
-    })
-  },
-
   // Internal admin routes
   async getInternalOverview(adminSecret: string) {
     return apiFetch<unknown>('/internal/overview', {

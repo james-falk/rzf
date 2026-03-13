@@ -13,7 +13,6 @@ const navSections = [
     label: 'Account',
     links: [
       { href: '/account/sleeper', icon: '🔗', label: 'Sleeper Account' },
-      { href: '/account/preferences', icon: '⚙️', label: 'Preferences' },
       { href: '/account/billing', icon: '💳', label: 'Billing' },
     ],
   },

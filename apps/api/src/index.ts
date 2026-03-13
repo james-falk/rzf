@@ -5,7 +5,6 @@ import { env } from '@rzf/shared/env'
 import { usersRoutes } from './routes/users.js'
 import { sleeperRoutes } from './routes/sleeper.js'
 import { agentsRoutes } from './routes/agents.js'
-import { preferencesRoutes } from './routes/preferences.js'
 import { webhooksRoutes } from './routes/webhooks.js'
 import { internalRoutes } from './routes/internal.js'
 import { intentRoutes } from './routes/intent.js'
@@ -50,7 +49,6 @@ await app.register(intentRoutes)
 await app.register(playersRoutes)
 await app.register(billingRoutes)
 await app.register(feedbackRoutes)
-await app.register(preferencesRoutes)
 await app.register(internalRoutes)
 
 // ── Start ─────────────────────────────────────────────────────────────────────
