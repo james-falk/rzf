@@ -1,7 +1,9 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import Image from 'next/image'
 import { db } from '@rzf/db'
 import Navbar from '@/components/Navbar'
+import { ProGate } from '@/components/ProGate'
 import type { Metadata } from 'next'
 
 type Props = { params: Promise<{ id: string }> }
@@ -20,39 +22,55 @@ export default async function PlayerPage({ params }: Props) {
     where: { sleeperId: id },
     include: {
       rankings: { orderBy: { week: 'asc' }, take: 10 },
-      projections: { orderBy: { week: 'asc' }, take: 10 }, 
+      projections: { orderBy: { week: 'asc' }, take: 10 },
       contentMentions: {
         include: { content: { include: { source: true } } },
         orderBy: { content: { publishedAt: 'desc' } },
         take: 20,
       },
+      tradeValues: { orderBy: { fetchedAt: 'desc' }, take: 3 },
     },
   })
 
   if (!player) notFound()
 
   const latestRanking = player.rankings[0]
+  const freeMentions = player.contentMentions.slice(0, 3)
+  const proMentions = player.contentMentions.slice(3)
 
   return (
     <div className="min-h-screen" style={{ background: 'rgb(10,10,10)' }}>
       <Navbar />
       <main className="mx-auto max-w-5xl px-4 py-10">
+
         {/* Player header */}
         <div
-          className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border p-6"
+          className="flex flex-wrap items-start gap-6 rounded-2xl border p-6"
           style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
         >
-          <div>
+          {/* Sleeper headshot */}
+          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-800">
+            <Image
+              src={`https://sleepercdn.com/content/nfl/players/${player.sleeperId}.jpg`}
+              alt={`${player.firstName} ${player.lastName}`}
+              fill
+              className="object-cover"
+              unoptimized
+            />
+          </div>
+
+          <div className="flex-1">
             <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest" style={{ color: 'rgb(115,115,115)' }}>
               {player.team} · {player.position}
+              {player.age && <span>· Age {player.age}</span>}
             </div>
-            <h1 className="mt-1 text-4xl font-extrabold text-white">
+            <h1 className="mt-1 text-3xl font-extrabold text-white md:text-4xl">
               {player.firstName} {player.lastName}
             </h1>
             {player.status && player.status !== 'Active' && (
               <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium" style={{ borderColor: 'rgba(239,68,68,0.3)', color: 'rgb(239,68,68)', background: 'rgba(239,68,68,0.08)' }}>
                 <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                {player.status}
+                {player.injuryStatus ?? player.status}
               </div>
             )}
           </div>
@@ -70,41 +88,35 @@ export default async function PlayerPage({ params }: Props) {
           )}
         </div>
 
-        {/* Projections */}
-        {player.projections.length > 0 && (
+        {/* Trade values (free) */}
+        {player.tradeValues.length > 0 && (
           <section className="mt-8">
-            <h2 className="mb-4 text-lg font-bold text-white">Projections</h2>
-            <div className="overflow-x-auto rounded-xl border" style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(18,18,18)' }}>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b" style={{ borderColor: 'rgb(38,38,38)' }}>
-                    {['Week', 'Points', 'Source'].map((h) => (
-                      <th key={h} className="px-4 py-3 text-left font-medium" style={{ color: 'rgb(115,115,115)' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {player.projections.map((proj) => (
-                    <tr key={proj.id} className="border-b last:border-0" style={{ borderColor: 'rgb(26,26,26)' }}>
-                      <td className="px-4 py-2.5 text-white">Week {proj.week}</td>
-                      <td className="px-4 py-2.5 font-medium" style={{ color: 'rgb(220,38,38)' }}>
-                        {proj.fpts.toFixed(1)}
-                      </td>
-                      <td className="px-4 py-2.5" style={{ color: 'rgb(115,115,115)' }}>{proj.source}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <h2 className="mb-4 text-lg font-bold text-white">Trade Values</h2>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {player.tradeValues.map((tv) => {
+                const vals = [
+                  tv.dynasty1qb != null && { label: 'Dynasty 1QB', val: tv.dynasty1qb },
+                  tv.dynastySf != null && { label: 'Dynasty SF', val: tv.dynastySf },
+                  tv.redraft != null && { label: 'Redraft', val: tv.redraft },
+                ].filter(Boolean) as Array<{ label: string; val: number }>
+                return vals.map(({ label, val }) => (
+                  <div key={`${tv.id}-${label}`} className="rounded-xl border p-4 text-center" style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(18,18,18)' }}>
+                    <div className="text-2xl font-bold text-white">{val}</div>
+                    <div className="mt-1 text-xs capitalize" style={{ color: 'rgb(115,115,115)' }}>{label}</div>
+                    <div className="text-[10px]" style={{ color: 'rgb(82,82,91)' }}>{tv.source}</div>
+                  </div>
+                ))
+              })}
             </div>
           </section>
         )}
 
-        {/* Recent content */}
-        {player.contentMentions.length > 0 && (
+        {/* Free content (3 items) */}
+        {freeMentions.length > 0 && (
           <section className="mt-8">
             <h2 className="mb-4 text-lg font-bold text-white">Recent News & Analysis</h2>
             <div className="flex flex-col gap-3">
-              {player.contentMentions.map(({ content }) => (
+              {freeMentions.map(({ content }) => (
                 <a
                   key={content.id}
                   href={content.sourceUrl}
@@ -114,23 +126,14 @@ export default async function PlayerPage({ params }: Props) {
                   style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 text-xs" style={{ color: 'rgb(115,115,115)' }}>
                         <span>{content.source?.name ?? 'Unknown'}</span>
                         {content.publishedAt && (
-                          <>
-                            <span>·</span>
-                            <span>{new Date(content.publishedAt).toLocaleDateString()}</span>
-                          </>
+                          <><span>·</span><span>{new Date(content.publishedAt).toLocaleDateString()}</span></>
                         )}
-                        <span
-                          className="rounded px-1.5 py-0.5 text-[10px] uppercase font-medium"
-                          style={{ background: 'rgb(26,26,26)', color: 'rgb(163,163,163)' }}
-                        >
-                          {content.contentType}
-                        </span>
                       </div>
-                      <p className="mt-1 font-medium text-white group-hover:text-red-400 transition-colors line-clamp-1">
+                      <p className="mt-1 font-medium text-white transition-colors group-hover:text-red-400 line-clamp-1">
                         {content.title}
                       </p>
                       {content.summary && (
@@ -140,11 +143,7 @@ export default async function PlayerPage({ params }: Props) {
                       )}
                     </div>
                     {content.thumbnailUrl && (
-                      <img
-                        src={content.thumbnailUrl}
-                        alt=""
-                        className="h-16 w-24 flex-shrink-0 rounded-lg object-cover"
-                      />
+                      <img src={content.thumbnailUrl} alt="" className="h-16 w-24 flex-shrink-0 rounded-lg object-cover" />
                     )}
                   </div>
                 </a>
@@ -153,13 +152,62 @@ export default async function PlayerPage({ params }: Props) {
           </section>
         )}
 
+        {/* Pro-gated: more content + projections */}
+        {(proMentions.length > 0 || player.projections.length > 0) && (
+          <section className="mt-8">
+            <ProGate
+              preview={
+                <div className="flex flex-col gap-3 pointer-events-none">
+                  {proMentions.slice(0, 2).map(({ content }) => (
+                    <div key={content.id} className="rounded-xl border p-4" style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}>
+                      <p className="font-medium text-white">{content.title}</p>
+                      {content.summary && <p className="mt-1 text-sm line-clamp-1" style={{ color: 'rgb(115,115,115)' }}>{content.summary}</p>}
+                    </div>
+                  ))}
+                </div>
+              }
+            >
+              <div className="flex flex-col gap-3">
+                {proMentions.map(({ content }) => (
+                  <a
+                    key={content.id}
+                    href={content.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group rounded-xl border p-4 transition-all hover:border-red-800/50 hover:bg-white/[0.02]"
+                    style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 text-xs" style={{ color: 'rgb(115,115,115)' }}>
+                          <span>{content.source?.name ?? 'Unknown'}</span>
+                          {content.publishedAt && (
+                            <><span>·</span><span>{new Date(content.publishedAt).toLocaleDateString()}</span></>
+                          )}
+                        </div>
+                        <p className="mt-1 font-medium text-white transition-colors group-hover:text-red-400 line-clamp-1">
+                          {content.title}
+                        </p>
+                        {content.summary && (
+                          <p className="mt-1 text-sm line-clamp-2" style={{ color: 'rgb(115,115,115)' }}>{content.summary}</p>
+                        )}
+                      </div>
+                      {content.thumbnailUrl && (
+                        <img src={content.thumbnailUrl} alt="" className="h-16 w-24 flex-shrink-0 rounded-lg object-cover" />
+                      )}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </ProGate>
+          </section>
+        )}
+
         {player.contentMentions.length === 0 && player.projections.length === 0 && (
           <div className="mt-8 rounded-xl border py-12 text-center" style={{ borderColor: 'rgb(26,26,26)', background: 'rgb(14,14,14)' }}>
             <div className="text-3xl">📡</div>
             <p className="mt-3 font-medium text-white">No data yet</p>
-            <p className="mt-1 text-sm" style={{ color: 'rgb(115,115,115)' }}>
-              Content connectors are being configured. Check back soon.
-            </p>
+            <p className="mt-1 text-sm" style={{ color: 'rgb(115,115,115)' }}>Content is being indexed. Check back soon.</p>
           </div>
         )}
 

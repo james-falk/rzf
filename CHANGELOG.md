@@ -4,6 +4,22 @@ All meaningful changes are logged here. Most recent first.
 
 ---
 
+## 2026-03-13
+
+### Admin & Directory overhaul — token tracking, queue improvements, full directory UI rebuild
+
+- **Admin token usage page** (`/usage`): per-user token consumption + estimated cost (Haiku/Sonnet rates) for last 30 days, sortable table + bar chart; new `GET /internal/usage/tokens` endpoint
+- **Admin queue page**: state tooltips explaining Waiting/Active/Delayed/Completed/Failed; live "Recent Jobs" table with `GET /internal/queue/jobs` endpoint
+- **Bad mention cleanup**: new `POST /internal/maintenance/cleanup-mentions` endpoint; raised alias min match from 4→6 chars; RSS + YouTube connectors filter Inactive players from alias lookups
+- **YouTube ingestion**: `runYouTubeRefresh` now throws on errors so BullMQ marks job Failed (visible in admin)
+- **Schema**: added `featured` (Boolean) and `partnerTier` (String?) to `ContentSource`; migration `20260312000002_content_source_featured`
+- **Directory homepage**: full overhaul — trending ticker (Sleeper headshots), hero, stats bar, featured section, live news feed with content-type filter tabs, RosterMind AI CTA
+- **Directory components**: `TrendingTicker`, `ContentCard`, `ContentFeed`
+- **Directory Clerk**: separate `@clerk/nextjs` app, `ClerkProvider`, middleware, sign-in/up pages, Navbar auth buttons
+- **Directory Stripe**: `ProGate` component with paywall overlay, `/api/billing/checkout` route, player detail page gated after 3 free mentions
+- **Directory player page**: Sleeper headshot image, trade value breakdown, paywall structure
+- **Directory env**: localhost links → `NEXT_PUBLIC_ROSTERMIND_URL`; `icon.svg` favicon; `.env.example` + `DEPLOYMENT.md` updated
+
 ## 2026-03-12
 
 ### Phase 1-3 MVP Lock-Down: all 6 agents live, Agent Manager, follow-up chat, Stripe

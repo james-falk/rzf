@@ -805,6 +805,137 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ config: updated, reset: true })
   })
 
+  // GET /internal/usage/tokens — per-user token consumption + estimated cost (last 30d)
+  app.get('/internal/usage/tokens', { preHandler: adminGuard }, async (_req, reply) => {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+
+    // Aggregate tokens per user
+    const grouped = await db.agentRun.groupBy({
+      by: ['userId', 'agentType'],
+      where: { createdAt: { gte: since }, status: 'done' },
+      _sum: { tokensUsed: true },
+      _count: { id: true },
+    })
+
+    // Load agent configs for model tier lookup
+    const configs = await db.agentConfig.findMany({ select: { agentType: true, modelTier: true } })
+    const tierByAgent = Object.fromEntries(configs.map((c) => [c.agentType, c.modelTier]))
+
+    // Cost rates per 1K tokens (approximate blended input+output)
+    const COST_PER_1K: Record<string, number> = { haiku: 0.001, sonnet: 0.009 }
+
+    // Roll up per user
+    const userMap = new Map<string, { runs: number; tokens: number; costUsd: number }>()
+    for (const row of grouped) {
+      const tier = tierByAgent[row.agentType] ?? 'haiku'
+      const tokens = row._sum.tokensUsed ?? 0
+      const cost = (tokens / 1000) * (COST_PER_1K[tier] ?? 0.001)
+      const cur = userMap.get(row.userId) ?? { runs: 0, tokens: 0, costUsd: 0 }
+      userMap.set(row.userId, {
+        runs: cur.runs + (row._count.id ?? 0),
+        tokens: cur.tokens + tokens,
+        costUsd: cur.costUsd + cost,
+      })
+    }
+
+    // Fetch user details for the top users
+    const userIds = Array.from(userMap.keys())
+    const users = await db.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, email: true, tier: true },
+    })
+    const userById = Object.fromEntries(users.map((u) => [u.id, u]))
+
+    const rows = Array.from(userMap.entries())
+      .map(([userId, stats]) => ({
+        userId,
+        email: userById[userId]?.email ?? userId,
+        tier: userById[userId]?.tier ?? 'free',
+        runs: stats.runs,
+        tokens: stats.tokens,
+        costUsd: Math.round(stats.costUsd * 10000) / 10000,
+      }))
+      .sort((a, b) => b.tokens - a.tokens)
+
+    const totalTokens = rows.reduce((s, r) => s + r.tokens, 0)
+    const totalCostUsd = rows.reduce((s, r) => s + r.costUsd, 0)
+
+    return reply.send({
+      rows,
+      totalTokens,
+      totalCostUsd: Math.round(totalCostUsd * 10000) / 10000,
+      since: since.toISOString(),
+    })
+  })
+
+  // GET /internal/queue/jobs?queue=agents|ingestion&limit=20 — recent BullMQ jobs
+  app.get('/internal/queue/jobs', { preHandler: adminGuard }, async (req, reply) => {
+    const { queue: queueName, limit: limitStr } = req.query as { queue?: string; limit?: string }
+    const limit = Math.min(parseInt(limitStr ?? '20', 10), 50)
+    const q = queueName === 'ingestion' ? getIngestionQueue() : getAgentQueue()
+
+    try {
+      const jobs = await q.getJobs(['active', 'waiting', 'delayed', 'failed', 'completed'], 0, limit - 1)
+      const result = await Promise.all(jobs.map(async (job) => ({
+        id: job.id,
+        name: job.name,
+        status: await job.getState(),
+        agentType: (job.data as Record<string, unknown>).agentType ?? (job.data as Record<string, unknown>).type ?? null,
+        timestamp: job.timestamp,
+        processedOn: job.processedOn ?? null,
+        finishedOn: job.finishedOn ?? null,
+        failedReason: job.failedReason ?? null,
+      })))
+      return reply.send({ jobs: result })
+    } catch {
+      return reply.send({ jobs: [] })
+    }
+  })
+
+  // POST /internal/maintenance/cleanup-mentions — remove bad ContentPlayerMention rows
+  // Deletes mentions tied to: (1) inactive players with anomalously high counts,
+  // (2) players with firstName = 'Duplicate'.
+  app.post('/internal/maintenance/cleanup-mentions', { preHandler: adminGuard }, async (_req, reply) => {
+    // 1. Delete mentions for duplicate/placeholder players
+    const duplicatePlayers = await db.player.findMany({
+      where: { OR: [{ firstName: 'Duplicate' }, { lastName: 'Duplicate' }] },
+      select: { sleeperId: true },
+    })
+    const duplicateIds = duplicatePlayers.map((p) => p.sleeperId)
+
+    const deletedDuplicates = duplicateIds.length > 0
+      ? await db.contentPlayerMention.deleteMany({ where: { playerId: { in: duplicateIds } } })
+      : { count: 0 }
+
+    // 2. Delete mentions for inactive players that have >100 mentions (false positives)
+    const inactiveMentionCounts = await db.contentPlayerMention.groupBy({
+      by: ['playerId'],
+      _count: { id: true },
+      having: { id: { _count: { gt: 100 } } },
+    })
+    const highCountPlayerIds = inactiveMentionCounts.map((r) => r.playerId)
+
+    let deletedInactive = { count: 0 }
+    if (highCountPlayerIds.length > 0) {
+      const inactivePlayers = await db.player.findMany({
+        where: { sleeperId: { in: highCountPlayerIds }, status: 'Inactive' },
+        select: { sleeperId: true },
+      })
+      const inactiveIds = inactivePlayers.map((p) => p.sleeperId)
+      if (inactiveIds.length > 0) {
+        deletedInactive = await db.contentPlayerMention.deleteMany({
+          where: { playerId: { in: inactiveIds } },
+        })
+      }
+    }
+
+    return reply.send({
+      success: true,
+      deletedDuplicateMentions: deletedDuplicates.count,
+      deletedInactiveMentions: deletedInactive.count,
+    })
+  })
+
   // GET /internal/queue — BullMQ queue stats
   app.get('/internal/queue', { preHandler: adminGuard }, async (_req, reply) => {
     try {

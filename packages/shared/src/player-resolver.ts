@@ -132,8 +132,8 @@ export function resolvePlayerMentions(text: string, aliases: AliasLookup[]): Pla
   const matched = new Map<string, PlayerMatch>()
 
   for (const { alias, playerId } of sorted) {
-    // Skip very short aliases to reduce false positives
-    if (alias.length < 4) continue
+    // Skip short aliases to reduce false positives (raised from 4 to 6)
+    if (alias.length < 6) continue
 
     // Already matched this player
     if (matched.has(playerId)) continue

@@ -267,6 +267,9 @@ export const YouTubeConnector = {
     }
 
     const aliases = await db.playerAlias.findMany({
+      where: {
+        player: { status: { not: 'Inactive' } },
+      },
       select: { alias: true, playerId: true, aliasType: true },
     })
 

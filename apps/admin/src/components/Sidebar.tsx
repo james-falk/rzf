@@ -11,6 +11,7 @@ import {
   Layers,
   LogOut,
   SlidersHorizontal,
+  Coins,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -28,6 +29,7 @@ const sections = [
     links: [
       { href: '/runs', label: 'Agent Runs', icon: Bot },
       { href: '/agents/config', label: 'Agent Config', icon: SlidersHorizontal },
+      { href: '/usage', label: 'Token Usage', icon: Coins },
       { href: '/queue', label: 'Queue', icon: Layers },
     ],
   },

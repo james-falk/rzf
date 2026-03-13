@@ -133,6 +133,9 @@ importers:
 
   apps/directory:
     dependencies:
+      '@clerk/nextjs':
+        specifier: ^7.0.2
+        version: 7.0.2(next@15.5.12(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@rzf/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -154,6 +157,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.4(react@19.2.4)
+      stripe:
+        specifier: ^20.4.1
+        version: 20.4.1(@types/node@22.19.15)
       tailwind-merge:
         specifier: ^2.6.0
         version: 2.6.1

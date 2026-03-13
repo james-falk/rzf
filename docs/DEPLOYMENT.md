@@ -177,8 +177,21 @@ NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/onboarding
 
 ### `apps/directory` (Vercel)
 ```
-DATABASE_URL
+DATABASE_URL                          # Same Render Postgres connection string
+NEXT_PUBLIC_ROSTERMIND_URL            # https://your-rostermind-url.vercel.app
+
+# Clerk — SEPARATE Clerk application from RosterMind
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY     # pk_live_... from directory's Clerk app
+CLERK_SECRET_KEY                      # sk_live_... from directory's Clerk app
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+
+# Stripe — Directory Pro tier (separate price ID from RosterMind)
+STRIPE_SECRET_KEY                     # sk_live_... (can share same Stripe account)
+DIRECTORY_STRIPE_PRICE_ID             # price_... for Directory Pro subscription
 ```
+
+**Clerk setup:** Create a **new, separate** Clerk application at dashboard.clerk.com specifically for the Directory. This presents the Directory as a distinct product with its own user base.
 
 ### `apps/admin` (Vercel)
 ```

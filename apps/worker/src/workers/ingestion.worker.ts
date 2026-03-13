@@ -282,15 +282,15 @@ async function runCreditsRefill(): Promise<void> {
 // Every 2 hours: fetch latest videos from all active YouTube channels
 async function runYouTubeRefresh(): Promise<void> {
   const result = await YouTubeConnector.run()
-  if (result.errors.length > 0) {
-    console.warn(
-      `[ingestion] YouTube refresh completed with ${result.errors.length} error(s):`,
-      result.errors,
-    )
-  }
   console.log(
     `[ingestion] YouTube refresh: ${result.inserted} new videos from ${result.sources} channels`,
   )
+  if (result.errors.length > 0) {
+    // Throw so BullMQ marks this job as Failed — visible in the admin queue page
+    throw new Error(
+      `YouTube refresh had ${result.errors.length} error(s): ${result.errors.map((e: unknown) => String(e)).join('; ')}`,
+    )
+  }
 }
 
 // ─── TradeRefreshJob ──────────────────────────────────────────────────────────

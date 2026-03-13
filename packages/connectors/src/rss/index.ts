@@ -144,8 +144,13 @@ export const RSSConnector = {
       return { inserted: 0, sources: 0, errors: [] }
     }
 
-    // Load all aliases once — shared across all feed processors
+    // Load aliases for active/current players only — excludes retired/inactive
+    // to prevent false-positive matches on common words (e.g. "Jones" for a
+    // retired player shadowing an active one, or single-word first-name aliases).
     const aliases = await db.playerAlias.findMany({
+      where: {
+        player: { status: { not: 'Inactive' } },
+      },
       select: { alias: true, playerId: true, aliasType: true },
     })
 

@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+@keyframes ticker {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-ticker {
+  animation: ticker 40s linear infinite;
+}
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
 :root {
   /* Red Zone Fantasy Directory — dark + red theme */
   --background: 10 10 10;

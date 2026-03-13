@@ -212,6 +212,45 @@ export const api = {
 
   pingHealth: () =>
     fetch(`${API_BASE}/health`).then((r) => r.json() as Promise<{ status: string; ts: string }>),
+
+  getTokenUsage: () =>
+    adminFetch<TokenUsageResponse>('/internal/usage/tokens'),
+
+  cleanupMentions: () =>
+    adminFetch<{ success: boolean; deletedDuplicateMentions: number; deletedInactiveMentions: number }>(
+      '/internal/maintenance/cleanup-mentions',
+      { method: 'POST' },
+    ),
+
+  getQueueJobs: (queue: 'agents' | 'ingestion', limit = 20) =>
+    adminFetch<{ jobs: QueueJob[] }>(`/internal/queue/jobs?queue=${queue}&limit=${limit}`),
+}
+
+export interface TokenUsageRow {
+  userId: string
+  email: string
+  tier: string
+  runs: number
+  tokens: number
+  costUsd: number
+}
+
+export interface TokenUsageResponse {
+  rows: TokenUsageRow[]
+  totalTokens: number
+  totalCostUsd: number
+  since: string
+}
+
+export interface QueueJob {
+  id: string | undefined
+  name: string
+  status: string
+  agentType: string | null
+  timestamp: number
+  processedOn: number | null
+  finishedOn: number | null
+  failedReason: string | null
 }
 
 export interface AgentConfig {

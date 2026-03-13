@@ -455,6 +455,11 @@ model ContentSource {
   lastFetchedAt       DateTime?
   isActive            Boolean  @default(true)
 
+  /// Partner/sponsor highlight — shown with a badge in the directory
+  featured    Boolean  @default(false)
+  /// Tiered partner display: "gold", "silver", "bronze", or null
+  partnerTier String?
+
   items ContentItem[]
 
   @@unique([platform, feedUrl])
