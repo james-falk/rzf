@@ -5,7 +5,7 @@ import type { InjuryWatchOutput } from '@rzf/shared/types'
 import type { AgentRunResult } from './AgentResults'
 
 const SEVERITY_STYLES = {
-  high: { badge: 'bg-red-500/20 text-red-400 border-red-500/30', bar: 'bg-red-500', icon: '⚠' },
+  high: { badge: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30', bar: 'bg-indigo-500', icon: '⚠' },
   medium: { badge: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', bar: 'bg-yellow-500', icon: '!' },
   low: { badge: 'bg-zinc-700 text-zinc-400 border-zinc-600', bar: 'bg-zinc-500', icon: 'i' },
 }
@@ -28,7 +28,7 @@ export function InjuryWatchResults({
           <div>
             <p className="text-sm text-zinc-400">Roster Health</p>
             <div className="mt-1 flex items-end gap-2">
-              <span className={cn('text-4xl font-black', output.riskyStarters > 2 ? 'text-red-400' : output.riskyStarters > 0 ? 'text-yellow-400' : 'text-emerald-400')}>
+              <span className={cn('text-4xl font-black', output.riskyStarters > 2 ? 'text-indigo-400' : output.riskyStarters > 0 ? 'text-yellow-400' : 'text-emerald-400')}>
                 {output.riskyStarters > 0 ? `${output.riskyStarters} at risk` : 'All clear'}
               </span>
             </div>
@@ -107,7 +107,7 @@ export function InjuryWatchResults({
           </button>
           <button
             onClick={() => onRate('down')}
-            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-red-500/50 hover:text-red-400', result.rating === 'down' ? 'border-red-500/50 bg-red-500/10 text-red-400' : 'border-white/10')}
+            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-indigo-500/50 hover:text-indigo-400', result.rating === 'down' ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-white/10')}
           >
             👎 No
           </button>

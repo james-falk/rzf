@@ -55,8 +55,8 @@ export function FollowUpThread({
           {messages.map((msg) => (
             <div key={msg.id} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start gap-2')}>
               {msg.role === 'assistant' && (
-                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-600/20 ring-1 ring-red-500/30">
-                  <span className="text-[9px] font-bold text-red-400">R</span>
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600/20 ring-1 ring-indigo-500/30">
+                  <span className="text-[9px] font-bold text-indigo-400">R</span>
                 </div>
               )}
               <div className={cn(
@@ -71,8 +71,8 @@ export function FollowUpThread({
           ))}
           {loading && (
             <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-600/20 ring-1 ring-red-500/30">
-                <span className="text-[9px] font-bold text-red-400">R</span>
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600/20 ring-1 ring-indigo-500/30">
+                <span className="text-[9px] font-bold text-indigo-400">R</span>
               </div>
               <div className="flex items-center gap-1 rounded-xl rounded-tl-sm border border-white/10 px-3 py-2">
                 {[0, 1, 2].map((i) => (
@@ -90,12 +90,12 @@ export function FollowUpThread({
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask a follow-up question..."
           disabled={loading}
-          className="flex-1 rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-red-500/50 disabled:opacity-50"
+          className="flex-1 rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50 disabled:opacity-50"
         />
         <button
           type="submit"
           disabled={!input.trim() || loading}
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-500 disabled:opacity-40"
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-500 disabled:opacity-40"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M2 8h12M8 2l6 6-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

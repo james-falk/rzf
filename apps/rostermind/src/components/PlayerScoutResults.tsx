@@ -6,7 +6,7 @@ import type { AgentRunResult } from './AgentResults'
 
 const TREND_STYLES = {
   rising: { text: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', icon: '↑' },
-  falling: { text: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30', icon: '↓' },
+  falling: { text: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/30', icon: '↓' },
   stable: { text: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30', icon: '→' },
   unknown: { text: 'text-zinc-400', bg: 'bg-zinc-800 border-zinc-700', icon: '?' },
 }
@@ -97,7 +97,7 @@ export function PlayerScoutResults({
           <ul className="space-y-2.5">
             {output.keyInsights.map((insight, i) => (
               <li key={i} className="flex gap-3 text-sm text-zinc-300">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-xs font-bold text-red-400">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-bold text-indigo-400">
                   {i + 1}
                 </span>
                 {insight}
@@ -119,7 +119,7 @@ export function PlayerScoutResults({
           </button>
           <button
             onClick={() => onRate('down')}
-            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-red-500/50 hover:text-red-400', result.rating === 'down' ? 'border-red-500/50 bg-red-500/10 text-red-400' : 'border-white/10')}
+            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-indigo-500/50 hover:text-indigo-400', result.rating === 'down' ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-white/10')}
           >
             👎 No
           </button>

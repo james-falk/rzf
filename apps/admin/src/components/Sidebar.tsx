@@ -12,6 +12,7 @@ import {
   LogOut,
   SlidersHorizontal,
   Coins,
+  MessageSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +38,7 @@ const sections = [
     label: 'System',
     links: [
       { href: '/data', label: 'Data Sources', icon: Database },
+      { href: '/feedback', label: 'Feedback', icon: MessageSquare },
     ],
   },
 ]

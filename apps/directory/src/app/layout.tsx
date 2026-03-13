@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { ClerkProvider } from '@clerk/nextjs'
+import { FeedbackWidget } from '@/components/FeedbackWidget'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en" suppressHydrationWarning>
         <body suppressHydrationWarning>
           {children}
+          <FeedbackWidget />
         </body>
       </html>
     </ClerkProvider>

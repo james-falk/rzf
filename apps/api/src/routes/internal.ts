@@ -305,7 +305,31 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ events, total, page: query.page, pages: Math.ceil(total / query.limit) })
   })
 
-  // POST /internal/agents/run — operator-triggered agent run (OpenClaw / on-prem)
+  // GET /internal/feedback — paginated feedback with app filter
+  app.get('/internal/feedback', { preHandler: adminGuard }, async (req, reply) => {
+    const query = z.object({
+      page: z.coerce.number().min(1).default(1),
+      limit: z.coerce.number().min(1).max(100).default(50),
+      app: z.enum(['rostermind', 'directory', 'all']).default('all'),
+    }).parse(req.query)
+
+    const skip = (query.page - 1) * query.limit
+    const where = query.app !== 'all' ? { app: query.app } : {}
+
+    const [items, total, rostermindCount, directoryCount] = await Promise.all([
+      db.feedback.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: query.limit,
+      }),
+      db.feedback.count({ where }),
+      db.feedback.count({ where: { app: 'rostermind' } }),
+      db.feedback.count({ where: { app: 'directory' } }),
+    ])
+
+    return reply.send({ items, total, rostermindCount, directoryCount, page: query.page, pages: Math.ceil(total / query.limit) })
+  })
   // Bypasses credit check — for admin use only
   app.post('/internal/agents/run', { preHandler: adminGuard }, async (req, reply) => {
     const body = z.object({

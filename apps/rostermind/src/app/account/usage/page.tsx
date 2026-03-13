@@ -50,7 +50,7 @@ export default function UsagePage() {
       {loading ? (
         <div className="text-sm text-zinc-400">Loading...</div>
       ) : !data ? (
-        <div className="text-sm text-red-400">Failed to load usage data</div>
+        <div className="text-sm text-indigo-400">Failed to load usage data</div>
       ) : (
         <>
           {/* Credits card */}
@@ -97,7 +97,7 @@ export default function UsagePage() {
             {data.recentRuns.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
                 No runs yet.{' '}
-                <a href="/dashboard/team-eval" className="text-red-400">
+                <a href="/dashboard/team-eval" className="text-indigo-400">
                   Run your first analysis
                 </a>
               </div>
@@ -118,7 +118,7 @@ export default function UsagePage() {
                           run.status === 'done'
                             ? 'text-emerald-400'
                             : run.status === 'failed'
-                              ? 'text-red-400'
+                              ? 'text-indigo-400'
                               : 'text-yellow-400'
                         }
                       >

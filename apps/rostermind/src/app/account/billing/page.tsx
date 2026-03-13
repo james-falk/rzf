@@ -141,19 +141,19 @@ export default function BillingPage() {
               <p className="text-sm text-zinc-500">2 lifetime analyses included</p>
             </div>
 
-            <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 p-5">
+            <div className="mb-6 rounded-lg border border-indigo-500/20 bg-indigo-500/10 p-5">
               <h3 className="mb-1 text-base font-semibold text-white">Upgrade to Pro</h3>
               <p className="mb-3 text-sm text-zinc-400">50 agent runs per month + all agents including trade analysis and player scout</p>
               <p className="mb-4 text-3xl font-bold text-white">
                 $20<span className="text-base font-normal text-zinc-400">/month</span>
               </p>
               {error && (
-                <p className="mb-3 text-sm text-red-400">{error}</p>
+                <p className="mb-3 text-sm text-indigo-400">{error}</p>
               )}
               <button
                 onClick={handleUpgrade}
                 disabled={loading}
-                className="w-full rounded-lg bg-red-600 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-lg bg-indigo-600 py-3 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
@@ -168,7 +168,7 @@ export default function BillingPage() {
 
         <p className="text-center text-sm text-zinc-500">
           Need help? Contact{' '}
-          <a href="mailto:support@redzonefantasy.com" className="text-red-400 hover:text-red-300">
+          <a href="mailto:support@redzonefantasy.com" className="text-indigo-400 hover:text-indigo-300">
             support@redzonefantasy.com
           </a>
         </p>

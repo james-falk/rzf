@@ -1,4 +1,5 @@
 import { AppSidebar } from '@/components/AppSidebar'
+import { FeedbackWidget } from '@/components/FeedbackWidget'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -7,6 +8,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <main className="flex-1 overflow-auto">
         {children}
       </main>
+      <FeedbackWidget />
     </div>
   )
 }

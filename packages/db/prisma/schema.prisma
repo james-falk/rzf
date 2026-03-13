@@ -678,3 +678,18 @@ model ContentPlayerMention {
   @@index([playerId, contentId])
   @@map("content_player_mentions")
 }
+
+model Feedback {
+  id        String   @id @default(cuid())
+  app       String
+  message   String   @db.Text
+  userId    String?
+  userEmail String?
+  userTier  String?
+  pageUrl   String?
+  createdAt DateTime @default(now())
+
+  @@index([app])
+  @@index([createdAt])
+  @@map("feedback")
+}

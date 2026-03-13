@@ -6,8 +6,6 @@ const navSections = [
     label: 'AI Agents',
     links: [
       { href: '/dashboard/analyze', icon: '🧠', label: 'Ask RosterMind' },
-      { href: '/dashboard/trade', icon: '💱', label: 'Trade Advice' },
-      { href: '/dashboard/scout', icon: '🔍', label: 'Player Scout' },
       { href: '/dashboard/history', icon: '📋', label: 'Report History' },
     ],
   },

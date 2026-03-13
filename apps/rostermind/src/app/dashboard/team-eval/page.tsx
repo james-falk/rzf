@@ -125,14 +125,14 @@ export default function TeamEvalPage() {
         {leaguesLoading ? (
           <div className="text-sm text-zinc-400">Loading your leagues...</div>
         ) : leaguesError ? (
-          <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+          <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 p-4 text-sm text-indigo-400">
             {leaguesError}{' '}
             <a href="/account/sleeper" className="underline">Connect Sleeper</a>
           </div>
         ) : leagues.length === 0 ? (
           <div className="text-sm text-zinc-400">
             No leagues found.{' '}
-            <a href="/account/sleeper" className="text-red-400 hover:text-red-300">
+            <a href="/account/sleeper" className="text-indigo-400 hover:text-indigo-300">
               Connect your Sleeper account
             </a>
           </div>
@@ -143,7 +143,7 @@ export default function TeamEvalPage() {
               <select
                 value={selectedLeague}
                 onChange={(e) => setSelectedLeague(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-zinc-800 px-4 py-2.5 text-white outline-none focus:border-red-500"
+                className="w-full rounded-lg border border-white/10 bg-zinc-800 px-4 py-2.5 text-white outline-none focus:border-indigo-500"
               >
                 {leagues.map((l) => (
                   <option key={l.league_id} value={l.league_id}>
@@ -155,7 +155,7 @@ export default function TeamEvalPage() {
             <button
               onClick={handleRun}
               disabled={running || !selectedLeague}
-              className="rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50 sm:whitespace-nowrap"
+              className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 sm:whitespace-nowrap"
             >
               {running ? 'Analyzing...' : 'Run Analysis'}
             </button>
@@ -181,7 +181,7 @@ export default function TeamEvalPage() {
 
       {/* Run error */}
       {runError.length > 0 && (
-        <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
+        <div className="mb-6 rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-4 text-sm text-indigo-400">
           {runError}
         </div>
       )}
@@ -196,7 +196,7 @@ export default function TeamEvalPage() {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="h-2 w-2 animate-bounce rounded-full bg-red-500"
+                className="h-2 w-2 animate-bounce rounded-full bg-indigo-500"
                 style={{ animationDelay: `${i * 0.15}s` }}
               />
             ))}
@@ -211,7 +211,7 @@ export default function TeamEvalPage() {
 
       {/* Failed state */}
       {result?.status === 'failed' && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-6 text-sm text-red-400">
+        <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-6 text-sm text-indigo-400">
           Analysis failed: {result.errorMessage ?? 'Unknown error'}
         </div>
       )}

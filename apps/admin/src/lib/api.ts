@@ -229,6 +229,9 @@ export const api = {
 
   getQueueJobs: (queue: 'agents' | 'ingestion', limit = 20) =>
     adminFetch<{ jobs: QueueJob[] }>(`/internal/queue/jobs?queue=${queue}&limit=${limit}`),
+
+  getFeedback: (app: 'rostermind' | 'directory' | 'all' = 'all', page = 1) =>
+    adminFetch<FeedbackResponse>(`/internal/feedback?app=${app}&page=${page}`),
 }
 
 export interface TokenUsageRow {
@@ -281,4 +284,24 @@ export interface AgentConfig {
   sortOrder: number
   updatedAt: string
   updatedBy: string | null
+}
+
+export interface FeedbackItem {
+  id: string
+  app: string
+  message: string
+  userId: string | null
+  userEmail: string | null
+  userTier: string | null
+  pageUrl: string | null
+  createdAt: string
+}
+
+export interface FeedbackResponse {
+  items: FeedbackItem[]
+  total: number
+  rostermindCount: number
+  directoryCount: number
+  page: number
+  pages: number
 }

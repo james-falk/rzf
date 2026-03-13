@@ -35,7 +35,7 @@ export function WaiverResults({
               {/* Rank + score */}
               <div className="flex flex-col items-center">
                 <span className="text-lg font-black text-zinc-400">#{i + 1}</span>
-                <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-red-500/20 text-xs font-bold text-red-400">
+                <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-bold text-indigo-400">
                   {rec.pickupScore}
                 </div>
               </div>
@@ -81,7 +81,7 @@ export function WaiverResults({
           </button>
           <button
             onClick={() => onRate('down')}
-            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-red-500/50 hover:text-red-400', result.rating === 'down' ? 'border-red-500/50 bg-red-500/10 text-red-400' : 'border-white/10')}
+            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-indigo-500/50 hover:text-indigo-400', result.rating === 'down' ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-white/10')}
           >
             👎 No
           </button>

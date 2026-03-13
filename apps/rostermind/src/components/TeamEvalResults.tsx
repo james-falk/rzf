@@ -60,12 +60,12 @@ export function TeamEvalResults({
             ))}
           </ul>
         </div>
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6">
-          <h3 className="mb-3 text-base font-semibold text-red-300">Weaknesses</h3>
+        <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-6">
+          <h3 className="mb-3 text-base font-semibold text-indigo-300">Weaknesses</h3>
           <ul className="space-y-2">
             {output.weaknesses.map((w, i) => (
               <li key={i} className="flex gap-2 text-sm text-zinc-300">
-                <span className="mt-0.5 shrink-0 text-red-400">!</span>
+                <span className="mt-0.5 shrink-0 text-indigo-400">!</span>
                 {w}
               </li>
             ))}
@@ -79,7 +79,7 @@ export function TeamEvalResults({
         <ol className="space-y-3">
           {output.keyInsights.map((insight, i) => (
             <li key={i} className="flex gap-3 text-sm text-zinc-300">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-xs font-bold text-red-400">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-bold text-indigo-400">
                 {i + 1}
               </span>
               {insight}
@@ -132,9 +132,9 @@ export function TeamEvalResults({
           <button
             onClick={() => onRate('down')}
             className={cn(
-              'rounded-lg border px-3 py-1.5 transition hover:border-red-500/50 hover:text-red-400',
+              'rounded-lg border px-3 py-1.5 transition hover:border-indigo-500/50 hover:text-indigo-400',
               result.rating === 'down'
-                ? 'border-red-500/50 bg-red-500/10 text-red-400'
+                ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400'
                 : 'border-white/10',
             )}
           >

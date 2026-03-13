@@ -140,7 +140,7 @@ export default function PreferencesPage() {
                 key={opt.value}
                 className={`flex cursor-pointer gap-3 rounded-lg border p-4 transition ${
                   prefs.reportFormat === opt.value
-                    ? 'border-red-500/50 bg-red-500/10'
+                    ? 'border-indigo-500/50 bg-indigo-500/10'
                     : 'border-white/10 hover:border-white/20'
                 }`}
               >
@@ -150,7 +150,7 @@ export default function PreferencesPage() {
                   value={opt.value}
                   checked={prefs.reportFormat === opt.value}
                   onChange={() => setPrefs((p) => ({ ...p, reportFormat: opt.value }))}
-                  className="mt-0.5 accent-red-500"
+                  className="mt-0.5 accent-indigo-500"
                 />
                 <div>
                   <p className="text-sm font-medium text-white">{opt.label}</p>
@@ -175,7 +175,7 @@ export default function PreferencesPage() {
                 onClick={() => togglePosition(pos)}
                 className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
                   prefs.priorityPositions.includes(pos)
-                    ? 'border-red-500/50 bg-red-500/20 text-red-300'
+                    ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-300'
                     : 'border-white/10 text-zinc-400 hover:border-white/20 hover:text-white'
                 }`}
               >
@@ -200,7 +200,7 @@ export default function PreferencesPage() {
             placeholder="Add any specific context about your team or strategy..."
             rows={4}
             maxLength={500}
-            className="w-full rounded-lg border border-white/10 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 outline-none focus:border-red-500"
+            className="w-full rounded-lg border border-white/10 bg-zinc-800 px-4 py-3 text-sm text-white placeholder-zinc-500 outline-none focus:border-indigo-500"
           />
           <p className="mt-1 text-right text-xs text-zinc-500">
             {(prefs.customInstructions ?? '').length}/500
@@ -211,7 +211,7 @@ export default function PreferencesPage() {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
+            className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save Preferences'}
           </button>
@@ -239,7 +239,7 @@ function SelectField({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2.5 text-sm text-white outline-none focus:border-red-500"
+        className="w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

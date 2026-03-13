@@ -7,7 +7,7 @@ import type { AgentRunResult } from './AgentResults'
 const CONFIDENCE_STYLES = {
   high: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
   medium: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
-  low: 'text-red-400 bg-red-500/10 border-red-500/30',
+  low: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30',
 }
 
 export function LineupResults({
@@ -117,7 +117,7 @@ export function LineupResults({
           </button>
           <button
             onClick={() => onRate('down')}
-            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-red-500/50 hover:text-red-400', result.rating === 'down' ? 'border-red-500/50 bg-red-500/10 text-red-400' : 'border-white/10')}
+            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-indigo-500/50 hover:text-indigo-400', result.rating === 'down' ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-white/10')}
           >
             👎 No
           </button>

@@ -6,7 +6,7 @@ import type { AgentRunResult } from './AgentResults'
 
 const VERDICT_STYLES = {
   accept: { text: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30', label: 'Accept Trade' },
-  decline: { text: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30', label: 'Decline Trade' },
+  decline: { text: 'text-indigo-400', bg: 'bg-indigo-500/10 border-indigo-500/30', label: 'Decline Trade' },
   counter: { text: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30', label: 'Counter Offer' },
 }
 
@@ -35,7 +35,7 @@ export function TradeAnalysisResults({
           </div>
           <div className="text-right">
             <p className="text-xs text-zinc-400">Value Score</p>
-            <p className={cn('text-3xl font-black', isPositive ? 'text-emerald-400' : 'text-red-400')}>
+            <p className={cn('text-3xl font-black', isPositive ? 'text-emerald-400' : 'text-indigo-400')}>
               {output.valueScore > 0 ? '+' : ''}{output.valueScore}
             </p>
           </div>
@@ -45,7 +45,7 @@ export function TradeAnalysisResults({
         <div className="mt-4">
           <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
             <div
-              className={cn('h-full rounded-full transition-all', isPositive ? 'bg-emerald-500' : 'bg-red-500')}
+              className={cn('h-full rounded-full transition-all', isPositive ? 'bg-emerald-500' : 'bg-indigo-500')}
               style={{ width: `${barPercent}%` }}
             />
           </div>
@@ -67,8 +67,8 @@ export function TradeAnalysisResults({
 
       {/* Player breakdowns */}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-5">
-          <h3 className="mb-3 text-sm font-semibold text-red-300">You Give</h3>
+        <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-5">
+          <h3 className="mb-3 text-sm font-semibold text-indigo-300">You Give</h3>
           <div className="space-y-3">
             {output.givingAnalysis.map((p) => (
               <div key={p.playerId}>
@@ -133,7 +133,7 @@ export function TradeAnalysisResults({
           </button>
           <button
             onClick={() => onRate('down')}
-            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-red-500/50 hover:text-red-400', result.rating === 'down' ? 'border-red-500/50 bg-red-500/10 text-red-400' : 'border-white/10')}
+            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-indigo-500/50 hover:text-indigo-400', result.rating === 'down' ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-white/10')}
           >
             👎 No
           </button>

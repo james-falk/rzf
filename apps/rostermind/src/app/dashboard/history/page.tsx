@@ -18,7 +18,7 @@ interface RunSummary {
 
 const STATUS_STYLE: Record<string, string> = {
   done: 'text-emerald-400',
-  failed: 'text-red-400',
+  failed: 'text-indigo-400',
   running: 'text-yellow-400',
   queued: 'text-zinc-400',
 }
@@ -59,7 +59,7 @@ export default function HistoryPage() {
             <p className="text-sm text-zinc-400">No reports yet.</p>
             <Link
               href="/dashboard/team-eval"
-              className="mt-3 inline-block text-sm text-red-400 hover:text-red-300"
+              className="mt-3 inline-block text-sm text-indigo-400 hover:text-indigo-300"
             >
               Run your first analysis →
             </Link>
@@ -91,7 +91,7 @@ export default function HistoryPage() {
                   {run.status === 'done' ? (
                     <Link
                       href={`/dashboard/history/${run.id}`}
-                      className="rounded-lg border border-white/10 px-3 py-1.5 text-zinc-300 transition hover:border-red-500/50 hover:text-red-300"
+                      className="rounded-lg border border-white/10 px-3 py-1.5 text-zinc-300 transition hover:border-indigo-500/50 hover:text-indigo-300"
                     >
                       View →
                     </Link>

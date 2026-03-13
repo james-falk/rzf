@@ -17,14 +17,14 @@ export default async function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Link
           href="/dashboard/team-eval"
-          className="group rounded-xl border border-white/10 bg-zinc-900 p-6 transition hover:border-red-500/50 hover:bg-red-500/5"
+          className="group rounded-xl border border-white/10 bg-zinc-900 p-6 transition hover:border-indigo-500/50 hover:bg-indigo-500/5"
         >
           <div className="mb-4 text-4xl">📊</div>
           <h2 className="mb-1 text-lg font-semibold text-white">Team Evaluation</h2>
           <p className="text-sm text-zinc-400">
             Get an AI-powered grade and analysis of your roster
           </p>
-          <div className="mt-4 text-sm font-medium text-red-400 group-hover:text-red-300">
+          <div className="mt-4 text-sm font-medium text-indigo-400 group-hover:text-indigo-300">
             Run analysis →
           </div>
         </Link>

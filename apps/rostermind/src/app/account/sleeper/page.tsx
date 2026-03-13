@@ -93,19 +93,19 @@ export default function SleeperAccountPage() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="Sleeper username"
-            className="flex-1 rounded-lg border border-white/10 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none focus:border-red-500"
+            className="flex-1 rounded-lg border border-white/10 bg-zinc-800 px-4 py-2.5 text-white placeholder-zinc-500 outline-none focus:border-indigo-500"
             disabled={connecting}
           />
           <button
             type="submit"
             disabled={connecting || !username.trim()}
-            className="rounded-lg bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:opacity-50"
+            className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
           >
             {connecting ? 'Connecting...' : hasAccount ? 'Update' : 'Connect'}
           </button>
         </form>
         {connectError && (
-          <p className="mt-3 text-sm text-red-400">{connectError}</p>
+          <p className="mt-3 text-sm text-indigo-400">{connectError}</p>
         )}
         {connectSuccess && (
           <p className="mt-3 text-sm text-emerald-400">Account connected successfully!</p>
@@ -122,7 +122,7 @@ export default function SleeperAccountPage() {
               onClick={() => handleYearChange(y)}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
                 selectedYear === y
-                  ? 'bg-red-600 text-white'
+                  ? 'bg-indigo-600 text-white'
                   : 'border border-white/10 text-zinc-400 hover:text-white'
               }`}
             >
@@ -147,7 +147,7 @@ export default function SleeperAccountPage() {
                 </div>
                 <a
                   href="/dashboard/analyze"
-                  className="text-xs text-red-400 hover:text-red-300"
+                  className="text-xs text-indigo-400 hover:text-indigo-300"
                 >
                   Analyze →
                 </a>
