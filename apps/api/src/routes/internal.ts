@@ -805,17 +805,12 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ config: updated, reset: true })
   })
 
-  // GET /internal/usage/tokens — per-user token consumption + estimated cost (last 30d)
-  app.get('/internal/usage/tokens', { preHandler: adminGuard }, async (_req, reply) => {
-    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
-
-    // Aggregate tokens per user
-    const grouped = await db.agentRun.groupBy({
-      by: ['userId', 'agentType'],
-      where: { createdAt: { gte: since }, status: 'done' },
-      _sum: { tokensUsed: true },
-      _count: { id: true },
-    })
+  // GET /internal/usage/tokens — per-user token consumption + estimated cost
+  // Query params: startDate (ISO), endDate (ISO) — defaults to last 30 days
+  app.get('/internal/usage/tokens', { preHandler: adminGuard }, async (req, reply) => {
+    const { startDate, endDate } = req.query as { startDate?: string; endDate?: string }
+    const since = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const until = endDate ? new Date(endDate) : new Date()
 
     // Load agent configs for model tier lookup
     const configs = await db.agentConfig.findMany({ select: { agentType: true, modelTier: true } })
@@ -823,6 +818,14 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
 
     // Cost rates per 1K tokens (approximate blended input+output)
     const COST_PER_1K: Record<string, number> = { haiku: 0.001, sonnet: 0.009 }
+
+    // Aggregate tokens per user+agent
+    const grouped = await db.agentRun.groupBy({
+      by: ['userId', 'agentType'],
+      where: { createdAt: { gte: since, lte: until }, status: 'done' },
+      _sum: { tokensUsed: true },
+      _count: { id: true },
+    })
 
     // Roll up per user
     const userMap = new Map<string, { runs: number; tokens: number; costUsd: number }>()
@@ -832,6 +835,20 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
       const cost = (tokens / 1000) * (COST_PER_1K[tier] ?? 0.001)
       const cur = userMap.get(row.userId) ?? { runs: 0, tokens: 0, costUsd: 0 }
       userMap.set(row.userId, {
+        runs: cur.runs + (row._count.id ?? 0),
+        tokens: cur.tokens + tokens,
+        costUsd: cur.costUsd + cost,
+      })
+    }
+
+    // Roll up per agent
+    const agentMap = new Map<string, { runs: number; tokens: number; costUsd: number }>()
+    for (const row of grouped) {
+      const tier = tierByAgent[row.agentType] ?? 'haiku'
+      const tokens = row._sum.tokensUsed ?? 0
+      const cost = (tokens / 1000) * (COST_PER_1K[tier] ?? 0.001)
+      const cur = agentMap.get(row.agentType) ?? { runs: 0, tokens: 0, costUsd: 0 }
+      agentMap.set(row.agentType, {
         runs: cur.runs + (row._count.id ?? 0),
         tokens: cur.tokens + tokens,
         costUsd: cur.costUsd + cost,
@@ -857,14 +874,26 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
       }))
       .sort((a, b) => b.tokens - a.tokens)
 
+    const byAgent = Array.from(agentMap.entries())
+      .map(([agentType, stats]) => ({
+        agentType,
+        runs: stats.runs,
+        tokensUsed: stats.tokens,
+        costUsd: Math.round(stats.costUsd * 10000) / 10000,
+        avgTokensPerRun: stats.runs > 0 ? Math.round(stats.tokens / stats.runs) : 0,
+      }))
+      .sort((a, b) => b.costUsd - a.costUsd)
+
     const totalTokens = rows.reduce((s, r) => s + r.tokens, 0)
     const totalCostUsd = rows.reduce((s, r) => s + r.costUsd, 0)
 
     return reply.send({
       rows,
+      byAgent,
       totalTokens,
       totalCostUsd: Math.round(totalCostUsd * 10000) / 10000,
       since: since.toISOString(),
+      until: until.toISOString(),
     })
   })
 

@@ -213,8 +213,13 @@ export const api = {
   pingHealth: () =>
     fetch(`${API_BASE}/health`).then((r) => r.json() as Promise<{ status: string; ts: string }>),
 
-  getTokenUsage: () =>
-    adminFetch<TokenUsageResponse>('/internal/usage/tokens'),
+  getTokenUsage: (startDate?: string, endDate?: string) => {
+    const params = new URLSearchParams()
+    if (startDate) params.set('startDate', startDate)
+    if (endDate) params.set('endDate', endDate)
+    const qs = params.toString()
+    return adminFetch<TokenUsageResponse>(`/internal/usage/tokens${qs ? `?${qs}` : ''}`)
+  },
 
   cleanupMentions: () =>
     adminFetch<{ success: boolean; deletedDuplicateMentions: number; deletedInactiveMentions: number }>(
@@ -235,11 +240,21 @@ export interface TokenUsageRow {
   costUsd: number
 }
 
+export interface AgentUsageRow {
+  agentType: string
+  runs: number
+  tokensUsed: number
+  costUsd: number
+  avgTokensPerRun: number
+}
+
 export interface TokenUsageResponse {
   rows: TokenUsageRow[]
+  byAgent: AgentUsageRow[]
   totalTokens: number
   totalCostUsd: number
   since: string
+  until: string
 }
 
 export interface QueueJob {

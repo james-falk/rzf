@@ -1,13 +1,37 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { api, ApiError } from '@/lib/api'
 
+interface UsageData {
+  tier: string
+  runCredits: number
+  monthlyRunsUsed: number
+}
+
 export default function BillingPage() {
   const { getToken } = useAuth()
+  const [usage, setUsage] = useState<UsageData | null>(null)
+  const [loadingUsage, setLoadingUsage] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    async function fetchUsage() {
+      try {
+        const token = await getToken()
+        if (!token) return
+        const data = await api.getUsage(token)
+        setUsage({ tier: data.tier, runCredits: data.runCredits, monthlyRunsUsed: data.monthlyRunsUsed })
+      } catch {
+        // silently fail — fall back to showing free state
+      } finally {
+        setLoadingUsage(false)
+      }
+    }
+    fetchUsage()
+  }, [getToken])
 
   async function handleUpgrade() {
     setLoading(true)
@@ -37,6 +61,11 @@ export default function BillingPage() {
   const justUpgraded = searchParams?.get('success') === 'true'
   const canceled = searchParams?.get('canceled') === 'true'
 
+  const isPaid = usage?.tier === 'paid'
+  const runsUsed = usage?.monthlyRunsUsed ?? 0
+  const runsLeft = usage?.runCredits ?? 0
+  const creditsLow = isPaid && runsLeft <= 5
+
   return (
     <div>
       <h1 className="mb-2 text-3xl font-bold text-white">Billing</h1>
@@ -55,34 +84,87 @@ export default function BillingPage() {
       )}
 
       <div className="max-w-lg rounded-xl border border-white/10 bg-zinc-900 p-8">
-        <div className="mb-6">
-          <p className="mb-1 text-sm text-zinc-400">Current Plan</p>
-          <p className="text-2xl font-bold text-white">Free</p>
-          <p className="text-sm text-zinc-500">2 lifetime analyses included</p>
-        </div>
+        {loadingUsage ? (
+          <div className="space-y-3">
+            <div className="h-4 w-24 animate-pulse rounded bg-zinc-800" />
+            <div className="h-8 w-32 animate-pulse rounded bg-zinc-800" />
+            <div className="h-4 w-48 animate-pulse rounded bg-zinc-800" />
+          </div>
+        ) : isPaid ? (
+          <>
+            <div className="mb-6">
+              <p className="mb-1 text-sm text-zinc-400">Current Plan</p>
+              <div className="flex items-center gap-2">
+                <p className="text-2xl font-bold text-white">Pro</p>
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                  Active
+                </span>
+              </div>
+              <p className="text-sm text-zinc-500">$20 / month</p>
+            </div>
 
-        <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 p-5">
-          <h3 className="mb-1 text-base font-semibold text-white">Upgrade to Pro</h3>
-          <p className="mb-3 text-sm text-zinc-400">50 agent runs per month + all agents including trade analysis and player scout</p>
-          <p className="mb-4 text-3xl font-bold text-white">
-            $20<span className="text-base font-normal text-zinc-400">/month</span>
-          </p>
-          {error && (
-            <p className="mb-3 text-sm text-red-400">{error}</p>
-          )}
-          <button
-            onClick={handleUpgrade}
-            disabled={loading}
-            className="w-full rounded-lg bg-red-600 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                Redirecting to checkout...
-              </span>
-            ) : 'Upgrade to Pro →'}
-          </button>
-        </div>
+            <div className="mb-6 rounded-lg border border-white/10 bg-zinc-800 p-5">
+              <h3 className="mb-3 text-sm font-semibold text-white">Monthly Usage</h3>
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-zinc-400">Agent runs this month</span>
+                <span className={runsLeft <= 5 ? 'font-semibold text-orange-400' : 'text-white'}>
+                  {runsUsed} / 50
+                </span>
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-700">
+                <div
+                  className={`h-2 rounded-full transition-all ${runsLeft <= 5 ? 'bg-orange-500' : 'bg-emerald-500'}`}
+                  style={{ width: `${Math.min((runsUsed / 50) * 100, 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-zinc-500">{runsLeft} runs remaining — resets on your billing date</p>
+            </div>
+
+            {creditsLow && (
+              <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">
+                <p className="mb-1 text-sm font-medium text-zinc-300">Running low on runs?</p>
+                <p className="mb-3 text-xs text-zinc-500">Credit top-ups are coming soon — you'll be able to purchase extra runs without waiting for your billing cycle.</p>
+                <button
+                  disabled
+                  className="w-full cursor-not-allowed rounded-lg border border-white/10 py-2 text-sm text-zinc-500"
+                >
+                  Credit Refill — Coming Soon
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="mb-6">
+              <p className="mb-1 text-sm text-zinc-400">Current Plan</p>
+              <p className="text-2xl font-bold text-white">Free</p>
+              <p className="text-sm text-zinc-500">2 lifetime analyses included</p>
+            </div>
+
+            <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 p-5">
+              <h3 className="mb-1 text-base font-semibold text-white">Upgrade to Pro</h3>
+              <p className="mb-3 text-sm text-zinc-400">50 agent runs per month + all agents including trade analysis and player scout</p>
+              <p className="mb-4 text-3xl font-bold text-white">
+                $20<span className="text-base font-normal text-zinc-400">/month</span>
+              </p>
+              {error && (
+                <p className="mb-3 text-sm text-red-400">{error}</p>
+              )}
+              <button
+                onClick={handleUpgrade}
+                disabled={loading}
+                className="w-full rounded-lg bg-red-600 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                    Redirecting to checkout...
+                  </span>
+                ) : 'Upgrade to Pro →'}
+              </button>
+            </div>
+          </>
+        )}
 
         <p className="text-center text-sm text-zinc-500">
           Need help? Contact{' '}
