@@ -6,6 +6,8 @@ import Navbar from '@/components/Navbar'
 import { ProGate } from '@/components/ProGate'
 import type { Metadata } from 'next'
 
+export const dynamic = 'force-dynamic'
+
 type Props = { params: Promise<{ id: string }> }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

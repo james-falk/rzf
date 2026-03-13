@@ -6,6 +6,7 @@ import { ContentFeed } from '@/components/ContentFeed'
 import { ContentCard } from '@/components/ContentCard'
 
 async function getData() {
+  try {
   const [trendingRaw, featuredSources, latestContent] = await Promise.all([
     // Top 20 trending players (last 48h, skip inactive)
     db.trendingPlayer.findMany({
@@ -57,9 +58,13 @@ async function getData() {
   const regularContent = latestContent.filter((item) => !featuredContent.includes(item))
 
   return { trending, featuredContent, featuredSources, regularContent }
+  } catch {
+    // DB unavailable during build or missing migration — return empty state
+    return { trending: [], featuredContent: [], featuredSources: [], regularContent: [] }
+  }
 }
 
-export const revalidate = 300 // ISR: revalidate every 5 minutes
+export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
   const { trending, featuredContent, featuredSources, regularContent } = await getData()

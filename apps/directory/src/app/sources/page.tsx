@@ -2,6 +2,8 @@ import { db } from '@rzf/db'
 import Navbar from '@/components/Navbar'
 import type { Metadata } from 'next'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   title: 'Source Registry — Red Zone Fantasy',
   description: 'All tracked content sources — expert analysts, sites, and social accounts.',
