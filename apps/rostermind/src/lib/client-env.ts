@@ -3,5 +3,4 @@
  * Server-side code should use @rzf/shared/env instead.
  */
 
-// eslint-disable-next-line no-restricted-syntax
 export const API_BASE_URL = process.env['NEXT_PUBLIC_API_BASE_URL'] ?? 'http://localhost:3001'

@@ -45,7 +45,6 @@ const QUICK_ACTIONS = [
   { type: 'player_scout',   label: 'Player Scout',  icon: '🔍', desc: 'Deep-dive on any player' },
 ]
 
-const LEAGUE_AGENTS = ['team_eval', 'injury_watch', 'waiver', 'lineup']
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K']
 
 const AGENT_LOADING_MESSAGES: Record<string, string[]> = {
@@ -174,7 +173,7 @@ export default function AnalyzePage() {
         }
       } catch { /* silent */ }
     })
-  }, []) // intentional one-time init
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- intentional one-time init
 
   const handleYearChange = useCallback(async (year: string) => {
     setSelectedYear(year)

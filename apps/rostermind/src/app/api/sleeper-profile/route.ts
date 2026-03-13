@@ -1,7 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 
-// eslint-disable-next-line no-restricted-syntax
 const API_BASE = process.env['API_BASE_URL'] ?? 'http://localhost:3001'
 
 export async function GET() {

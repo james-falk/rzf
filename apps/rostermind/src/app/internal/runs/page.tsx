@@ -44,7 +44,7 @@ export default function InternalRunsPage() {
   }
 
   useEffect(() => {
-    load()
+    load() // eslint-disable-line react-hooks/exhaustive-deps
   }, [statusFilter, agentTypeFilter])
 
   useEffect(() => {
@@ -53,7 +53,7 @@ export default function InternalRunsPage() {
       void load(false)
     }, 5000)
     return () => clearInterval(interval)
-  }, [autoRefresh, statusFilter, agentTypeFilter])
+  }, [autoRefresh, statusFilter, agentTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const statusColors: Record<string, string> = {
     done: 'text-emerald-400',
