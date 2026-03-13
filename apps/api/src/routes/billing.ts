@@ -35,6 +35,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       payment_method_types: ['card'],
       line_items: [{ price: env.STRIPE_PRICE_ID, quantity: 1 }],
       customer_email: user.email,
+      allow_promotion_codes: true,
       success_url: body.data.successUrl,
       cancel_url: body.data.cancelUrl,
       metadata: { userId },
