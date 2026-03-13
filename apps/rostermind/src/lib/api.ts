@@ -5,9 +5,6 @@
  * Includes auth token from Clerk on every request.
  */
 
-import type {
-  TeamEvalOutput,
-} from '@rzf/shared/types'
 import { API_BASE_URL } from './client-env'
 
 // Normalize to avoid double slash when path is e.g. /sleeper/connect
@@ -100,18 +97,50 @@ export const api = {
     }>('/agents/available', { token })
   },
 
+  async createCheckoutSession(token: string, successUrl: string, cancelUrl: string) {
+    return apiFetch<{ url: string; sessionId: string }>('/billing/checkout', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ successUrl, cancelUrl }),
+    })
+  },
+
+  async searchPlayers(token: string, q: string, position?: string) {
+    const params = new URLSearchParams({ q, ...(position && position !== 'All' ? { position } : {}) })
+    return apiFetch<{ players: Array<{ player_id: string; full_name: string; position: string; team: string | null; injuryStatus: string | null }> }>(
+      `/players/search?${params}`,
+      { token },
+    )
+  },
+
+  async runAgent(token: string, agentType: string, input: Record<string, unknown>) {
+    return apiFetch<{ agentRunId: string; status: string; deduplicated?: boolean }>('/agents/run', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ agentType, input }),
+    })
+  },
+
   async getAgentRun(token: string, runId: string) {
     return apiFetch<{
       id: string
       agentType: string
       status: 'queued' | 'running' | 'done' | 'failed'
-      output: TeamEvalOutput | null
+      output: unknown
       tokensUsed: number | null
       durationMs: number | null
       rating: 'up' | 'down' | null
       errorMessage: string | null
       createdAt: string
     }>(`/agents/${runId}`, { token })
+  },
+
+  async followUpAgentRun(token: string, runId: string, message: string) {
+    return apiFetch<{ reply: string }>(`/agents/${runId}/followup`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ message }),
+    })
   },
 
   async rateAgentRun(token: string, runId: string, rating: 'up' | 'down') {

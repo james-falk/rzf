@@ -3,10 +3,10 @@ import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { LLMConnector } from '@rzf/connectors/llm'
 import { buildUserContext } from '@rzf/shared'
 import { TeamEvalOutputSchema } from '@rzf/shared/types'
-import type { TeamEvalInput, TeamEvalOutput } from '@rzf/shared/types'
+import type { TeamEvalInput, TeamEvalOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 
-export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOutput> {
+export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRuntimeConfig): Promise<TeamEvalOutput> {
   const { userId, leagueId, focusNote } = input
   console.log(`[team-eval] Starting — userId=${userId} leagueId=${leagueId} focusNote=${focusNote ?? 'none'}`)
 
@@ -170,11 +170,11 @@ export async function runTeamEvalAgent(input: TeamEvalInput): Promise<TeamEvalOu
 
   // ── 8. LLM call ────────────────────────────────────────────────────────────
   console.log(`[team-eval] Calling LLM — starters=${starters.length} bench=${bench.length} trendingAdds=${trendingAddNames.length}`)
-  const systemPrompt = buildSystemPrompt(userContext)
+  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: 'haiku' },
+    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
     (raw) => {
       const parsed = TeamEvalOutputSchema.omit({ contentLinks: true, tokensUsed: true }).parse(raw)
       return parsed

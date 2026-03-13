@@ -10,6 +10,7 @@ export type AnalyticsEventType =
   | 'agent.run.completed'
   | 'agent.run.failed'
   | 'agent.result.rated'
+  | 'agent.followup.sent'
   // Feature usage
   | 'feature.used'
 
@@ -21,6 +22,7 @@ export type EventPayloads = {
   'agent.run.completed': { agentType: string; tokensUsed: number; durationMs: number; grade?: string }
   'agent.run.failed': { agentType: string; errorType: string; errorMessage: string }
   'agent.result.rated': { agentRunId: string; rating: 'up' | 'down' }
+  'agent.followup.sent': { agentRunId: string; agentType: string }
   'feature.used': { featureName: string; context?: Record<string, unknown> }
 }
 

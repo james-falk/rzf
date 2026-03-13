@@ -3,10 +3,10 @@ import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { LLMConnector } from '@rzf/connectors/llm'
 import { buildUserContext } from '@rzf/shared'
 import { WaiverOutputSchema } from '@rzf/shared/types'
-import type { WaiverInput, WaiverOutput } from '@rzf/shared/types'
+import type { WaiverInput, WaiverOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 
-export async function runWaiverAgent(input: WaiverInput): Promise<WaiverOutput> {
+export async function runWaiverAgent(input: WaiverInput, config?: AgentRuntimeConfig): Promise<WaiverOutput> {
   const { userId, leagueId, targetPosition } = input
   console.log(`[waiver] Starting — userId=${userId} leagueId=${leagueId} targetPosition=${targetPosition ?? 'any'}`)
 
@@ -100,11 +100,11 @@ export async function runWaiverAgent(input: WaiverInput): Promise<WaiverOutput> 
 
   // ── 7. LLM call ────────────────────────────────────────────────────────────
   console.log(`[waiver] Calling LLM — ${candidateContext.length} candidates, week ${nflState.week}`)
-  const systemPrompt = buildSystemPrompt(userContext)
+  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(candidateContext, rosterContext, targetPosition)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: 'haiku' },
+    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
     (raw) => WaiverOutputSchema.omit({ tokensUsed: true }).parse(raw),
   )
 

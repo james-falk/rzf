@@ -1,4 +1,5 @@
-export function buildSystemPrompt(userContext: string): string {
+export function buildSystemPrompt(userContext: string, override?: string): string {
+  if (override) return override.replace('{userContext}', userContext)
   return `You are a fantasy football lineup optimizer. Set the best possible starting lineup for this week based on matchups, injury status, depth chart, and rankings.
 
 ${userContext}

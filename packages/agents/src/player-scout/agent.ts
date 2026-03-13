@@ -4,10 +4,10 @@ import { LLMConnector } from '@rzf/connectors/llm'
 import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { buildUserContext } from '@rzf/shared'
 import { PlayerScoutOutputSchema } from '@rzf/shared/types'
-import type { PlayerScoutInput, PlayerScoutOutput } from '@rzf/shared/types'
+import type { PlayerScoutInput, PlayerScoutOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 
-export async function runPlayerScoutAgent(input: PlayerScoutInput): Promise<PlayerScoutOutput> {
+export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: AgentRuntimeConfig): Promise<PlayerScoutOutput> {
   const { userId, playerId, context } = input
   console.log(`[player-scout] Starting — userId=${userId} playerId=${playerId}`)
 
@@ -122,11 +122,11 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput): Promise<Play
 
   // ── 4. LLM call ────────────────────────────────────────────────────────────
   console.log(`[player-scout] Calling LLM — ${player.firstName} ${player.lastName}`)
-  const systemPrompt = buildSystemPrompt(userContext)
+  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(playerContext)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: 'haiku' },
+    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
     (raw) => PlayerScoutOutputSchema.omit({
       playerId: true, playerName: true, position: true, team: true,
       injuryStatus: true, rankOverall: true, rankPosition: true,

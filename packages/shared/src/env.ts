@@ -52,6 +52,7 @@ const envSchema = z.object({
   // ── Payments ──────────────────────────────────────────────────────────────
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_PRICE_ID: z.string().optional(),
 
   // ── Browse-Mode Agents (Phase 5) ──────────────────────────────────────────
   ORGO_API_KEY: z.string().optional(),

@@ -5,9 +5,9 @@ import { useAuth } from '@clerk/nextjs'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { api } from '@/lib/api'
-import { TeamEvalResults } from '@/components/TeamEvalResults'
-import type { AgentRunResult } from '@/components/TeamEvalResults'
-import type { TeamEvalOutput } from '@rzf/shared/types'
+import { AgentResults, AGENT_LABELS } from '@/components/AgentResults'
+import type { AgentRunResult } from '@/components/AgentResults'
+import { FollowUpThread } from '@/components/FollowUpThread'
 
 export default function HistoryDetailPage() {
   const { getToken } = useAuth()
@@ -22,7 +22,7 @@ export default function HistoryDetailPage() {
         const token = await getToken()
         if (!token) return
         const data = await api.getAgentRun(token, id)
-        setRun(data)
+        setRun(data as AgentRunResult)
       } catch {
         setError('Could not load this report.')
       } finally {
@@ -44,16 +44,15 @@ export default function HistoryDetailPage() {
     }
   }
 
+  const title = run ? (AGENT_LABELS[run.agentType] ?? 'Agent Report') : 'Report'
+
   return (
     <div className="p-6 md:p-10">
       <div className="mb-8 flex items-center gap-4">
-        <Link
-          href="/dashboard/history"
-          className="text-sm text-zinc-400 hover:text-white"
-        >
+        <Link href="/dashboard/history" className="text-sm text-zinc-400 hover:text-white">
           ← History
         </Link>
-        <h1 className="text-3xl font-bold text-white">Team Evaluation Report</h1>
+        <h1 className="text-3xl font-bold text-white">{title}</h1>
       </div>
 
       {loading ? (
@@ -68,10 +67,10 @@ export default function HistoryDetailPage() {
           {run.errorMessage && <p className="mt-2 text-red-400">{run.errorMessage}</p>}
         </div>
       ) : (
-        <TeamEvalResults
-          result={run as AgentRunResult & { output: TeamEvalOutput }}
-          onRate={handleRate}
-        />
+        <>
+          <AgentResults result={run} onRate={handleRate} />
+          <FollowUpThread runId={run.id} getToken={getToken} />
+        </>
       )}
     </div>
   )

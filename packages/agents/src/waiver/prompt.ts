@@ -1,4 +1,5 @@
-export function buildSystemPrompt(userContext: string): string {
+export function buildSystemPrompt(userContext: string, override?: string): string {
+  if (override) return override.replace('{userContext}', userContext)
   return `You are a fantasy football waiver wire advisor. Your job is to recommend the best available free agents for a manager to pick up based on their roster needs, recent trends, and current news.
 
 ${userContext}

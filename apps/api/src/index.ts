@@ -9,6 +9,8 @@ import { preferencesRoutes } from './routes/preferences.js'
 import { webhooksRoutes } from './routes/webhooks.js'
 import { internalRoutes } from './routes/internal.js'
 import { intentRoutes } from './routes/intent.js'
+import { playersRoutes } from './routes/players.js'
+import { billingRoutes } from './routes/billing.js'
 
 const app = Fastify({
   logger: {
@@ -44,6 +46,8 @@ await app.register(usersRoutes)
 await app.register(sleeperRoutes)
 await app.register(agentsRoutes)
 await app.register(intentRoutes)
+await app.register(playersRoutes)
+await app.register(billingRoutes)
 await app.register(preferencesRoutes)
 await app.register(internalRoutes)
 

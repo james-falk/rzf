@@ -1,6 +1,6 @@
 # Agents
 
-> Last updated: 2026-03-06
+> Last updated: 2026-03-12
 > Auto-regenerated section: I/O contracts come from `packages/agents/*/types.ts` via `pnpm sync:docs`
 
 ## Agent Design Principles
@@ -84,46 +84,49 @@ Routes free-text queries to the correct agent. Keyword-based classifier for now;
 
 ---
 
-## Planned Agents (Phase 2+)
+## All Implemented Agents
 
-See `ROADMAP.md` for full prioritization. Schemas defined in `packages/shared/src/types/agent.ts`.
-
-### WaiverAgent
-Weekly ranked pickup/drop recommendations tailored to the user's specific roster gaps.
-- **Input**: `{ userId, leagueId, focusPositions?: string[] }`
-- **Key data**: roster (live), trending adds (DB), player injury/depth (DB)
-
-### StartSitAgent
-Weekly lineup decisions for borderline starters with confidence scores.
-- **Input**: `{ userId, leagueId, week?: number }`
-- **Key data**: starters (live), injury reports (DB), matchup data (TBD)
-
-### TradeAnalysisAgent
-Accept/reject trade evaluation with counter-suggestion.
-- **Status**: Implemented
-- **Input**: `{ userId, leagueId, giving: string[], receiving: string[] }`
-- **Output**: `{ verdict, confidence, reasoning, counterOffer?, tokensUsed }`
-- **Key data**: `PlayerTradeValue` (fantasycalc + ktc + dynastydaddy sources), `PlayerRanking`, `ContentPlayerMention`, Dynasty Daddy community trade frequency (query-time via `DynastyDaddyConnector.getPlayerTrades`)
-
-### PlayerScoutAgent
-Deep per-player evaluation on demand.
-- **Status**: Implemented
-- **Input**: `{ userId, playerId, context? }`
-- **Output**: `{ trend, summary, strengths, risks, buyLowRating, sellHighRating, ... }`
-- **Key data**: `PlayerTradeValue` (all sources), `PlayerRanking`, `ContentPlayerMention`, Dynasty Daddy community trade volume (query-time)
+All 6 agents are live as of 2026-03-12. Schemas in `packages/shared/src/types/agent.ts`. Runtime config (system prompt, model tier, enabled) editable in the admin Agent Manager (`/agents/config`).
 
 ### InjuryWatchAgent
 On-demand risk assessment for a user's starting lineup.
-- **Status**: Implemented
+- **Status**: ✅ Live
 - **Input**: `{ userId, leagueId }`
 - **Output**: `{ alerts[], riskyStarters, healthyStarters, tokensUsed }`
-- **Key data**: starter injury/status fields from `Player` table (`injuryStatus`, `status`)
-- **Notes**: deterministic/non-LLM agent (returns `tokensUsed = 0`)
+- **Key data**: `Player.injuryStatus`, `Player.status`
+- **Notes**: Deterministic/non-LLM agent — no system prompt used.
 
-### NewsDigestAgent
-Personalized weekly digest (Phase 3 — requires ContentItem pipeline).
-- **Input**: `{ userId, leagueId }`
-- **Key data**: ContentItem table (not yet populated)
+### WaiverAgent
+Weekly ranked pickup/drop recommendations tailored to the user's specific roster gaps.
+- **Status**: ✅ Live
+- **Input**: `{ userId, leagueId, targetPosition?: string }`
+- **Output**: `{ recommendations[], summary, tokensUsed }`
+- **Key data**: roster (live), `TrendingPlayer`, available `Player` records
+
+### LineupAgent (formerly StartSitAgent)
+Weekly lineup optimizer with confidence scores and matchup analysis.
+- **Status**: ✅ Live
+- **Input**: `{ userId, leagueId, week?: number }`
+- **Output**: `{ recommendedLineup[], benchedPlayers[], keyMatchups[], warnings[], tokensUsed }`
+- **Key data**: starters (live), `Player.injuryStatus`, `PlayerRanking`
+
+### TradeAnalysisAgent
+Accept/reject/counter trade evaluation with a numerical value score.
+- **Status**: ✅ Live (uses Claude Sonnet / GPT-4o for quality)
+- **Input**: `{ userId, leagueId, giving: string[], receiving: string[] }`
+- **Output**: `{ verdict, valueScore, summary, givingAnalysis[], receivingAnalysis[], keyInsights[], tokensUsed }`
+- **Key data**: `PlayerTradeValue`, `PlayerRanking`, `ContentPlayerMention`, Dynasty Daddy community trades
+
+### PlayerScoutAgent
+Deep per-player evaluation on demand.
+- **Status**: ✅ Live
+- **Input**: `{ userId, playerId, context? }`
+- **Output**: `{ trend, recentNewsSummary, summary, keyInsights[], ...player fields, tokensUsed }`
+- **Key data**: `PlayerTradeValue`, `PlayerRanking`, `ContentPlayerMention`, Dynasty Daddy trade volume
+
+### Planned (Phase 4+)
+- **NewsDigestAgent**: Personalized weekly digest — requires ContentItem pipeline to be fully populated
+- **BrowseAgents**: Requires OpenClaw/Orgo integration (Phase 5)
 
 ---
 

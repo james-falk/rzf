@@ -3,10 +3,10 @@ import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { LLMConnector } from '@rzf/connectors/llm'
 import { buildUserContext } from '@rzf/shared'
 import { LineupOutputSchema } from '@rzf/shared/types'
-import type { LineupInput, LineupOutput } from '@rzf/shared/types'
+import type { LineupInput, LineupOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 
-export async function runLineupAgent(input: LineupInput): Promise<LineupOutput> {
+export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeConfig): Promise<LineupOutput> {
   const { userId, leagueId, week: requestedWeek } = input
   console.log(`[lineup] Starting — userId=${userId} leagueId=${leagueId}`)
 
@@ -90,7 +90,7 @@ export async function runLineupAgent(input: LineupInput): Promise<LineupOutput> 
 
   // ── 5. LLM call ────────────────────────────────────────────────────────────
   console.log(`[lineup] Calling LLM — week=${week} starters=${starters.length} bench=${bench.length}`)
-  const systemPrompt = buildSystemPrompt(userContext)
+  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(
     { name: league.name, roster_positions: league.roster_positions, scoring_settings: league.scoring_settings },
     starters,
@@ -99,7 +99,7 @@ export async function runLineupAgent(input: LineupInput): Promise<LineupOutput> 
   )
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: 'haiku' },
+    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
     (raw) => LineupOutputSchema.omit({ tokensUsed: true }).parse(raw),
   )
 

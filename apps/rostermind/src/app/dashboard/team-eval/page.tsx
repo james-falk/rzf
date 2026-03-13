@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { api, ApiError } from '@/lib/api'
 import { TeamEvalResults } from '@/components/TeamEvalResults'
-import type { AgentRunResult } from '@/components/TeamEvalResults'
+import type { AgentRunResult } from '@/components/AgentResults'
+import type { TeamEvalOutput } from '@rzf/shared/types'
 
 interface League {
   league_id: string
@@ -179,7 +180,7 @@ export default function TeamEvalPage() {
       )}
 
       {/* Run error */}
-      {runError && (
+      {runError.length > 0 && (
         <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
           {runError}
         </div>
@@ -204,8 +205,8 @@ export default function TeamEvalPage() {
       )}
 
       {/* Results */}
-      {result?.status === 'done' && result.output && (
-        <TeamEvalResults result={{ ...result, output: result.output }} onRate={handleRate} />
+      {result != null && result.status === 'done' && result.output != null && (
+        <TeamEvalResults result={{ ...result, output: result.output as TeamEvalOutput }} onRate={handleRate} />
       )}
 
       {/* Failed state */}

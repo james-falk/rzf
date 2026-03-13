@@ -6,6 +6,28 @@ All meaningful changes are logged here. Most recent first.
 
 ## 2026-03-12
 
+### Phase 1-3 MVP Lock-Down: all 6 agents live, Agent Manager, follow-up chat, Stripe
+
+- **Intent router expanded**: All 6 agents (team_eval, injury_watch, waiver, lineup, trade_analysis, player_scout) now registered as `available: true`. Fixed `start_sit` → `lineup` naming. Added keywords for injury_watch and player_scout. Registry is now DB-driven via AgentConfig.enabled flag.
+- **Agent result components**: Created `AgentResults.tsx` router + `InjuryWatchResults`, `WaiverResults`, `LineupResults`, `TradeAnalysisResults`, `PlayerScoutResults` components with full output rendering.
+- **Analyze page overhaul**: All 6 quick-action chips active. Inline agents (team_eval, injury_watch, waiver, lineup) handled in chat UI. Trade/Scout chips navigate to dedicated pages. `handleRun` dispatches via `api.runAgent` by type.
+- **Dedicated agent pages**: `/dashboard/trade` (player picker → TradeAnalysisAgent) and `/dashboard/scout` (player search → PlayerScoutAgent). Both poll for results and render agent-specific components.
+- **AppSidebar**: Restructured into sections (AI Agents / Account). Added Trade Advice and Player Scout links.
+- **History page**: Dynamic title from `AGENT_LABELS` map. All agent types render via `AgentResults` router.
+- **Admin runs filter**: All 6 agent types added to `AGENT_OPTIONS` filter.
+- **AgentConfig model**: New `agent_configs` DB table stores system prompts, model tier, enabled flag, label, description, sortOrder per agent. Migration seeded with hardcoded defaults.
+- **Worker runtime config**: `agent.worker.ts` fetches `AgentConfig` from DB before each dispatch. `systemPromptOverride` and `modelTierOverride` passed to all agent runner functions.
+- **Agent prompt overrides**: All 5 LLM agent `buildSystemPrompt()` functions accept optional `override?` string. Override replaces hardcoded template with `{userContext}` interpolation preserved.
+- **Internal API — agent configs**: `GET /internal/agents/configs`, `PUT /internal/agents/configs/:type`, `POST /internal/agents/configs/:type/reset` endpoints added to `internal.ts`.
+- **Admin Agent Manager page**: `/agents/config` in admin dashboard. Lists all agents with model badge, enabled toggle, edit button. Edit drawer: label, description, model selector, enabled/showInAnalyze toggles, full system prompt textarea, save + reset-to-default buttons.
+- **Players search endpoint**: `GET /players/search?q=&position=` added to Fastify API for trade/scout player lookup.
+- **Follow-up chat**: `POST /agents/:id/followup` — sync LLM call using completed run output as context. No credits deducted. `FollowUpThread` component added to analyze and history pages.
+- **Stripe integration**: `POST /billing/checkout` creates hosted Checkout Session. `POST /webhooks/stripe` handles `checkout.session.completed` → upgrades user tier to `paid`, sets 50 credits. Billing page wired to call checkout and handle success/cancel redirect. `STRIPE_PRICE_ID` env var added.
+
+---
+
+## 2026-03-12
+
 ### Dynasty Daddy full data pull, PlayerTradeVolume, and Source Manager Automated APIs tab
 
 - **Dynasty Daddy markets 2+3**: `syncValues()` now pulls DynastyProcess (market=2) and DynastySuperflex (market=3) into `PlayerTradeValue` with `source='dynastyprocess'` and `source='dynastysuperflex'`. Five markets total per weekly run (KTC dynasty, KTC redraft, DP, DS, DD own).

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { Webhook } from 'svix'
+import Stripe from 'stripe'
 import { db, track } from '@rzf/db'
 import { env } from '@rzf/shared/env'
 
@@ -75,6 +76,61 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
           data: { email: `deleted_${event.data.id}@deleted.invalid` },
         })
         console.log(`[webhook] Soft-deleted user with Clerk ID: ${event.data.id}`)
+        break
+      }
+    }
+
+    return reply.status(200).send({ received: true })
+  })
+
+  // POST /webhooks/stripe — handle Stripe subscription events
+  app.post('/webhooks/stripe', async (req: FastifyRequest, reply) => {
+    if (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET) {
+      return reply.status(503).send({ error: 'Stripe not configured' })
+    }
+
+    const sig = req.headers['stripe-signature'] as string
+    if (!sig) return reply.status(400).send({ error: 'Missing stripe-signature header' })
+
+    let event: Stripe.Event
+    try {
+      const stripe = new Stripe(env.STRIPE_SECRET_KEY)
+      const rawBody = JSON.stringify(req.body)
+      event = stripe.webhooks.constructEvent(rawBody, sig, env.STRIPE_WEBHOOK_SECRET)
+    } catch {
+      return reply.status(400).send({ error: 'Invalid Stripe signature' })
+    }
+
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session
+        const userId = session.metadata?.userId
+        if (!userId) break
+
+        await db.user.update({
+          where: { id: userId },
+          data: { tier: 'paid', runCredits: 50 },
+        })
+
+        await track('user.upgraded', { fromTier: 'free', toTier: 'paid' }, userId)
+        console.log(`[webhook] Upgraded user ${userId} to paid tier`)
+        break
+      }
+
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as Stripe.Subscription
+        const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
+
+        // Look up user by Stripe customer ID via subscriptions metadata
+        // This is a best-effort downgrade — find any user with this customer
+        const runWithCustomer = await db.agentRun.findFirst({
+          where: { user: { email: { not: undefined } } },
+        })
+        if (!runWithCustomer) break
+
+        // If we had a stripe_customer_id on User, we'd do a direct lookup.
+        // For now, log and handle manually.
+        console.log(`[webhook] Subscription cancelled for customer ${customerId}`)
         break
       }
     }

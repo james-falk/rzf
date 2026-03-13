@@ -12,7 +12,8 @@ interface EnrichedPlayer {
   isStarter: boolean
 }
 
-export function buildSystemPrompt(userContext: string): string {
+export function buildSystemPrompt(userContext: string, override?: string): string {
+  if (override) return override.replace('{userContext}', userContext)
   return `You are an expert fantasy football analyst. Your job is to evaluate a user's fantasy roster and provide clear, actionable insights.
 
 ${userContext}

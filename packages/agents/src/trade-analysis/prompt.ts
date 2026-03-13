@@ -1,4 +1,5 @@
-export function buildSystemPrompt(userContext: string): string {
+export function buildSystemPrompt(userContext: string, override?: string): string {
+  if (override) return override.replace('{userContext}', userContext)
   return `You are a fantasy football trade analyst. Your job is to evaluate a proposed trade objectively, weigh the value on both sides, and give a clear recommendation.
 
 ${userContext}

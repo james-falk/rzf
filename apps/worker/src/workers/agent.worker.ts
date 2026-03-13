@@ -32,26 +32,36 @@ export function createAgentWorker(): Worker<AgentJobData> {
       await track('agent.run.started', { agentType, userTier: 'unknown', leagueId: 'input' in input ? (input as { leagueId?: string }).leagueId : undefined }, input.userId)
 
       try {
+        // Fetch runtime config from DB (system prompt override + model tier).
+        // Falls back gracefully if config row is missing.
+        const agentConfig = await db.agentConfig.findUnique({ where: { agentType } }).catch(() => null)
+        const runtimeConfig = agentConfig
+          ? {
+              systemPromptOverride: agentConfig.systemPrompt,
+              modelTierOverride: agentConfig.modelTier,
+            }
+          : undefined
+
         let output: unknown
 
         switch (agentType) {
           case AgentJobTypes.TEAM_EVAL:
-            output = await runTeamEvalAgent(input as Parameters<typeof runTeamEvalAgent>[0])
+            output = await runTeamEvalAgent(input as Parameters<typeof runTeamEvalAgent>[0], runtimeConfig)
             break
           case AgentJobTypes.INJURY_WATCH:
             output = await runInjuryWatchAgent(input as Parameters<typeof runInjuryWatchAgent>[0])
             break
           case AgentJobTypes.WAIVER:
-            output = await runWaiverAgent(input as Parameters<typeof runWaiverAgent>[0])
+            output = await runWaiverAgent(input as Parameters<typeof runWaiverAgent>[0], runtimeConfig)
             break
           case AgentJobTypes.LINEUP:
-            output = await runLineupAgent(input as Parameters<typeof runLineupAgent>[0])
+            output = await runLineupAgent(input as Parameters<typeof runLineupAgent>[0], runtimeConfig)
             break
           case AgentJobTypes.TRADE_ANALYSIS:
-            output = await runTradeAnalysisAgent(input as Parameters<typeof runTradeAnalysisAgent>[0])
+            output = await runTradeAnalysisAgent(input as Parameters<typeof runTradeAnalysisAgent>[0], runtimeConfig)
             break
           case AgentJobTypes.PLAYER_SCOUT:
-            output = await runPlayerScoutAgent(input as Parameters<typeof runPlayerScoutAgent>[0])
+            output = await runPlayerScoutAgent(input as Parameters<typeof runPlayerScoutAgent>[0], runtimeConfig)
             break
           default:
             throw new Error(`Unknown agent type: ${agentType}`)

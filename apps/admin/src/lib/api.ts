@@ -196,6 +196,35 @@ export const api = {
       method: 'POST',
     }),
 
+  getAgentConfigs: () =>
+    adminFetch<{ configs: AgentConfig[] }>('/internal/agents/configs'),
+
+  updateAgentConfig: (agentType: string, data: Partial<AgentConfig>) =>
+    adminFetch<{ config: AgentConfig }>(`/internal/agents/configs/${agentType}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  resetAgentConfig: (agentType: string) =>
+    adminFetch<{ config: AgentConfig; reset: boolean }>(`/internal/agents/configs/${agentType}/reset`, {
+      method: 'POST',
+    }),
+
   pingHealth: () =>
     fetch(`${API_BASE}/health`).then((r) => r.json() as Promise<{ status: string; ts: string }>),
+}
+
+export interface AgentConfig {
+  id: string
+  agentType: string
+  label: string
+  description: string
+  systemPrompt: string
+  modelTier: string
+  maxTokens: number | null
+  enabled: boolean
+  showInAnalyze: boolean
+  sortOrder: number
+  updatedAt: string
+  updatedBy: string | null
 }

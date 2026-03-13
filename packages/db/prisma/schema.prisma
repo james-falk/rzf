@@ -628,6 +628,26 @@ model PlayerTradeVolume {
   @@map("player_trade_volume")
 }
 
+/// Per-agent runtime configuration. System prompt and model tier are editable
+/// in the admin dashboard without a code deploy. Seeded with defaults from
+/// each agent's prompt.ts on first migration.
+model AgentConfig {
+  id           String   @id @default(cuid())
+  agentType    String   @unique
+  label        String
+  description  String
+  systemPrompt String   @db.Text
+  modelTier    String   @default("haiku")
+  maxTokens    Int?
+  enabled      Boolean  @default(true)
+  showInAnalyze Boolean @default(true)
+  sortOrder    Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  updatedBy    String?
+
+  @@map("agent_configs")
+}
+
 /// Join table: which players are mentioned in which content, with context.
 /// Populated during ingestion via player entity resolution.
 model ContentPlayerMention {

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db, track } from '@rzf/db'
+import { LLMConnector } from '@rzf/connectors/llm'
 import { getAgentQueue } from '../lib/queue.js'
 import {
   AgentJobTypes,
@@ -169,6 +170,39 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
     await track('agent.result.rated', { agentRunId: id, rating: body.data.rating }, userId)
 
     return reply.send({ success: true })
+  })
+
+  // POST /agents/:id/followup — sync LLM follow-up on a completed run (no credit deduction)
+  app.post('/agents/:id/followup', { preHandler: requireAuth }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const userId = req.authUser!.userId
+
+    const body = z.object({ message: z.string().min(1).max(500) }).safeParse(req.body)
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
+    }
+
+    const run = await db.agentRun.findFirst({ where: { id, userId } })
+    if (!run) return reply.status(404).send({ error: 'Agent run not found' })
+    if (run.status !== 'done' || !run.outputJson) {
+      return reply.status(400).send({ error: 'Run has not completed successfully' })
+    }
+
+    const systemPrompt = `You are RosterMind AI, a fantasy football assistant. The user previously received the following analysis report, and is now asking a follow-up question about it. Answer clearly and concisely in 2-4 sentences. Do not repeat the full report — just address the specific question.
+
+Report context:
+${JSON.stringify(run.outputJson, null, 2).slice(0, 3000)}`
+
+    const { content } = await LLMConnector.complete({
+      model: 'haiku',
+      systemPrompt,
+      userPrompt: body.data.message,
+      maxTokens: 300,
+    })
+
+    await track('agent.followup.sent', { agentRunId: id, agentType: run.agentType }, userId)
+
+    return reply.send({ reply: content })
   })
 
   // GET /usage — current user's credit + token usage

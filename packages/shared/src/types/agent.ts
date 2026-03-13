@@ -54,6 +54,7 @@ export interface ManagerIntentOutput {
   clarifyingQuestion: string | null
   readyToRun: boolean
   availableAgents: AgentMeta[]
+  redirectUrl?: string
 }
 
 export const TeamEvalOutputSchema = z.object({
@@ -214,6 +215,13 @@ export const PlayerScoutOutputSchema = z.object({
 })
 
 export type PlayerScoutOutput = z.infer<typeof PlayerScoutOutputSchema>
+
+// ─── Agent Runtime Config (from AgentConfig DB model) ────────────────────────
+
+export interface AgentRuntimeConfig {
+  systemPromptOverride?: string
+  modelTierOverride?: string
+}
 
 // ─── Agent Job Payloads (BullMQ queue data) ───────────────────────────────────
 

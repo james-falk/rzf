@@ -1,15 +1,25 @@
 import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
 
-const navLinks = [
-  { href: '/dashboard', icon: '🏈', label: 'Dashboard' },
-  { href: '/dashboard/analyze', icon: '🧠', label: 'Ask RosterMind' },
-  { href: '/dashboard/team-eval', icon: '📊', label: 'Team Evaluation' },
-  { href: '/dashboard/history', icon: '📋', label: 'Report History' },
-  { href: '/account/usage', icon: '⚡', label: 'Usage' },
-  { href: '/account/sleeper', icon: '🔗', label: 'Sleeper Account' },
-  { href: '/account/preferences', icon: '⚙️', label: 'Preferences' },
-  { href: '/account/billing', icon: '💳', label: 'Billing' },
+const navSections = [
+  {
+    label: 'AI Agents',
+    links: [
+      { href: '/dashboard/analyze', icon: '🧠', label: 'Ask RosterMind' },
+      { href: '/dashboard/team-eval', icon: '📊', label: 'Team Analysis' },
+      { href: '/dashboard/trade', icon: '💱', label: 'Trade Advice' },
+      { href: '/dashboard/scout', icon: '🔍', label: 'Player Scout' },
+      { href: '/dashboard/history', icon: '📋', label: 'Report History' },
+    ],
+  },
+  {
+    label: 'Account',
+    links: [
+      { href: '/account/sleeper', icon: '🔗', label: 'Sleeper Account' },
+      { href: '/account/preferences', icon: '⚙️', label: 'Preferences' },
+      { href: '/account/billing', icon: '💳', label: 'Billing' },
+    ],
+  },
 ]
 
 export function AppSidebar() {
@@ -37,16 +47,23 @@ export function AppSidebar() {
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-1 p-4">
-        {navLinks.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
-          >
-            <span className="text-base">{link.icon}</span>
-            {link.label}
-          </Link>
+      <nav className="flex-1 overflow-y-auto p-4">
+        {navSections.map((section) => (
+          <div key={section.label} className="mb-4">
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">
+              {section.label}
+            </p>
+            {section.links.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
+              >
+                <span className="text-base">{link.icon}</span>
+                {link.label}
+              </Link>
+            ))}
+          </div>
         ))}
       </nav>
 

@@ -3,10 +3,10 @@ import { LLMConnector } from '@rzf/connectors/llm'
 import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { buildUserContext } from '@rzf/shared'
 import { TradeAnalysisOutputSchema } from '@rzf/shared/types'
-import type { TradeAnalysisInput, TradeAnalysisOutput } from '@rzf/shared/types'
+import type { TradeAnalysisInput, TradeAnalysisOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 
-export async function runTradeAnalysisAgent(input: TradeAnalysisInput): Promise<TradeAnalysisOutput> {
+export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: AgentRuntimeConfig): Promise<TradeAnalysisOutput> {
   const { userId, leagueId, giving, receiving } = input
   console.log(`[trade-analysis] Starting — userId=${userId} giving=${giving.join(',')} receiving=${receiving.join(',')}`)
 
@@ -104,11 +104,11 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput): Promise<
 
   // ── 5. LLM call ────────────────────────────────────────────────────────────
   console.log(`[trade-analysis] Calling LLM`)
-  const systemPrompt = buildSystemPrompt(userContext)
+  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(givingContext, receivingContext)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: 'sonnet' },
+    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'sonnet' },
     (raw) => TradeAnalysisOutputSchema.omit({ tokensUsed: true }).parse(raw),
   )
 

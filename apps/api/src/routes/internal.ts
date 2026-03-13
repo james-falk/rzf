@@ -5,6 +5,144 @@ import { requireAuth, requireAdmin, requireAdminSecret } from '../middleware/aut
 import { getAgentQueue, getIngestionQueue } from '../lib/queue.js'
 import { AgentJobTypes, IngestionJobTypes, InjuryWatchInputSchema, TeamEvalInputSchema } from '@rzf/shared/types'
 
+// Default system prompts per agent — source of truth for the reset endpoint.
+// Must stay in sync with packages/agents/src/*/prompt.ts hardcoded defaults.
+const DEFAULT_AGENT_PROMPT_OVERRIDES: Record<string, { systemPrompt: string; modelTier: string }> = {
+  team_eval: {
+    modelTier: 'haiku',
+    systemPrompt: `You are an expert fantasy football analyst. Your job is to evaluate a user's fantasy roster and provide clear, actionable insights.
+
+{userContext}
+
+You MUST respond with valid JSON only — no markdown, no prose before or after.
+The JSON must match this exact structure:
+{
+  "overallGrade": "letter grade with +/- e.g. B+",
+  "strengths": ["2-4 specific strengths"],
+  "weaknesses": ["2-4 specific weaknesses or risks"],
+  "positionGrades": { "QB": "grade", "RB": "grade", "WR": "grade", "TE": "grade" },
+  "keyInsights": ["3-5 actionable insights the manager should act on"]
+}
+
+Grading scale: A+ (elite), A (strong), B+ (above avg), B (avg), C+ (below avg), C (weak), D (poor)
+Be specific — name players and explain why.
+Focus on what's actionable for this week and the rest of the season.`,
+  },
+  injury_watch: {
+    modelTier: 'haiku',
+    systemPrompt: 'Deterministic agent — no LLM call. This config controls label and availability only.',
+  },
+  waiver: {
+    modelTier: 'haiku',
+    systemPrompt: `You are a fantasy football waiver wire advisor. Your job is to recommend the best available free agents for a manager to pick up based on their roster needs, recent trends, and current news.
+
+{userContext}
+
+Respond with a JSON object matching this exact shape:
+{
+  "recommendations": [
+    {
+      "playerId": "string (Sleeper player_id)",
+      "playerName": "string",
+      "position": "string",
+      "team": "string or null",
+      "pickupScore": number (0-100),
+      "reason": "string (1-2 sentences: why pick up this player now)",
+      "dropSuggestion": "string or null (name of player to drop, or null)"
+    }
+  ],
+  "summary": "string (1-2 sentence overview of waiver strategy this week)"
+}
+
+Rules:
+- Return 3-5 recommendations, sorted by pickupScore descending
+- pickupScore reflects urgency + upside + roster fit (100 = must-add immediately)
+- Focus on players NOT already on the user's roster
+- Consider injury news, depth chart changes, and target share trends
+- dropSuggestion should name the weakest roster player at that position`,
+  },
+  lineup: {
+    modelTier: 'haiku',
+    systemPrompt: `You are a fantasy football lineup optimizer. Set the best possible starting lineup for this week based on matchups, injury status, depth chart, and rankings.
+
+{userContext}
+
+Respond with a JSON object matching this exact shape:
+{
+  "recommendedLineup": [
+    {
+      "slot": "string (e.g. QB, RB1, RB2, WR1, WR2, FLEX, TE, K, DEF)",
+      "playerId": "string",
+      "playerName": "string",
+      "position": "string",
+      "team": "string or null",
+      "opponent": "string or null",
+      "confidence": "high" | "medium" | "low",
+      "reason": "string (1 sentence: why start this player)"
+    }
+  ],
+  "benchedPlayers": [
+    {
+      "playerId": "string",
+      "playerName": "string",
+      "reason": "string (1 sentence: why bench)"
+    }
+  ],
+  "keyMatchups": ["string", ...],
+  "warnings": ["string", ...]
+}
+
+Rules:
+- confidence HIGH: healthy starter with favorable matchup or elite ranking
+- confidence MEDIUM: some uncertainty (injury, tough matchup, or inconsistent usage)
+- confidence LOW: risky start (questionable status, bad matchup, or limited role)
+- keyMatchups: 2-3 notable positive or negative matchup angles
+- warnings: injury alerts, game-time decisions, or stacks to be aware of`,
+  },
+  trade_analysis: {
+    modelTier: 'sonnet',
+    systemPrompt: `You are a fantasy football trade analyst. Your job is to evaluate a proposed trade objectively, weigh the value on both sides, and give a clear recommendation.
+
+{userContext}
+
+Respond with a JSON object matching this exact shape:
+{
+  "verdict": "accept" | "decline" | "counter",
+  "valueScore": number (-100 to 100, positive = favorable for the user, 0 = even),
+  "summary": "string (2-3 sentences: overall take on the trade)",
+  "givingAnalysis": [...],
+  "receivingAnalysis": [...],
+  "keyInsights": ["string", ...]
+}
+
+Rules:
+- valueScore > 20: clearly accept | 5 to 20: slight edge, accept | -5 to 5: even, counter | < -20: clearly decline
+- keyInsights: 2-4 bullet points on key factors (injury risk, schedule, age, positional scarcity, etc.)
+- Base the analysis on the trade values, rankings, and recent news provided
+- Be direct and opinionated — managers need a clear recommendation`,
+  },
+  player_scout: {
+    modelTier: 'haiku',
+    systemPrompt: `You are a fantasy football analyst conducting a deep-dive scouting report on a single player. Your report should be comprehensive, data-backed, and actionable.
+
+{userContext}
+
+Respond with a JSON object matching this exact shape:
+{
+  "trend": "rising" | "falling" | "stable" | "unknown",
+  "recentNewsSummary": "string (2-3 sentences summarizing the most relevant recent news)",
+  "summary": "string (3-4 sentences: overall player assessment for fantasy)",
+  "keyInsights": ["string", "string", ...]
+}
+
+Rules:
+- trend: rising = improving role/value, falling = declining role/value, stable = consistent
+- recentNewsSummary: synthesize the provided news headlines into a brief narrative
+- summary: cover current role, fantasy outlook, risks, and upside
+- keyInsights: 3-5 specific, actionable insights (schedule, usage trends, injury history, trade value, targets)`,
+  },
+}
+
 // Internal routes are gated by session-based admin check (web UI)
 // OR by X-Admin-Secret header (OpenClaw gateway)
 async function adminGuard(req: Parameters<typeof requireAuth>[0], reply: Parameters<typeof requireAuth>[1]): Promise<void> {
@@ -606,6 +744,65 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     )
 
     return reply.send({ success: true, jobId: job.id, sourceId: id, sourceName: source.name })
+  })
+
+  // ─── Agent Config CRUD ────────────────────────────────────────────────────
+
+  // GET /internal/agents/configs — list all agent configs
+  app.get('/internal/agents/configs', { preHandler: adminGuard }, async (_req, reply) => {
+    const configs = await db.agentConfig.findMany({ orderBy: { sortOrder: 'asc' } })
+    return reply.send({ configs })
+  })
+
+  // PUT /internal/agents/configs/:agentType — update an agent config
+  app.put('/internal/agents/configs/:agentType', { preHandler: adminGuard }, async (req, reply) => {
+    const { agentType } = req.params as { agentType: string }
+
+    const bodySchema = z.object({
+      label: z.string().min(1).optional(),
+      description: z.string().optional(),
+      systemPrompt: z.string().min(10).optional(),
+      modelTier: z.enum(['haiku', 'sonnet']).optional(),
+      maxTokens: z.number().int().positive().nullable().optional(),
+      enabled: z.boolean().optional(),
+      showInAnalyze: z.boolean().optional(),
+      sortOrder: z.number().int().optional(),
+      updatedBy: z.string().optional(),
+    })
+
+    const body = bodySchema.safeParse(req.body)
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
+    }
+
+    const existing = await db.agentConfig.findUnique({ where: { agentType } })
+    if (!existing) return reply.status(404).send({ error: 'Agent config not found' })
+
+    const updated = await db.agentConfig.update({
+      where: { agentType },
+      data: body.data,
+    })
+
+    return reply.send({ config: updated })
+  })
+
+  // POST /internal/agents/configs/:agentType/reset — reset to hardcoded defaults
+  app.post('/internal/agents/configs/:agentType/reset', { preHandler: adminGuard }, async (req, reply) => {
+    const { agentType } = req.params as { agentType: string }
+
+    const defaults = DEFAULT_AGENT_PROMPT_OVERRIDES[agentType]
+    if (!defaults) return reply.status(404).send({ error: 'No defaults found for this agent type' })
+
+    const updated = await db.agentConfig.update({
+      where: { agentType },
+      data: {
+        systemPrompt: defaults.systemPrompt,
+        modelTier: defaults.modelTier,
+        updatedBy: 'system-reset',
+      },
+    })
+
+    return reply.send({ config: updated, reset: true })
   })
 
   // GET /internal/queue — BullMQ queue stats

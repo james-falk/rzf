@@ -2,17 +2,9 @@
 
 import { cn, gradeColor, formatRelativeTime } from '@/lib/utils'
 import type { TeamEvalOutput } from '@rzf/shared/types'
+import type { AgentRunResult } from './AgentResults'
 
-export interface AgentRunResult {
-  id: string
-  status: 'queued' | 'running' | 'done' | 'failed'
-  output: TeamEvalOutput | null
-  tokensUsed: number | null
-  durationMs: number | null
-  rating: 'up' | 'down' | null
-  errorMessage: string | null
-  createdAt: string
-}
+export type { AgentRunResult }
 
 export function TeamEvalResults({
   result,

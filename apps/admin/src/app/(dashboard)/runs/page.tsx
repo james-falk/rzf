@@ -12,7 +12,7 @@ import { RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const STATUS_OPTIONS = ['', 'done', 'failed', 'running', 'queued']
-const AGENT_OPTIONS = ['', 'team_eval', 'injury_watch']
+const AGENT_OPTIONS = ['', 'team_eval', 'injury_watch', 'waiver', 'lineup', 'trade_analysis', 'player_scout']
 
 export default function RunsPage() {
   const router = useRouter()

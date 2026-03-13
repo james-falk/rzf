@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@clerk/nextjs'
+import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { TeamEvalResults } from '@/components/TeamEvalResults'
-import type { AgentRunResult } from '@/components/TeamEvalResults'
-import type { TeamEvalOutput } from '@rzf/shared/types'
+import { AgentResults } from '@/components/AgentResults'
+import type { AgentRunResult } from '@/components/AgentResults'
+import { FollowUpThread } from '@/components/FollowUpThread'
 import { cn } from '@/lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -20,25 +21,56 @@ type ChatMessage =
   | { id: string; role: 'assistant'; type: 'text'; content: string }
   | { id: string; role: 'assistant'; type: 'typing' }
   | { id: string; role: 'assistant'; type: 'chips' }
-  | { id: string; role: 'assistant'; type: 'league-select'; leagues: League[] }
-  | { id: string; role: 'assistant'; type: 'loading' }
-  | { id: string; role: 'assistant'; type: 'result'; result: AgentRunResult }
+  | { id: string; role: 'assistant'; type: 'league-select'; leagues: League[]; agentType: string }
+  | { id: string; role: 'assistant'; type: 'loading'; agentType: string }
+  | { id: string; role: 'assistant'; type: 'result'; result: AgentRunResult; runId: string }
   | { id: string; role: 'assistant'; type: 'error'; content: string }
   | { id: string; role: 'user'; type: 'user'; content: string }
 
+// Inline agents — handled within the chat UI (only need leagueId)
+const INLINE_AGENTS = ['team_eval', 'injury_watch', 'waiver', 'lineup']
+
 const QUICK_ACTIONS = [
-  { type: 'team_eval', label: 'Team Analysis', icon: '📊', available: true, desc: 'Full roster grade & insights' },
-  { type: 'waiver_wire', label: 'Waiver Wire', icon: '🔄', available: false, desc: 'Best adds & drops' },
-  { type: 'trade_analysis', label: 'Trade Advice', icon: '💱', available: false, desc: 'Accept or reject offers' },
-  { type: 'start_sit', label: 'Start / Sit', icon: '📋', available: false, desc: 'Weekly lineup decisions' },
+  { type: 'team_eval', label: 'Team Analysis', icon: '📊', inline: true, desc: 'Full roster grade & insights' },
+  { type: 'injury_watch', label: 'Injury Watch', icon: '🏥', inline: true, desc: 'Injury risk scan for your starters' },
+  { type: 'waiver', label: 'Waiver Wire', icon: '🔄', inline: true, desc: 'Best adds & drops this week' },
+  { type: 'lineup', label: 'Start / Sit', icon: '📋', inline: true, desc: 'Optimized lineup decisions' },
+  { type: 'trade_analysis', label: 'Trade Advice', icon: '💱', inline: false, href: '/dashboard/trade', desc: 'Accept or reject trade offers' },
+  { type: 'player_scout', label: 'Player Scout', icon: '🔍', inline: false, href: '/dashboard/scout', desc: 'Deep-dive on any player' },
 ]
 
-const LOADING_MESSAGES = [
-  'Pulling your roster from Sleeper...',
-  'Checking injury reports and depth charts...',
-  'Analyzing position strengths...',
-  'Running AI evaluation...',
-  'Finalizing your personalized report...',
+const AGENT_LOADING_MESSAGES: Record<string, string[]> = {
+  team_eval: [
+    'Pulling your roster from Sleeper...',
+    'Checking injury reports and depth charts...',
+    'Analyzing position strengths...',
+    'Running AI evaluation...',
+    'Finalizing your personalized report...',
+  ],
+  injury_watch: [
+    'Fetching your starters...',
+    'Scanning injury reports...',
+    'Assessing severity levels...',
+    'Building your health report...',
+  ],
+  waiver: [
+    'Loading your roster needs...',
+    'Scanning trending free agents...',
+    'Matching pickups to your gaps...',
+    'Ranking recommendations...',
+  ],
+  lineup: [
+    'Loading your roster...',
+    'Checking this week\'s matchups...',
+    'Analyzing injury status...',
+    'Optimizing your lineup...',
+  ],
+}
+
+const DEFAULT_LOADING_MESSAGES = [
+  'Processing your request...',
+  'Running AI analysis...',
+  'Almost done...',
 ]
 
 let _id = 0
@@ -49,6 +81,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export default function AnalyzePage() {
   const { getToken } = useAuth()
+  const router = useRouter()
   const bottomRef = useRef<HTMLDivElement>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const loadingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -56,9 +89,9 @@ export default function AnalyzePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [leagues, setLeagues] = useState<League[]>([])
   const [selectedLeague, setSelectedLeague] = useState('')
-  const [focusNote, setFocusNote] = useState('')
   const [textInput, setTextInput] = useState('')
   const [phase, setPhase] = useState<'idle' | 'league-select' | 'running' | 'done'>('idle')
+  const [pendingAgentType, setPendingAgentType] = useState('team_eval')
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
   const [runId, setRunId] = useState<string | null>(null)
 
@@ -74,12 +107,10 @@ export default function AnalyzePage() {
     fn()
   }, [])
 
-  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Initial greeting + load leagues
   useEffect(() => {
     const init = async () => {
       await delay(300)
@@ -98,14 +129,16 @@ export default function AnalyzePage() {
         if (list.length === 1) setSelectedLeague(list[0]!.league_id)
       } catch { /* silent */ }
     })
-  }, []) // intentional one-time init — getToken is stable, leagues loaded via separate state
+  }, []) // intentional one-time init
 
   // Loading message cycle
   useEffect(() => {
     if (phase !== 'running') return
-    loadingRef.current = setInterval(() => setLoadingMsgIdx((i) => (i + 1) % LOADING_MESSAGES.length), 2500)
+    const msgs = AGENT_LOADING_MESSAGES[pendingAgentType] ?? DEFAULT_LOADING_MESSAGES
+    setLoadingMsgIdx(0)
+    loadingRef.current = setInterval(() => setLoadingMsgIdx((i) => (i + 1) % msgs.length), 2500)
     return () => { if (loadingRef.current) clearInterval(loadingRef.current) }
-  }, [phase])
+  }, [phase, pendingAgentType])
 
   // Poll for result
   useEffect(() => {
@@ -120,10 +153,9 @@ export default function AnalyzePage() {
           setPhase('done')
           setMessages((prev) => prev.filter((m) => m.type !== 'loading'))
           if (run.status === 'done' && run.output) {
-            push({ id: mid(), role: 'assistant', type: 'result', result: run })
+            push({ id: mid(), role: 'assistant', type: 'result', result: run as AgentRunResult, runId })
           } else {
             const msg = run.errorMessage ?? 'Unknown error'
-            console.error(`[rzf-ui] Agent run failed — runId=${run.id} error=${msg}`)
             push({ id: mid(), role: 'assistant', type: 'error', content: `${msg}\n\nRun ID: ${run.id}` })
           }
         }
@@ -132,42 +164,51 @@ export default function AnalyzePage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [runId, phase, getToken, push])
 
-  const startRunning = useCallback(async (leagueId: string, note?: string) => {
+  const startRunning = useCallback(async (agentType: string, leagueId: string) => {
     setPhase('running')
-    push({ id: mid(), role: 'assistant', type: 'loading' })
+    setPendingAgentType(agentType)
+    push({ id: mid(), role: 'assistant', type: 'loading', agentType })
     try {
       const token = await getToken()
       if (!token) throw new Error('Not authenticated')
-      const { agentRunId } = await api.runTeamEval(token, leagueId, note || undefined)
+      const { agentRunId } = await api.runAgent(token, agentType, { leagueId })
       setRunId(agentRunId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start analysis.'
-      console.error(`[rzf-ui] Failed to enqueue run — leagueId=${leagueId} error=${msg}`)
       setPhase('done')
       setMessages((prev) => prev.filter((m) => m.type !== 'loading'))
       push({ id: mid(), role: 'assistant', type: 'error', content: msg })
     }
   }, [getToken, push])
 
-  const handleQuickAction = useCallback(async (type: string) => {
-    if (type !== 'team_eval' || phase !== 'idle') return
-    push({ id: mid(), role: 'user', type: 'user', content: 'Team Analysis' })
+  const handleQuickAction = useCallback(async (action: typeof QUICK_ACTIONS[number]) => {
+    if (phase !== 'idle') return
+
+    // Dedicated-page agents → navigate instead of inline
+    if (!action.inline && action.href) {
+      router.push(action.href)
+      return
+    }
+
+    push({ id: mid(), role: 'user', type: 'user', content: action.label })
+    setPendingAgentType(action.type)
     setPhase('league-select')
     await showTypingThen(() => {
-      push({ id: mid(), role: 'assistant', type: 'text', content: "Team evaluation — I'll grade every position and give you specific, actionable insights." })
+      push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro(action.type) })
     })
     await delay(300)
     await showTypingThen(() => {
-      push({ id: mid(), role: 'assistant', type: 'league-select', leagues })
+      push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: action.type })
     }, 500)
-  }, [phase, leagues, push, showTypingThen])
+  }, [phase, leagues, push, showTypingThen, router])
 
   const handleRun = useCallback(async () => {
     if (!selectedLeague) return
     const league = leagues.find((l) => l.league_id === selectedLeague)
-    push({ id: mid(), role: 'user', type: 'user', content: `Analyze ${league?.name ?? 'my team'}${focusNote ? ` — "${focusNote}"` : ''}` })
-    await startRunning(selectedLeague, focusNote)
-  }, [selectedLeague, leagues, focusNote, push, startRunning])
+    const action = QUICK_ACTIONS.find((a) => a.type === pendingAgentType)
+    push({ id: mid(), role: 'user', type: 'user', content: `Run ${action?.label ?? 'analysis'} for ${league?.name ?? 'my team'}` })
+    await startRunning(pendingAgentType, selectedLeague)
+  }, [selectedLeague, leagues, pendingAgentType, push, startRunning])
 
   const handleTextSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
@@ -183,20 +224,26 @@ export default function AnalyzePage() {
         const intent = await api.callIntent(token, msg, selectedLeague ? { leagueId: selectedLeague } : undefined)
 
         if (!intent.agentType || !intent.agentMeta?.available) {
-          push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? "I can run a full team analysis for you. Click the button below!" })
+          push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? "I can run a team analysis, injury watch, waiver recommendations, or lineup optimization. Click one of the options below!" })
           if (phase === 'idle') push({ id: mid(), role: 'assistant', type: 'chips' })
+        } else if ((intent as { redirectUrl?: string }).redirectUrl) {
+          // Complex agents need their dedicated page
+          push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? `Let me take you to the ${intent.agentMeta.label} page.` })
+          await delay(1200)
+          router.push((intent as { redirectUrl?: string }).redirectUrl!)
         } else if (intent.missingParams.includes('leagueId')) {
+          setPendingAgentType(intent.agentType)
           setPhase('league-select')
           push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? 'Which league should I analyze?' })
-          push({ id: mid(), role: 'assistant', type: 'league-select', leagues })
-        } else {
-          await startRunning(intent.gatheredParams['leagueId']!)
+          push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: intent.agentType })
+        } else if (intent.readyToRun && intent.gatheredParams['leagueId']) {
+          await startRunning(intent.agentType, intent.gatheredParams['leagueId'])
         }
       } catch {
         push({ id: mid(), role: 'assistant', type: 'error', content: 'Something went wrong. Please try again.' })
       }
     }, 1000)
-  }, [textInput, getToken, selectedLeague, leagues, phase, push, showTypingThen, startRunning])
+  }, [textInput, getToken, selectedLeague, leagues, phase, push, showTypingThen, startRunning, router])
 
   const handleRate = useCallback(async (rating: 'up' | 'down') => {
     if (!runId) return
@@ -206,6 +253,8 @@ export default function AnalyzePage() {
       await api.rateAgentRun(token, runId, rating)
     } catch { /* non-critical */ }
   }, [runId, getToken])
+
+  const loadingMessages = AGENT_LOADING_MESSAGES[pendingAgentType] ?? DEFAULT_LOADING_MESSAGES
 
   return (
     <div className="flex h-screen flex-col bg-zinc-950">
@@ -249,13 +298,12 @@ export default function AnalyzePage() {
               leagues={leagues}
               selectedLeague={selectedLeague}
               onLeagueChange={setSelectedLeague}
-              focusNote={focusNote}
-              onFocusChange={setFocusNote}
               onRun={handleRun}
               onRate={handleRate}
               onQuickAction={handleQuickAction}
-              loadingMsg={LOADING_MESSAGES[loadingMsgIdx]!}
+              loadingMsg={loadingMessages[loadingMsgIdx] ?? loadingMessages[0]!}
               phase={phase}
+              getToken={getToken}
             />
           ))}
           <div ref={bottomRef} />
@@ -288,38 +336,45 @@ export default function AnalyzePage() {
   )
 }
 
+function getAgentIntro(agentType: string): string {
+  switch (agentType) {
+    case 'team_eval': return "Team evaluation — I'll grade every position and give you specific, actionable insights."
+    case 'injury_watch': return "Injury watch — I'll scan your starters for health risks and give you handcuff recommendations."
+    case 'waiver': return "Waiver wire — I'll find the best available pickups tailored to your roster's weak spots."
+    case 'lineup': return "Lineup optimizer — I'll set the best possible lineup for this week based on matchups and injuries."
+    default: return "Which league should I analyze?"
+  }
+}
+
 // ── Message Bubble ─────────────────────────────────────────────────────────────
 
 function MessageBubble({
   msg,
-  leagues: _leagues,
+  leagues,
   selectedLeague,
   onLeagueChange,
-  focusNote,
-  onFocusChange,
   onRun,
   onRate,
   onQuickAction,
   loadingMsg,
   phase,
+  getToken,
 }: {
   msg: ChatMessage
   leagues: League[]
   selectedLeague: string
   onLeagueChange: (id: string) => void
-  focusNote: string
-  onFocusChange: (v: string) => void
   onRun: () => void
   onRate: (r: 'up' | 'down') => void
-  onQuickAction: (type: string) => void
+  onQuickAction: (action: typeof QUICK_ACTIONS[number]) => void
   loadingMsg: string
   phase: string
+  getToken: () => Promise<string | null>
 }) {
   const isUser = msg.role === 'user'
 
   return (
     <div className={cn('flex animate-in fade-in slide-in-from-bottom-2 duration-300', isUser ? 'justify-end' : 'justify-start gap-2.5')}>
-      {/* Assistant avatar */}
       {!isUser && (
         <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-600/20 ring-1 ring-red-500/30">
           <span className="text-[10px] font-bold text-red-400">R</span>
@@ -328,14 +383,12 @@ function MessageBubble({
 
       <div className={cn(isUser ? 'max-w-[70%]' : 'min-w-0 flex-1 max-w-[85%]')}>
 
-        {/* User bubble */}
         {isUser && (
           <div className="rounded-2xl rounded-tr-sm bg-zinc-800 px-4 py-2.5 text-sm text-white ring-1 ring-white/10">
             {'content' in msg ? msg.content : ''}
           </div>
         )}
 
-        {/* Typing */}
         {msg.role === 'assistant' && msg.type === 'typing' && (
           <div className="inline-flex items-center gap-1.5 rounded-2xl rounded-tl-sm border border-white/10 bg-zinc-900 px-4 py-3">
             {[0, 1, 2].map((i) => (
@@ -344,14 +397,12 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Text */}
         {msg.role === 'assistant' && msg.type === 'text' && (
           <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-zinc-900 px-4 py-3 text-sm leading-relaxed text-zinc-200">
             {msg.content}
           </div>
         )}
 
-        {/* Error */}
         {msg.role === 'assistant' && msg.type === 'error' && (
           <div className="rounded-2xl rounded-tl-sm border border-red-500/20 bg-red-500/10 px-4 py-3">
             <p className="text-sm font-medium text-red-400">Something went wrong</p>
@@ -359,26 +410,26 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Quick action chips */}
+        {/* Quick action chips — 2×2 inline + 2 link-out */}
         {msg.role === 'assistant' && msg.type === 'chips' && (
           <div className="grid grid-cols-2 gap-2">
             {QUICK_ACTIONS.map((action) => (
               <button
                 key={action.type}
-                onClick={() => onQuickAction(action.type)}
-                disabled={!action.available || phase !== 'idle'}
+                onClick={() => onQuickAction(action)}
+                disabled={phase !== 'idle'}
                 className={cn(
                   'relative flex flex-col gap-1 rounded-xl border p-3 text-left transition',
-                  action.available && phase === 'idle'
+                  phase === 'idle'
                     ? 'border-white/10 bg-zinc-900 hover:border-red-500/40 hover:bg-red-500/5 cursor-pointer'
                     : 'border-white/5 bg-zinc-900/50 cursor-not-allowed opacity-50',
                 )}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-lg">{action.icon}</span>
-                  {!action.available && (
+                  {!action.inline && (
                     <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
-                      Soon
+                      →
                     </span>
                   )}
                 </div>
@@ -392,7 +443,7 @@ function MessageBubble({
         {/* League selector */}
         {msg.role === 'assistant' && msg.type === 'league-select' && (
           <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-zinc-900 p-4">
-            {msg.leagues.length === 0 ? (
+            {leagues.length === 0 ? (
               <p className="text-sm text-zinc-400">
                 No leagues found.{' '}
                 <a href="/account/sleeper" className="text-red-400 underline">Connect Sleeper →</a>
@@ -404,32 +455,20 @@ function MessageBubble({
                   onChange={(e) => onLeagueChange(e.target.value)}
                   className="w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2.5 text-sm text-white outline-none focus:border-red-500/50"
                 >
-                  {msg.leagues.length > 1 && <option value="" disabled>Select a league...</option>}
-                  {msg.leagues.map((l) => (
+                  {leagues.length > 1 && <option value="" disabled>Select a league...</option>}
+                  {leagues.map((l) => (
                     <option key={l.league_id} value={l.league_id}>
                       {l.name} ({l.season})
                     </option>
                   ))}
                 </select>
 
-                <div>
-                  <p className="mb-1.5 text-[11px] text-zinc-500">Optional: anything specific to focus on?</p>
-                  <input
-                    type="text"
-                    value={focusNote}
-                    onChange={(e) => onFocusChange(e.target.value)}
-                    placeholder='e.g. "check my RB depth" or "I want to trade my TE"'
-                    maxLength={200}
-                    className="w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-red-500/50"
-                  />
-                </div>
-
                 <button
                   onClick={onRun}
                   disabled={!selectedLeague || phase === 'running'}
                   className="w-full rounded-lg bg-red-600 py-2.5 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Analyze my team →
+                  Run {QUICK_ACTIONS.find((a) => a.type === msg.agentType)?.label ?? 'Analysis'} →
                 </button>
               </div>
             )}
@@ -451,14 +490,17 @@ function MessageBubble({
           </div>
         )}
 
-        {/* Result */}
-        {msg.role === 'assistant' && msg.type === 'result' && msg.result.output && (
-          <TeamEvalResults
-            result={msg.result as AgentRunResult & { output: TeamEvalOutput }}
-            onRate={onRate}
-          />
-        )}
+          {/* Result */}
+          {msg.role === 'assistant' && msg.type === 'result' && msg.result.output != null && (
+            <>
+              <AgentResults result={msg.result} onRate={onRate} />
+              <FollowUpThread runId={msg.runId} getToken={getToken} />
+            </>
+          )}
       </div>
     </div>
   )
 }
+
+// suppress unused variable warning — INLINE_AGENTS used for reference/documentation
+void INLINE_AGENTS

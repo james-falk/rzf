@@ -5,55 +5,55 @@
 
 ---
 
-## Phase 1 — MVP (current)
+## Phase 1-3 — MVP Complete ✅
 
-### Done ✅
+### Infrastructure
 - [x] Monorepo scaffold (API, Worker, Web, all packages)
 - [x] Clerk auth (middleware, sign-in/up pages, webhook → DB user creation)
 - [x] Prisma schema + Render Postgres migrations
 - [x] BullMQ worker + Redis queue
-- [x] TeamEvalAgent — full roster grade with position scores, insights, content links
 - [x] Render deploy (rzf-api + rzf-worker)
-- [x] Vercel deploy (rzf-web)
-- [x] Onboarding flow (Sleeper username → profile linked)
-- [x] Dashboard UI (team eval trigger, polling, results display)
-- [x] Report history — `/dashboard/history` with full report replay
+- [x] Vercel deploy (rzf-web, rzf-admin)
 - [x] Credit system — free tier (2 runs), paid tier (50/mo), 402 gate
 - [x] Token budget tracking per user per month
-- [x] Internal admin routes (`/internal/*`) with `x-admin-secret` auth (OpenClaw-ready)
+- [x] Internal admin routes (`/internal/*`) with `x-admin-secret` auth
 - [x] LLM provider dual-support — Anthropic (primary) + OpenAI fallback
 - [x] Duplicate job prevention (5-minute window)
+
+### All 6 Agents Live
+- [x] **TeamEvalAgent** — roster grade with position scores, insights, content links
+- [x] **InjuryWatchAgent** — starter injury risk scan, severity-coded alerts, handcuff recs
+- [x] **WaiverAgent** — roster gap analysis → ranked waiver pickups with drop suggestions
+- [x] **LineupAgent** — optimized starting lineup with confidence scores and matchup analysis
+- [x] **TradeAnalysisAgent** — accept/decline/counter with value score (uses Claude Sonnet)
+- [x] **PlayerScoutAgent** — deep-dive player report with trend, news, insights
+
+### UX
+- [x] Onboarding flow (Sleeper username → profile linked)
+- [x] `/dashboard/analyze` — AI assistant chat UI, all 6 agents accessible
+- [x] `/dashboard/trade` — dedicated trade advisor page with player picker
+- [x] `/dashboard/scout` — dedicated player scout page with player search
+- [x] Report history — `/dashboard/history` with full agent-specific report replay
 - [x] `focusNote` — optional user direction injected into agent prompt
-- [x] Manager / intent router (`POST /agents/intent`) — keyword classifier
-- [x] `/dashboard/analyze` — AI assistant chat UI with quick action chips
+- [x] Post-run follow-up chat — sync LLM Q&A on completed reports (no credit cost)
+- [x] Intent router (DB-driven) — keyword classifier → agent dispatch, enabled by AgentConfig
 
-### In Progress 🔄
-- [ ] End-to-end sign-up test — verify Clerk webhook → DB row → Sleeper connect → team eval run
-- [ ] Verify Render deploy picks up OPENAI_API_KEY
+### Agent Manager
+- [x] `AgentConfig` DB model — system prompts, model tier, enabled flag, labels
+- [x] Admin Agent Manager page — edit prompts, model tier, enable/disable without redeploy
+- [x] Worker reads AgentConfig at runtime before each dispatch
+- [x] Reset-to-default endpoint — restore hardcoded prompt from source-of-truth map
 
-### Remaining for MVP completion
+### Monetization
+- [x] Stripe checkout session (`POST /billing/checkout`)
+- [x] Stripe webhook handler (`checkout.session.completed` → upgrade to paid, 50 credits)
+- [x] Billing page upgrade button wired to Stripe hosted checkout
+
+### Remaining for Go-Live
 - [ ] Monthly credit refill cron job for paid users (resets `runCredits` to 50 on 1st of month)
 - [ ] `ADMIN_SECRET` hardened to real value in Render (currently placeholder)
-- [ ] Post-run follow-up chat (`POST /agents/:id/followup` — direct LLM, no queue)
-
----
-
-## Phase 2 — Agent Suite Expansion
-
-Build agents in this order (highest user value first, data availability second):
-
-- [ ] **WaiverAgent** — roster gaps + trending adds + available players → ranked pickup list
-  - Data needed: all available players in league (Sleeper API — not yet fetched)
-  - Estimated effort: 1 session
-- [ ] **StartSitAgent** — borderline starters → confidence-scored start/sit decisions
-  - Data needed: matchup/schedule data (Sleeper has this via `/schedule`)
-  - Estimated effort: 1 session
-- [ ] **InjuryWatchAgent** — roster injury risk scan → high-risk flags + handcuff recs
-  - Data needed: all from DB already (Player.injuryStatus)
-  - Estimated effort: 0.5 session (simplest agent)
-- [ ] **TradeAnalysisAgent** — trade offer evaluation → accept/reject + counter-suggestion
-  - Data needed: trade value chart / ADP data (source TBD — FantasyPros or 4for4)
-  - Estimated effort: 1.5 sessions (most complex)
+- [ ] End-to-end sign-up test — verify Clerk webhook → DB row → Sleeper connect → team eval run
+- [ ] Set `STRIPE_PRICE_ID` in Render after creating product in Stripe Dashboard
 
 ---
 

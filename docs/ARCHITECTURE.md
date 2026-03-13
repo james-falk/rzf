@@ -1,6 +1,6 @@
 # Architecture
 
-> Last updated: 2026-03-06
+> Last updated: 2026-03-12
 
 ## System Overview
 
@@ -71,7 +71,7 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 ### `apps/admin` (Vercel)
 - Standalone internal admin dashboard — separate Vercel project, no Clerk dependency
 - Auth via `ADMIN_SECRET` stored in `localStorage`, sent as `x-admin-secret` header
-- Pages: Overview, Agent Runs (with charts), Content Sources (health + manual triggers), Content Analytics (Recharts visualizations), Queue Status
+- Pages: Overview, Agent Runs (with charts), Content Sources (health + manual triggers), Content Analytics (Recharts visualizations), Queue Status, Agent Config (edit system prompts / model tiers / enable toggles per agent)
 - Uses `recharts` for time-series and distribution charts
 
 ### `apps/directory` (Vercel)
@@ -82,8 +82,11 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 - Fastify REST API — all business logic entry point
 - Validates Clerk JWT sessions on protected routes
 - Enqueues jobs to BullMQ for async agent execution
-- Handles webhooks: Clerk user lifecycle, Stripe billing (Phase 2)
-- Admin routes under `/internal/*` gated by `role = admin`
+- Handles webhooks: Clerk user lifecycle, Stripe `checkout.session.completed` (upgrades user to paid tier)
+- `POST /agents/:id/followup` — credit-free LLM follow-up chat on a completed run
+- `GET /players/search` — player name search for frontend agent inputs
+- `POST /billing/checkout` — creates Stripe Checkout Session for tier upgrade
+- Admin routes under `/internal/*` gated by `role = admin`; includes `GET/PUT /internal/agents/configs` for runtime agent config
 
 ### `apps/worker` (Render Background Worker)
 - BullMQ consumer — executes agent jobs and ingestion jobs
@@ -108,33 +111,38 @@ Red Zone Fantasy is a monorepo with three deployed services plus a local operato
 
 ### `packages/agents`
 - Agent logic with strict typed input/output schemas
-- Live agents: TeamEvalAgent, InjuryWatchAgent
+- Live agents: TeamEvalAgent, InjuryWatchAgent, WaiverAgent, LineupAgent, TradeAnalysisAgent, PlayerScoutAgent
+- All LLM-based agents accept an optional `AgentRuntimeConfig` (systemPromptOverride, modelTierOverride) loaded from `AgentConfig` DB rows at dispatch time
 - Agents are pure functions: input → output, no side effects
 - Side effects (DB writes, event tracking) happen in the worker, not in agent code
 
 ## Data Flow: Agent Run
 
 ```
-User clicks "Evaluate My Team"
+User triggers agent (inline chat or dedicated page)
   → POST /agents/run (apps/api)
   → Check runCredits > 0
-  → Enqueue TeamEvalJob to Redis
+  → Enqueue agent job to Redis
   → Return { jobId, status: "queued" }
 
 Worker picks up job
-  → Load UserPreferences from DB
-  → Live fetch: Sleeper roster + league settings
-  → DB lookup: enrich players with Player table data
-  → DB lookup: PlayerRanking for positional context
-  → Build contentLinks from `ContentItem` + `ContentPlayerMention`
-  → Call LLMConnector.complete() with structured prompt
+  → Fetch AgentConfig from DB (systemPromptOverride, modelTierOverride, enabled)
+  → Load UserPreferences from DB → buildUserContext()
+  → Live fetch: Sleeper roster + league settings (where applicable)
+  → DB lookup: enrich players, rankings, trade values, content mentions
+  → Call LLMConnector.completeJSON() with runtime config
   → Write result to AgentRun.outputJson
   → track("agent.run.completed", { ... })
   → Decrement User.runCredits
 
 Web polls GET /agents/:jobId
   → Returns result when status = "done"
-  → Displays TeamEvalOutput
+  → AgentResults router renders agent-specific output component
+
+User asks follow-up question (no credit cost)
+  → POST /agents/:id/followup
+  → Fetch prior AgentRun.outputJson as context
+  → LLM one-shot response → returned inline
 ```
 
 ## Data Flow: Player Data Ingestion
@@ -172,4 +180,4 @@ Scheduled monthly (1st of month):
 - All secrets via env vars, validated at startup via Zod
 - Direct `process.env` access blocked by ESLint rule
 - Admin routes require `User.role === "admin"` checked server-side
-- Stripe webhook signatures verified before processing (Phase 2)
+- Stripe webhook signatures verified before processing
