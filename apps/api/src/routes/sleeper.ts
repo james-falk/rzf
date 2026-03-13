@@ -50,14 +50,28 @@ export async function sleeperRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  // GET /sleeper/leagues — get linked leagues for current user
+  // GET /sleeper/leagues?season=YYYY — get linked leagues for current user
+  // If ?season= is provided, fetches live from Sleeper for that year.
+  // Without ?season=, returns the cached leagues from the initial connect.
   app.get('/sleeper/leagues', { preHandler: requireAuth }, async (req, reply) => {
+    const { season } = req.query as { season?: string }
+
     const profile = await db.sleeperProfile.findUnique({
       where: { userId: req.authUser!.userId },
     })
     if (!profile) {
       return reply.status(404).send({ error: 'No Sleeper account connected' })
     }
+
+    if (season && /^\d{4}$/.test(season)) {
+      try {
+        const leagues = await SleeperConnector.getLeaguesForUser(profile.sleeperId, season)
+        return reply.send({ leagues })
+      } catch {
+        return reply.status(502).send({ error: `Failed to fetch leagues for season ${season}` })
+      }
+    }
+
     return reply.send({ leagues: profile.leagues })
   })
 }

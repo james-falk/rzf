@@ -11,35 +11,47 @@ interface League {
   total_rosters: number
 }
 
+const CURRENT_YEAR = new Date().getFullYear()
+const YEAR_OPTIONS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2].map(String)
+
 export default function SleeperAccountPage() {
   const { getToken } = useAuth()
   const [leagues, setLeagues] = useState<League[]>([])
   const [hasAccount, setHasAccount] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [selectedYear, setSelectedYear] = useState(String(CURRENT_YEAR))
 
   const [username, setUsername] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [connectError, setConnectError] = useState('')
   const [connectSuccess, setConnectSuccess] = useState(false)
 
-  useEffect(() => {
-    async function loadLeagues() {
-      try {
-        const token = await getToken()
-        if (!token) return
-        const data = await api.getLeagues(token)
-        setLeagues(data.leagues as League[])
-        setHasAccount(true)
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404) {
-          setHasAccount(false)
-        }
-      } finally {
-        setLoading(false)
+  async function loadLeagues(year: string) {
+    setLoading(true)
+    try {
+      const token = await getToken()
+      if (!token) return
+      const data = await api.getLeagues(token, year)
+      setLeagues(data.leagues as League[])
+      setHasAccount(true)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        setHasAccount(false)
       }
+      setLeagues([])
+    } finally {
+      setLoading(false)
     }
-    loadLeagues()
-  }, [getToken])
+  }
+
+  useEffect(() => {
+    loadLeagues(selectedYear)
+  }, [getToken]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleYearChange(year: string) {
+    setSelectedYear(year)
+    loadLeagues(year)
+  }
 
   async function handleConnect(e: React.FormEvent) {
     e.preventDefault()
@@ -101,12 +113,30 @@ export default function SleeperAccountPage() {
       </div>
 
       {/* Leagues */}
+      {hasAccount && (
+        <div className="mb-4 flex items-center gap-3">
+          <span className="text-sm text-zinc-400">Season</span>
+          {YEAR_OPTIONS.map((y) => (
+            <button
+              key={y}
+              onClick={() => handleYearChange(y)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                selectedYear === y
+                  ? 'bg-red-600 text-white'
+                  : 'border border-white/10 text-zinc-400 hover:text-white'
+              }`}
+            >
+              {y}
+            </button>
+          ))}
+        </div>
+      )}
       {loading ? (
         <div className="text-sm text-zinc-400">Loading...</div>
       ) : hasAccount && leagues.length > 0 ? (
         <div className="rounded-xl border border-white/10 bg-zinc-900">
           <div className="border-b border-white/10 px-5 py-4">
-            <h2 className="font-semibold text-white">Your Leagues ({leagues.length})</h2>
+            <h2 className="font-semibold text-white">Your Leagues ({leagues.length}) — {selectedYear}</h2>
           </div>
           <div className="divide-y divide-white/5">
             {leagues.map((l) => (
@@ -116,7 +146,7 @@ export default function SleeperAccountPage() {
                   <p className="text-xs text-zinc-500">{l.total_rosters} teams • {l.season}</p>
                 </div>
                 <a
-                  href="/dashboard/team-eval"
+                  href="/dashboard/analyze"
                   className="text-xs text-red-400 hover:text-red-300"
                 >
                   Analyze →
@@ -125,6 +155,8 @@ export default function SleeperAccountPage() {
             ))}
           </div>
         </div>
+      ) : hasAccount && leagues.length === 0 ? (
+        <div className="text-sm text-zinc-400">No leagues found for {selectedYear}.</div>
       ) : !hasAccount ? (
         <div className="text-sm text-zinc-400">Connect your account above to see your leagues.</div>
       ) : null}

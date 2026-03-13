@@ -46,6 +46,9 @@ export function buildUserPrompt(
       ? 'Half-PPR'
       : 'Standard'
 
+  const leagueTypeNum = Number(league.settings['type'] ?? 0)
+  const leagueType = leagueTypeNum === 2 ? 'Dynasty' : leagueTypeNum === 1 ? 'Keeper' : 'Redraft'
+
   const formatPlayer = (p: EnrichedPlayer): string => {
     const parts = [`${p.name} (${p.position}${p.team ? ` - ${p.team}` : ''})`]
     if (p.injuryStatus) parts.push(`⚠ ${p.injuryStatus}`)
@@ -75,7 +78,7 @@ export function buildUserPrompt(
 
   const focusSection = focusNote ? `\nUSER FOCUS: ${focusNote}` : ''
 
-  return `League: ${league.name} | Format: ${scoringType} | Roster: ${league.roster_positions.join(', ')}
+  return `League: ${league.name} | Type: ${leagueType} | Format: ${scoringType} | Roster: ${league.roster_positions.join(', ')}
 
 STARTING LINEUP:
 ${rosterSections}${benchSection}${trendingSection}${focusSection}

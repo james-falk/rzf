@@ -60,8 +60,9 @@ export const api = {
     })
   },
 
-  async getLeagues(token: string) {
-    return apiFetch<{ leagues: unknown[] }>('/sleeper/leagues', { token })
+  async getLeagues(token: string, season?: string) {
+    const qs = season ? `?season=${season}` : ''
+    return apiFetch<{ leagues: unknown[] }>(`/sleeper/leagues${qs}`, { token })
   },
 
   async runTeamEval(token: string, leagueId: string, focusNote?: string) {

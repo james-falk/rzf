@@ -52,7 +52,7 @@ interface RosterSlot {
 }
 
 export function buildUserPrompt(
-  league: { name: string; roster_positions: string[]; scoring_settings: Record<string, number> },
+  league: { name: string; roster_positions: string[]; scoring_settings: Record<string, number>; settings: Record<string, unknown> },
   starters: RosterSlot[],
   bench: RosterSlot[],
   week: number,
@@ -63,6 +63,9 @@ export function buildUserPrompt(
       ? 'Half-PPR'
       : 'Standard'
 
+  const leagueTypeNum = Number(league.settings['type'] ?? 0)
+  const leagueType = leagueTypeNum === 2 ? 'Dynasty' : leagueTypeNum === 1 ? 'Keeper' : 'Redraft'
+
   const formatPlayer = (p: RosterSlot) => {
     const parts = [`${p.name} (${p.position}, ${p.team ?? 'FA'})`]
     if (p.rankPosition) parts.push(`Rank: ${p.position}${p.rankPosition}`)
@@ -72,7 +75,7 @@ export function buildUserPrompt(
     return parts.join(' | ')
   }
 
-  return `[League: ${league.name} | ${scoringType} | Week ${week}]
+  return `[League: ${league.name} | ${leagueType} | ${scoringType} | Week ${week}]
 [Roster Slots: ${league.roster_positions.join(', ')}]
 
 [STARTERS (current lineup)]

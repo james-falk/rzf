@@ -89,6 +89,7 @@ export default function AnalyzePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [leagues, setLeagues] = useState<League[]>([])
   const [selectedLeague, setSelectedLeague] = useState('')
+  const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
   const [textInput, setTextInput] = useState('')
   const [phase, setPhase] = useState<'idle' | 'league-select' | 'running' | 'done'>('idle')
   const [pendingAgentType, setPendingAgentType] = useState('team_eval')
@@ -123,13 +124,26 @@ export default function AnalyzePage() {
     getToken().then(async (token) => {
       if (!token) return
       try {
-        const data = await api.getLeagues(token)
+        const data = await api.getLeagues(token, String(new Date().getFullYear()))
         const list = data.leagues as League[]
         setLeagues(list)
         if (list.length === 1) setSelectedLeague(list[0]!.league_id)
       } catch { /* silent */ }
     })
   }, []) // intentional one-time init
+
+  const handleYearChange = useCallback(async (year: string) => {
+    setSelectedYear(year)
+    setSelectedLeague('')
+    try {
+      const token = await getToken()
+      if (!token) return
+      const data = await api.getLeagues(token, year)
+      const list = data.leagues as League[]
+      setLeagues(list)
+      if (list.length === 1) setSelectedLeague(list[0]!.league_id)
+    } catch { /* silent */ }
+  }, [getToken])
 
   // Loading message cycle
   useEffect(() => {
@@ -292,19 +306,21 @@ export default function AnalyzePage() {
       <div className="flex-1 overflow-y-auto px-4 py-6 md:px-6">
         <div className="mx-auto max-w-2xl space-y-4">
           {messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              msg={msg}
-              leagues={leagues}
-              selectedLeague={selectedLeague}
-              onLeagueChange={setSelectedLeague}
-              onRun={handleRun}
-              onRate={handleRate}
-              onQuickAction={handleQuickAction}
-              loadingMsg={loadingMessages[loadingMsgIdx] ?? loadingMessages[0]!}
-              phase={phase}
-              getToken={getToken}
-            />
+          <MessageBubble
+            key={msg.id}
+            msg={msg}
+            leagues={leagues}
+            selectedLeague={selectedLeague}
+            selectedYear={selectedYear}
+            onLeagueChange={setSelectedLeague}
+            onYearChange={handleYearChange}
+            onRun={handleRun}
+            onRate={handleRate}
+            onQuickAction={handleQuickAction}
+            loadingMsg={loadingMessages[loadingMsgIdx] ?? loadingMessages[0]!}
+            phase={phase}
+            getToken={getToken}
+          />
           ))}
           <div ref={bottomRef} />
         </div>
@@ -348,11 +364,15 @@ function getAgentIntro(agentType: string): string {
 
 // ── Message Bubble ─────────────────────────────────────────────────────────────
 
+const YEAR_OPTIONS = [new Date().getFullYear(), new Date().getFullYear() - 1, new Date().getFullYear() - 2].map(String)
+
 function MessageBubble({
   msg,
   leagues,
   selectedLeague,
+  selectedYear,
   onLeagueChange,
+  onYearChange,
   onRun,
   onRate,
   onQuickAction,
@@ -363,7 +383,9 @@ function MessageBubble({
   msg: ChatMessage
   leagues: League[]
   selectedLeague: string
+  selectedYear: string
   onLeagueChange: (id: string) => void
+  onYearChange: (year: string) => void
   onRun: () => void
   onRate: (r: 'up' | 'down') => void
   onQuickAction: (action: typeof QUICK_ACTIONS[number]) => void
@@ -443,10 +465,26 @@ function MessageBubble({
         {/* League selector */}
         {msg.role === 'assistant' && msg.type === 'league-select' && (
           <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-zinc-900 p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="text-xs text-zinc-500">Season</span>
+              {YEAR_OPTIONS.map((y) => (
+                <button
+                  key={y}
+                  onClick={() => onYearChange(y)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                    selectedYear === y
+                      ? 'bg-red-600 text-white'
+                      : 'border border-white/10 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
             {leagues.length === 0 ? (
               <p className="text-sm text-zinc-400">
-                No leagues found.{' '}
-                <a href="/account/sleeper" className="text-red-400 underline">Connect Sleeper →</a>
+                No leagues found for {selectedYear}.{' '}
+                <a href="/account/sleeper" className="text-red-400 underline">Check Sleeper Account →</a>
               </p>
             ) : (
               <div className="space-y-3">

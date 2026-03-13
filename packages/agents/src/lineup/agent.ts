@@ -92,7 +92,7 @@ export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeCo
   console.log(`[lineup] Calling LLM — week=${week} starters=${starters.length} bench=${bench.length}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(
-    { name: league.name, roster_positions: league.roster_positions, scoring_settings: league.scoring_settings },
+    { name: league.name, roster_positions: league.roster_positions, scoring_settings: league.scoring_settings, settings: league.settings },
     starters,
     bench,
     week,
