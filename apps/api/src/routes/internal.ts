@@ -990,6 +990,89 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     })
   })
 
+  // ─── Ranking Sites CRUD ────────────────────────────────────────────────────
+
+  app.get('/internal/ranking-sites', { preHandler: adminGuard }, async (_req, reply) => {
+    const sites = await db.rankingSite.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { popularityScore: 'desc' }, { name: 'asc' }],
+    })
+    return reply.send({ sites })
+  })
+
+  app.post('/internal/ranking-sites', { preHandler: adminGuard }, async (req, reply) => {
+    const body = req.body as {
+      name: string; description: string; url: string; logoUrl?: string
+      categories: string[]; popularityScore?: number; promoCode?: string; promoDesc?: string
+      featured?: boolean; isActive?: boolean; sortOrder?: number
+    }
+    const site = await db.rankingSite.create({ data: body })
+    return reply.code(201).send({ site })
+  })
+
+  app.put('/internal/ranking-sites/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as Partial<{
+      name: string; description: string; url: string; logoUrl: string | null
+      categories: string[]; popularityScore: number; promoCode: string | null; promoDesc: string | null
+      featured: boolean; isActive: boolean; sortOrder: number
+    }>
+    const site = await db.rankingSite.update({ where: { id }, data: body })
+    return reply.send({ site })
+  })
+
+  app.delete('/internal/ranking-sites/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    await db.rankingSite.delete({ where: { id } })
+    return reply.send({ success: true })
+  })
+
+  // ─── Fantasy Tools CRUD ────────────────────────────────────────────────────
+
+  app.get('/internal/fantasy-tools', { preHandler: adminGuard }, async (_req, reply) => {
+    const tools = await db.fantasyTool.findMany({
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    })
+    return reply.send({ tools })
+  })
+
+  app.post('/internal/fantasy-tools', { preHandler: adminGuard }, async (req, reply) => {
+    const body = req.body as {
+      name: string; description: string; url: string; logoUrl?: string
+      categories: string[]; priceType: string; price?: string
+      promoCode?: string; promoDesc?: string; featured?: boolean
+      partnerTier?: string; isActive?: boolean; sortOrder?: number
+    }
+    const tool = await db.fantasyTool.create({ data: body })
+    return reply.code(201).send({ tool })
+  })
+
+  app.put('/internal/fantasy-tools/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = req.body as Partial<{
+      name: string; description: string; url: string; logoUrl: string | null
+      categories: string[]; priceType: string; price: string | null
+      promoCode: string | null; promoDesc: string | null; featured: boolean
+      partnerTier: string | null; isActive: boolean; sortOrder: number
+    }>
+    const tool = await db.fantasyTool.update({ where: { id }, data: body })
+    return reply.send({ tool })
+  })
+
+  app.delete('/internal/fantasy-tools/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    await db.fantasyTool.delete({ where: { id } })
+    return reply.send({ success: true })
+  })
+
+  // ─── Source logo override ─────────────────────────────────────────────────
+
+  app.patch('/internal/sources/:id/logo', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const { logoUrl } = req.body as { logoUrl: string | null }
+    const source = await db.contentSource.update({ where: { id }, data: { avatarUrl: logoUrl } })
+    return reply.send({ source })
+  })
+
   // GET /internal/queue — BullMQ queue stats
   app.get('/internal/queue', { preHandler: adminGuard }, async (_req, reply) => {
     try {

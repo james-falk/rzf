@@ -13,6 +13,8 @@ import {
   SlidersHorizontal,
   Coins,
   MessageSquare,
+  Trophy,
+  Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -33,6 +35,13 @@ const sections = [
       { href: '/agents/config', label: 'Agent Config', icon: SlidersHorizontal },
       { href: '/usage', label: 'Token Usage', icon: Coins },
       { href: '/queue/agents', label: 'Agent Queue', icon: Layers },
+    ],
+  },
+  {
+    label: 'Directory',
+    links: [
+      { href: '/directory/rankings', label: 'Ranking Sites', icon: Trophy },
+      { href: '/directory/tools', label: 'Fantasy Tools', icon: Wrench },
     ],
   },
   {

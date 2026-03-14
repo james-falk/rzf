@@ -233,6 +233,48 @@ export const api = {
 
   getFeedback: (app: 'rostermind' | 'directory' | 'all' = 'all', page = 1) =>
     adminFetch<FeedbackResponse>(`/internal/feedback?app=${app}&page=${page}`),
+
+  getRankingSites: () =>
+    adminFetch<{ sites: RankingSite[] }>('/internal/ranking-sites'),
+
+  createRankingSite: (data: Omit<RankingSite, 'id'>) =>
+    adminFetch<{ site: RankingSite }>('/internal/ranking-sites', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateRankingSite: (id: string, data: Partial<Omit<RankingSite, 'id'>>) =>
+    adminFetch<{ site: RankingSite }>(`/internal/ranking-sites/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteRankingSite: (id: string) =>
+    adminFetch<{ success: boolean }>(`/internal/ranking-sites/${id}`, { method: 'DELETE' }),
+
+  getFantasyTools: () =>
+    adminFetch<{ tools: FantasyTool[] }>('/internal/fantasy-tools'),
+
+  createFantasyTool: (data: Omit<FantasyTool, 'id'>) =>
+    adminFetch<{ tool: FantasyTool }>('/internal/fantasy-tools', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateFantasyTool: (id: string, data: Partial<Omit<FantasyTool, 'id'>>) =>
+    adminFetch<{ tool: FantasyTool }>(`/internal/fantasy-tools/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteFantasyTool: (id: string) =>
+    adminFetch<{ success: boolean }>(`/internal/fantasy-tools/${id}`, { method: 'DELETE' }),
+
+  updateSourceLogo: (id: string, logoUrl: string | null) =>
+    adminFetch<{ source: SourceSummary }>(`/internal/sources/${id}/logo`, {
+      method: 'PATCH',
+      body: JSON.stringify({ logoUrl }),
+    }),
 }
 
 export interface TokenUsageRow {
@@ -306,3 +348,37 @@ export interface FeedbackResponse {
   page: number
   pages: number
 }
+
+export interface RankingSite {
+  id: string
+  name: string
+  description: string
+  url: string
+  logoUrl: string | null
+  categories: string[]
+  popularityScore: number
+  promoCode: string | null
+  promoDesc: string | null
+  featured: boolean
+  isActive: boolean
+  sortOrder: number
+}
+
+export interface FantasyTool {
+  id: string
+  name: string
+  description: string
+  url: string
+  logoUrl: string | null
+  categories: string[]
+  priceType: string
+  price: string | null
+  promoCode: string | null
+  promoDesc: string | null
+  featured: boolean
+  partnerTier: string | null
+  isActive: boolean
+  sortOrder: number
+}
+
+
