@@ -1,9 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/nextjs'
+import { useState, useEffect } from 'react'
+import { useAuth, SignInButton, UserButton } from '@clerk/nextjs'
 
 export default function Navbar() {
+  const { isSignedIn } = useAuth()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
   return (
     <header className="sticky top-0 z-50 border-b bg-[rgb(10,10,10)]/80 backdrop-blur-md" style={{ borderColor: 'rgb(38,38,38)' }}>
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
@@ -36,14 +41,13 @@ export default function Navbar() {
             RosterMind AI →
           </a>
 
-          <SignedIn>
+          {mounted && isSignedIn ? (
             <UserButton
               appearance={{
                 elements: { avatarBox: 'h-8 w-8' },
               }}
             />
-          </SignedIn>
-          <SignedOut>
+          ) : (
             <SignInButton mode="modal">
               <button
                 className="rounded-lg px-4 py-1.5 text-sm font-semibold text-white transition hover:opacity-90"
@@ -52,7 +56,7 @@ export default function Navbar() {
                 Sign In
               </button>
             </SignInButton>
-          </SignedOut>
+          )}
         </div>
       </div>
     </header>
