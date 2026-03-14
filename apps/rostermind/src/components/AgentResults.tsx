@@ -29,7 +29,7 @@ export interface AgentRunResult {
 
 export const AGENT_LABELS: Record<string, string> = {
   team_eval: 'Team Evaluation Report',
-  injury_watch: 'Injury Watch Report',
+  injury_watch: 'Injury Report',
   waiver: 'Waiver Wire Recommendations',
   lineup: 'Lineup Optimizer',
   trade_analysis: 'Trade Analysis',

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { UserButton } from '@clerk/nextjs'
+import { CreditsDisplay } from './CreditsDisplay'
 
 const navSections = [
   {
@@ -63,7 +64,8 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-white/10 p-4">
+      <div className="border-t border-white/10 p-4 space-y-3">
+        <CreditsDisplay />
         <div className="flex items-center gap-3">
           <UserButton />
           <div className="min-w-0 flex-1">

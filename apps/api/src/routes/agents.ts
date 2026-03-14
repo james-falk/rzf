@@ -188,16 +188,41 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: 'Run has not completed successfully' })
     }
 
-    const systemPrompt = `You are RosterMind AI, a fantasy football assistant. The user previously received the following analysis report, and is now asking a follow-up question about it. Answer clearly and concisely in 2-4 sentences. Do not repeat the full report — just address the specific question.
+    const reportJson = run.outputJson as Record<string, unknown>
+
+    // Extract a concise player roster from the report if available (injury/scout/trade agents)
+    const playerNames: string[] = []
+    if (Array.isArray(reportJson?.alerts)) {
+      for (const a of reportJson.alerts as Array<{ playerName?: string }>) {
+        if (a.playerName) playerNames.push(a.playerName)
+      }
+    }
+    if (Array.isArray(reportJson?.givingAnalysis)) {
+      for (const p of reportJson.givingAnalysis as Array<{ playerName?: string }>) {
+        if (p.playerName) playerNames.push(p.playerName)
+      }
+    }
+    if (Array.isArray(reportJson?.receivingAnalysis)) {
+      for (const p of reportJson.receivingAnalysis as Array<{ playerName?: string }>) {
+        if (p.playerName) playerNames.push(p.playerName)
+      }
+    }
+    if (typeof reportJson?.playerName === 'string') playerNames.push(reportJson.playerName)
+
+    const rosterHint = playerNames.length > 0
+      ? `\nPlayers in this report: ${playerNames.join(', ')}.`
+      : ''
+
+    const systemPrompt = `You are RosterMind AI, a fantasy football assistant. The user previously received the following analysis report and is asking a follow-up question. Answer clearly and directly — if the question is about a specific player, use the data in the report. Do not say the report doesn't specify unless the player is genuinely absent.${rosterHint}
 
 Report context:
-${JSON.stringify(run.outputJson, null, 2).slice(0, 3000)}`
+${JSON.stringify(run.outputJson, null, 2).slice(0, 6000)}`
 
     const { content } = await LLMConnector.complete({
-      model: 'haiku',
+      model: 'sonnet',
       systemPrompt,
       userPrompt: body.data.message,
-      maxTokens: 300,
+      maxTokens: 500,
     })
 
     await track('agent.followup.sent', { agentRunId: id, agentType: run.agentType }, userId)

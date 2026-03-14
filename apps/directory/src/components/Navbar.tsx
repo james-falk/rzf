@@ -26,7 +26,7 @@ export default function Navbar() {
         <nav className="hidden items-center gap-6 text-sm font-medium md:flex" style={{ color: 'rgb(163,163,163)' }}>
           <Link href="/search" className="transition-colors hover:text-white">Players</Link>
           <Link href="/sources" className="transition-colors hover:text-white">Sources</Link>
-          <Link href="/search?tab=rankings" className="transition-colors hover:text-white">Rankings</Link>
+          <Link href="/rankings" className="transition-colors hover:text-white">Rankings</Link>
           <Link href="/search?tab=news" className="transition-colors hover:text-white">News</Link>
         </nav>
 

@@ -17,7 +17,7 @@ const OPENAI_MODEL_IDS: Record<LLMModel, string> = {
 
 const MAX_TOKENS: Record<LLMModel, number> = {
   haiku: 600,
-  sonnet: 2048,
+  sonnet: 4096,
 }
 
 export interface LLMCompleteOptions {

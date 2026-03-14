@@ -22,6 +22,9 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
         case IngestionJobTypes.PLAYER_REFRESH:
           await runPlayerRefresh()
           break
+        case IngestionJobTypes.INJURY_REFRESH:
+          await runInjuryRefresh()
+          break
         case IngestionJobTypes.TRENDING_REFRESH:
           await runTrendingRefresh()
           break
@@ -149,6 +152,45 @@ async function runPlayerRefresh(): Promise<void> {
   }
 
   console.log(`[ingestion] Player refresh complete: ${updated} players upserted`)
+}
+
+// ─── InjuryRefreshJob ─────────────────────────────────────────────────────────
+// Every 30 min during season: sync injury_status, practice_participation, and
+// injury notes for all known players. Lighter than full PLAYER_REFRESH since it
+// only updates the injury-related fields.
+
+async function runInjuryRefresh(): Promise<void> {
+  console.log('[ingestion] Running injury status refresh from Sleeper...')
+  const players = await SleeperConnector.getAllPlayers()
+  const entries = Object.values(players).filter(
+    (p) => p.position && OFFENSIVE_POSITIONS.has(p.position),
+  )
+
+  let updated = 0
+  const BATCH_SIZE = 500
+  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+    const batch = entries.slice(i, i + BATCH_SIZE)
+    await Promise.all(
+      batch.map(async (p) => {
+        if (!p.player_id) return
+        try {
+          await db.player.updateMany({
+            where: { sleeperId: p.player_id },
+            data: {
+              status: p.status ?? 'Unknown',
+              injuryStatus: p.injury_status ?? null,
+              practiceParticipation: p.practice_participation ?? null,
+              team: p.team ?? null,
+              lastRefreshedAt: new Date(),
+            },
+          })
+          updated++
+        } catch { /* skip unknown players */ }
+      }),
+    )
+  }
+
+  console.log(`[ingestion] Injury refresh complete: ${updated} players updated`)
 }
 
 // ─── TrendingRefreshJob ───────────────────────────────────────────────────────

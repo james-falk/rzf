@@ -38,7 +38,7 @@ type ChatMessage =
 
 const QUICK_ACTIONS = [
   { type: 'team_eval',      label: 'Team Analysis', icon: '📊', desc: 'Full roster grade & insights' },
-  { type: 'injury_watch',   label: 'Injury Watch',  icon: '🏥', desc: 'Injury risk scan for your starters' },
+  { type: 'injury_watch',   label: 'Injury Report', icon: '🏥', desc: 'Injury risk scan for your starters' },
   { type: 'waiver',         label: 'Waiver Wire',   icon: '🔄', desc: 'Best adds & drops this week' },
   { type: 'lineup',         label: 'Start / Sit',   icon: '📋', desc: 'Optimized lineup decisions' },
   { type: 'trade_analysis', label: 'Trade Advice',  icon: '💱', desc: 'Accept or reject trade offers' },
@@ -96,7 +96,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 function getAgentIntro(agentType: string): string {
   switch (agentType) {
     case 'team_eval':      return "Team evaluation — I'll grade every position and give you specific, actionable insights."
-    case 'injury_watch':   return "Injury watch — I'll scan your starters for health risks and give you handcuff recommendations."
+    case 'injury_watch':   return "Injury report — I'll scan your starters for health risks and give you handcuff recommendations."
     case 'waiver':         return "Waiver wire — I'll find the best available pickups tailored to your roster's weak spots."
     case 'lineup':         return "Lineup optimizer — I'll set the best possible lineup for this week based on matchups and injuries."
     case 'trade_analysis': return "Trade advisor — build the trade below and I'll give you an accept, decline, or counter verdict."
@@ -346,7 +346,7 @@ export default function AnalyzePage() {
         const intent = await api.callIntent(token, msg, selectedLeague ? { leagueId: selectedLeague } : undefined)
 
         if (!intent.agentType || !intent.agentMeta?.available) {
-          push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? "I can run a team analysis, injury watch, waiver recommendations, lineup optimization, trade analysis, or player scouting. Click one of the options below!" })
+          push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? "I can run a team analysis, injury report, waiver recommendations, lineup optimization, trade analysis, or player scouting. Click one of the options below!" })
           if (phase === 'idle') push({ id: mid(), role: 'assistant', type: 'chips' })
         } else if (intent.agentType === 'trade_analysis') {
           setPhase('trade-select')
@@ -387,6 +387,26 @@ export default function AnalyzePage() {
 
   const loadingMessages = AGENT_LOADING_MESSAGES[pendingAgentType] ?? DEFAULT_LOADING_MESSAGES
 
+  const handleReset = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    if (loadingRef.current) { clearInterval(loadingRef.current); loadingRef.current = null }
+    setMessages([])
+    setPhase('idle')
+    setRunId(null)
+    setPendingAgentType('team_eval')
+    setTextInput('')
+    setGivingPlayers([])
+    setReceivingPlayers([])
+    setTradeLeague('')
+    setTradeActiveSelector(null)
+    setScoutPlayer(null)
+    setScoutQuery('')
+    setScoutContext('')
+    setScoutShowResults(false)
+    setSearchQuery('')
+    setSearchResults([])
+  }, [])
+
   return (
     <div className="flex h-screen flex-col bg-zinc-950">
       {/* Header */}
@@ -410,12 +430,22 @@ export default function AnalyzePage() {
             <p className="text-sm font-semibold text-white">RosterMind AI</p>
             <p className="text-xs text-zinc-500">Neural fantasy analysis</p>
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            <span className="text-xs text-zinc-500">Online</span>
+          <div className="ml-auto flex items-center gap-3">
+            {phase !== 'idle' && (
+              <button
+                onClick={handleReset}
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-indigo-500/40 hover:text-white"
+              >
+                + New Chat
+              </button>
+            )}
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <span className="text-xs text-zinc-500">Online</span>
+            </div>
           </div>
         </div>
       </div>
@@ -820,6 +850,11 @@ function MessageBubble({
             >
               Analyze This Trade →
             </button>
+            {(givingPlayers.length === 0 || receivingPlayers.length === 0) && (
+              <p className="text-center text-xs text-zinc-600">
+                Add at least one player to each side to continue
+              </p>
+            )}
           </div>
         )}
 
@@ -902,6 +937,11 @@ function MessageBubble({
             >
               Generate Scouting Report →
             </button>
+            {!scoutPlayer && (
+              <p className="text-center text-xs text-zinc-600">
+                Search for and select a player above to continue
+              </p>
+            )}
           </div>
         )}
 

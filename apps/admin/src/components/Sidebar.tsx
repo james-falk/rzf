@@ -23,6 +23,7 @@ const sections = [
       { href: '/sources', label: 'Overview', icon: LayoutDashboard },
       { href: '/content', label: 'Analytics', icon: BarChart3 },
       { href: '/sources/manager', label: 'Source Manager', icon: Settings2 },
+      { href: '/queue/ingestion', label: 'Ingestion Queue', icon: Layers },
     ],
   },
   {
@@ -31,7 +32,7 @@ const sections = [
       { href: '/runs', label: 'Agent Runs', icon: Bot },
       { href: '/agents/config', label: 'Agent Config', icon: SlidersHorizontal },
       { href: '/usage', label: 'Token Usage', icon: Coins },
-      { href: '/queue', label: 'Queue', icon: Layers },
+      { href: '/queue/agents', label: 'Agent Queue', icon: Layers },
     ],
   },
   {
@@ -61,7 +62,7 @@ export function Sidebar() {
     <aside className="hidden w-56 flex-shrink-0 flex-col border-r border-white/10 md:flex">
       <div className="border-b border-white/10 px-5 py-4">
         <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">Red Zone Fantasy</p>
-        <p className="mt-0.5 text-xs text-zinc-400">Admin Dashboard</p>
+        <p className="mt-0.5 text-xs text-zinc-400">Command Center</p>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-3">

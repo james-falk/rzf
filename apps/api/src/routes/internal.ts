@@ -386,6 +386,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         IngestionJobTypes.TRENDING_REFRESH,
         IngestionJobTypes.RANKINGS_REFRESH,
         IngestionJobTypes.CONTENT_REFRESH,
+        IngestionJobTypes.INJURY_REFRESH,
         IngestionJobTypes.CREDITS_REFILL,
         IngestionJobTypes.YOUTUBE_REFRESH,
         IngestionJobTypes.TRADE_REFRESH,
@@ -762,10 +763,10 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     if (!source) return reply.status(404).send({ error: 'Source not found' })
 
     const queue = getIngestionQueue()
-    const job = await queue.add(
-      'content-refresh-targeted',
-      { type: IngestionJobTypes.CONTENT_REFRESH },
-    )
+    const jobType = source.platform === 'youtube'
+      ? IngestionJobTypes.YOUTUBE_REFRESH
+      : IngestionJobTypes.CONTENT_REFRESH
+    const job = await queue.add('content-refresh-targeted', { type: jobType })
 
     return reply.send({ success: true, jobId: job.id, sourceId: id, sourceName: source.name })
   })

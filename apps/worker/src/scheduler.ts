@@ -8,11 +8,18 @@ import { IngestionJobTypes } from '@rzf/shared/types'
 export async function scheduleIngestionJobs(): Promise<void> {
   const queue = getIngestionQueue()
 
-  // Daily at 6am ET — full player refresh (injury, depth chart, status)
+  // Daily at 6am ET — full player refresh (depth chart, metadata, status)
   await queue.upsertJobScheduler(
     'player-refresh-daily',
     { pattern: '0 11 * * *' }, // 6am ET = 11am UTC
     { name: 'player-refresh', data: { type: IngestionJobTypes.PLAYER_REFRESH } },
+  )
+
+  // Every 30 minutes — lightweight injury status sync from Sleeper
+  await queue.upsertJobScheduler(
+    'injury-refresh-30min',
+    { pattern: '*/30 * * * *' },
+    { name: 'injury-refresh', data: { type: IngestionJobTypes.INJURY_REFRESH } },
   )
 
   // Hourly — trending adds/drops for waiver wire signals
@@ -79,6 +86,6 @@ export async function scheduleIngestionJobs(): Promise<void> {
   )
 
   console.log(
-    '[scheduler] Ingestion jobs scheduled: player-daily, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly',
+    '[scheduler] Ingestion jobs scheduled: player-daily, injury-30min, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly',
   )
 }

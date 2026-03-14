@@ -139,12 +139,27 @@ export const TradePlayerBreakdownSchema = z.object({
   analysis: z.string(),
 })
 
+// Tolerant version: if the LLM returns a string item instead of an object
+// (e.g. due to token truncation), coerce it into a minimal valid breakdown.
+const TradePlayerBreakdownTolerantSchema = z.union([
+  TradePlayerBreakdownSchema,
+  z.string().transform((s) => ({
+    playerId: '',
+    playerName: s,
+    position: '',
+    team: null,
+    tradeValue: null,
+    rankOverall: null,
+    analysis: s,
+  })),
+])
+
 export const TradeAnalysisOutputSchema = z.object({
   verdict: z.enum(['accept', 'decline', 'counter']),
   valueScore: z.number().min(-100).max(100),
   summary: z.string(),
-  givingAnalysis: z.array(TradePlayerBreakdownSchema),
-  receivingAnalysis: z.array(TradePlayerBreakdownSchema),
+  givingAnalysis: z.array(TradePlayerBreakdownTolerantSchema),
+  receivingAnalysis: z.array(TradePlayerBreakdownTolerantSchema),
   keyInsights: z.array(z.string()),
   tokensUsed: z.number(),
 })
@@ -246,6 +261,7 @@ export interface AgentJobData {
 
 export const IngestionJobTypes = {
   PLAYER_REFRESH: 'player_refresh',
+  INJURY_REFRESH: 'injury_refresh',
   TRENDING_REFRESH: 'trending_refresh',
   RANKINGS_REFRESH: 'rankings_refresh',
   CONTENT_REFRESH: 'content_refresh',
