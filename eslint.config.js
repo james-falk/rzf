@@ -60,6 +60,9 @@ export default [
       'no-restricted-syntax': 'off',
       ...nextPlugin.configs.recommended.rules,
       ...nextPlugin.configs['core-web-vitals'].rules,
+      // External image URLs from user-generated content (YouTube thumbnails, source avatars)
+      // cannot use next/image without allowlisting every possible CDN domain.
+      '@next/next/no-img-element': 'warn',
     },
   },
 ]

@@ -145,6 +145,7 @@ export default async function PlayerPage({ params }: Props) {
                       )}
                     </div>
                     {content.thumbnailUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={content.thumbnailUrl} alt="" className="h-16 w-24 flex-shrink-0 rounded-lg object-cover" />
                     )}
                   </div>
@@ -195,6 +196,7 @@ export default async function PlayerPage({ params }: Props) {
                         )}
                       </div>
                       {content.thumbnailUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
                         <img src={content.thumbnailUrl} alt="" className="h-16 w-24 flex-shrink-0 rounded-lg object-cover" />
                       )}
                     </div>

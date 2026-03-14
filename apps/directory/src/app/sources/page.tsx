@@ -81,6 +81,7 @@ export default async function SourcesPage() {
                     style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
                   >
                     {source.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={source.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover flex-shrink-0" />
                     ) : (
                       <div

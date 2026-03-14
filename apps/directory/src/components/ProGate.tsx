@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useAuth } from '@clerk/nextjs'
 
 interface ProGateProps {
@@ -77,13 +78,13 @@ export function ProGate({ children, preview }: ProGateProps) {
               {loading ? 'Redirecting…' : 'Upgrade to Pro →'}
             </button>
           ) : (
-            <a
+            <Link
               href="/sign-in"
               className="mt-5 block w-full rounded-lg py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
               style={{ background: 'rgb(220,38,38)' }}
             >
               Sign in to upgrade →
-            </a>
+            </Link>
           )}
           <p className="mt-3 text-xs" style={{ color: 'rgb(82,82,91)' }}>
             Cancel anytime · Secure payment via Stripe
