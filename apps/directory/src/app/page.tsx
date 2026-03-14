@@ -1,13 +1,14 @@
 import Link from 'next/link'
+import { auth } from '@clerk/nextjs/server'
 import { db } from '@rzf/db'
 import Navbar from '@/components/Navbar'
 import { TrendingTicker } from '@/components/TrendingTicker'
-import { ContentFeed } from '@/components/ContentFeed'
+import { FeedWithFilters } from '@/components/FeedWithFilters'
 import { ContentCard } from '@/components/ContentCard'
 
 async function getData() {
   try {
-  const [trendingRaw, featuredSources, latestContent] = await Promise.all([
+  const [trendingRaw, featuredSources, latestContent, allSources] = await Promise.all([
     // Top 20 trending players (last 48h, skip inactive)
     db.trendingPlayer.findMany({
       where: {
@@ -37,7 +38,7 @@ async function getData() {
       },
       include: {
         source: {
-          select: { name: true, platform: true, feedUrl: true, avatarUrl: true, featured: true, partnerTier: true },
+          select: { id: true, name: true, platform: true, feedUrl: true, avatarUrl: true, featured: true, partnerTier: true },
         },
         playerMentions: {
           include: {
@@ -47,7 +48,14 @@ async function getData() {
         },
       },
       orderBy: { publishedAt: 'desc' },
-      take: 30,
+      take: 60,
+    }),
+
+    // All active sources for sidebar filter
+    db.contentSource.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, platform: true, avatarUrl: true, feedUrl: true },
+      orderBy: [{ featured: 'desc' }, { name: 'asc' }],
     }),
   ])
 
@@ -58,17 +66,27 @@ async function getData() {
   const featuredContent = latestContent.filter((item) => item.source && featuredSourceNames.has(item.source.name)).slice(0, 3)
   const regularContent = latestContent.filter((item) => !featuredContent.includes(item))
 
-  return { trending, featuredContent, featuredSources, regularContent }
+  return { trending, featuredContent, featuredSources, regularContent, allSources }
   } catch {
     // DB unavailable during build or missing migration — return empty state
-    return { trending: [], featuredContent: [], featuredSources: [], regularContent: [] }
+    return { trending: [], featuredContent: [], featuredSources: [], regularContent: [], allSources: [] }
   }
 }
 
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const { trending, featuredContent, featuredSources, regularContent } = await getData()
+  const { trending, featuredContent, featuredSources, regularContent, allSources } = await getData()
+
+  // Get user tier for upgrade gate in custom feeds tab
+  const { userId: clerkId } = await auth()
+  let userTier: string | null = null
+  if (clerkId) {
+    try {
+      const user = await db.user.findUnique({ where: { clerkId }, select: { tier: true } })
+      userTier = user?.tier ?? 'free'
+    } catch { /* ignore */ }
+  }
 
   return (
     <div className="relative min-h-screen" style={{ background: 'rgb(10,10,10)' }}>
@@ -171,16 +189,10 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* Latest news feed */}
+      {/* Content feed with sidebar filters + custom feeds tab */}
       <section className="mx-auto max-w-7xl px-4 py-12">
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-white">Latest Fantasy Content</h2>
-          <p className="mt-1 text-sm" style={{ color: 'rgb(115,115,115)' }}>
-            Updated continuously from {featuredSources.length > 0 ? 'all tracked sources' : 'top fantasy sources'}
-          </p>
-        </div>
-        {regularContent.length > 0 ? (
-          <ContentFeed items={regularContent.map((item) => ({
+        <FeedWithFilters
+          items={regularContent.map((item) => ({
             id: item.id,
             title: item.title,
             summary: item.summary,
@@ -191,19 +203,10 @@ export default async function HomePage() {
             authorName: item.authorName,
             source: item.source,
             playerMentions: item.playerMentions,
-          }))} />
-        ) : (
-          <div
-            className="rounded-xl border py-16 text-center"
-            style={{ borderColor: 'rgb(26,26,26)', background: 'rgb(14,14,14)' }}
-          >
-            <div className="text-4xl">📡</div>
-            <p className="mt-3 font-medium text-white">Content ingestion in progress</p>
-            <p className="mt-1 text-sm" style={{ color: 'rgb(115,115,115)' }}>
-              New articles and videos will appear here as they&apos;re indexed.
-            </p>
-          </div>
-        )}
+          }))}
+          sources={allSources}
+          userTier={userTier}
+        />
       </section>
 
       {/* RosterMind CTA */}

@@ -29,7 +29,7 @@ export default function Navbar() {
           <Link href="/search" className="transition-colors hover:text-white">Players</Link>
           <Link href="/sources" className="transition-colors hover:text-white">Sources</Link>
           <Link href="/rankings" className="transition-colors hover:text-white">Rankings</Link>
-          <Link href="/search?tab=news" className="transition-colors hover:text-white">News</Link>
+          <Link href="/tools" className="transition-colors hover:text-white">Tools</Link>
         </nav>
 
         <div className="flex items-center gap-3">
@@ -42,11 +42,19 @@ export default function Navbar() {
           </a>
 
           {mounted && isSignedIn ? (
-            <UserButton
-              appearance={{
-                elements: { avatarBox: 'h-8 w-8' },
-              }}
-            />
+            <div className="flex items-center gap-2">
+              <Link
+                href="/account"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border transition-colors hover:bg-white/10"
+                style={{ borderColor: 'rgb(38,38,38)', color: 'rgb(115,115,115)' }}
+                title="Account settings"
+              >
+                <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+                  <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd"/>
+                </svg>
+              </Link>
+              <UserButton appearance={{ elements: { avatarBox: 'h-8 w-8' } }} />
+            </div>
           ) : (
             <SignInButton mode="modal">
               <button
