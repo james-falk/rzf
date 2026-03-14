@@ -129,6 +129,7 @@ model User {
   agentRuns       AgentRun[]
   tokenBudget     TokenBudget[]
   analyticsEvents AnalyticsEvent[]
+  customFeeds     CustomFeed[]
 
   @@map("users")
 }
@@ -693,4 +694,74 @@ model Feedback {
   @@index([app])
   @@index([createdAt])
   @@map("feedback")
+}
+
+// ─── Directory — Rankings & Tools ────────────────────────────────────────────
+
+/// External fantasy football ranking sites, managed via Admin Command Center.
+model RankingSite {
+  id              String   @id @default(cuid())
+  name            String
+  description     String
+  url             String
+  /// Manual logo URL — falls back to Clearbit auto-logo in the UI
+  logoUrl         String?
+  /// e.g. ["Redraft", "Dynasty", "DFS", "Best Ball", "Tools"]
+  categories      String[]
+  /// 1–10 community popularity score used for default sort order
+  popularityScore Int      @default(5)
+  promoCode       String?
+  promoDesc       String?
+  featured        Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("ranking_sites")
+}
+
+/// Fantasy football product/tool directory, managed via Admin Command Center.
+model FantasyTool {
+  id          String   @id @default(cuid())
+  name        String
+  description String
+  url         String
+  /// Manual logo URL — falls back to Clearbit auto-logo in the UI
+  logoUrl     String?
+  /// e.g. ["AI", "Rankings", "DFS", "Trade Analysis", "Roster Mgmt", "Projections", "Dynasty", "News"]
+  categories  String[]
+  /// "free" | "paid" | "freemium"
+  priceType   String
+  /// Display price string e.g. "$7.99/mo" — null for free tools
+  price       String?
+  promoCode   String?
+  promoDesc   String?
+  featured    Boolean  @default(false)
+  /// "gold" | "silver" | "bronze" — null for non-partners
+  partnerTier String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("fantasy_tools")
+}
+
+/// User-saved custom content feeds (up to 5 for paid users).
+model CustomFeed {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String
+  /// Feed config: { feedType: "sleeper"|"players"|"team", sleeperLeagueId?, playerIds?, teamAbbr?, sources?, contentTypes? }
+  config    Json     @default("{}")
+  sortOrder Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("custom_feeds")
 }

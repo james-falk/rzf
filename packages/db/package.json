@@ -17,6 +17,7 @@
     "db:push": "dotenv -e ../../.env -- prisma db push",
     "studio": "dotenv -e ../../.env -- prisma studio",
     "seed:sources": "dotenv -e ../../.env -- tsx ../../packages/db/prisma/seeds/content-sources.ts",
+    "seed:directory": "dotenv -e ../../.env -- tsx ../../packages/db/prisma/seeds/directory-data.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
