@@ -209,10 +209,8 @@ export default function RankingsPage() {
                     href={site.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="group flex flex-col rounded-xl border p-4 transition-colors"
+                    className="group flex flex-col rounded-xl border p-4 transition-colors hover:border-zinc-600"
                     style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(18,18,18)' }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgb(63,63,63)' }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'rgb(38,38,38)' }}
                   >
                     <div className="mb-2 flex items-start justify-between gap-2">
                       <span className="font-medium text-white group-hover:text-red-400 transition-colors">
