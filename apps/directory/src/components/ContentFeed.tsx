@@ -6,8 +6,7 @@ import { ContentCard } from './ContentCard'
 const FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'article', label: 'Articles' },
-  { key: 'youtube_video', label: 'YouTube' },
-  { key: 'news', label: 'News' },
+  { key: 'video', label: 'YouTube' },
 ]
 
 interface FeedItem {

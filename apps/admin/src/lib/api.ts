@@ -194,6 +194,7 @@ export const api = {
   refreshSource: (id: string) =>
     adminFetch<RefreshJobResult>(`/internal/sources/${id}/refresh`, {
       method: 'POST',
+      body: '{}',
     }),
 
   getAgentConfigs: () =>

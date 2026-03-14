@@ -71,7 +71,7 @@ export function ContentCard({
       style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
     >
       {/* Thumbnail */}
-      {(thumbnailUrl || contentType === 'youtube_video') && (
+      {(thumbnailUrl || contentType === 'video') && (
         <div className="relative aspect-video w-full overflow-hidden bg-zinc-900">
           {thumbnailUrl ? (
             <Image

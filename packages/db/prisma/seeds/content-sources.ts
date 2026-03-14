@@ -173,10 +173,40 @@ const DISABLED_FEED_URLS: string[] = [
   'https://www.nfl.com/rss/rsslanding?searchString=news',
 ]
 
+// Raw UC-format channel IDs that were manually added as duplicates.
+// Each has a canonical @handle-based entry — delete the raw-ID version.
+const DUPLICATE_UC_IDS: string[] = [
+  'UCyq56KOEzJ8x0C_eRUy4t8A',   // 4for4 (duplicate of @4for4FantasyFootball)
+  'UCFbCLm1ZJuJHHaXQjOHYgig',   // CBS Sports Fantasy (duplicate of @CBSSportsFantasy)
+  'UCBNJGCLm1ZJuJHHaXQjOHYgig', // Fantasy Football Today/CBS (duplicate)
+  'UCAK8g7FKFkrfpfFAH_GcXmQ',   // ESPN Fantasy (duplicate of @ESPNFantasySports)
+  'UCSeCkMXMx7q0OM0RbJMWTDA',   // Establish the Run (no items — remove)
+  'UCIsgMz9HZIGFSmzLqtOFO1g',   // Banged Up Bills (no items — remove)
+]
+
 async function seed() {
   console.log('Seeding content sources...\n')
 
-  console.log('RSS sources:')
+  // ── Cleanup duplicate UC-format YouTube sources ──────────────────────────
+  // These were manually added and duplicate @handle-based canonical entries.
+  // Only delete sources with 0 content items to avoid orphaning data.
+  console.log('Cleaning up duplicate UC-format YouTube sources:')
+  for (const ucId of DUPLICATE_UC_IDS) {
+    const source = await db.contentSource.findFirst({
+      where: { feedUrl: ucId, platform: 'youtube' },
+      include: { _count: { select: { items: true } } },
+    })
+    if (source) {
+      if (source._count.items === 0) {
+        await db.contentSource.delete({ where: { id: source.id } })
+        console.log(`  ✗ Deleted "${source.name}" (${ucId}) — 0 items`)
+      } else {
+        console.log(`  ~ Skipped "${source.name}" (${ucId}) — has ${source._count.items} items`)
+      }
+    }
+  }
+
+  console.log('\nRSS sources:')
   for (const source of RSS_SOURCES) {
     await db.contentSource.upsert({
       where: { platform_feedUrl: { platform: source.platform, feedUrl: source.feedUrl } },
@@ -221,7 +251,7 @@ async function seed() {
   }
 
   const total = await db.contentSource.count()
-  console.log(`\nDone — ${total} total source(s) in DB (${RSS_SOURCES.filter(s => s.isActive).length} active).`)
+  console.log(`\nDone — ${total} total source(s) in DB.`)
 }
 
 seed()
