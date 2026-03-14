@@ -1,6 +1,7 @@
 import tseslint from '@typescript-eslint/eslint-plugin'
 import tsparser from '@typescript-eslint/parser'
 import reactHooks from 'eslint-plugin-react-hooks'
+import nextPlugin from '@next/eslint-plugin-next'
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
@@ -47,11 +48,18 @@ export default [
       ],
     },
   },
-  // Next.js apps: allow process.env for NEXT_PUBLIC_* vars (compiled at build time by Next.js)
+  // Next.js apps: allow process.env for NEXT_PUBLIC_* vars and enable Next.js rules
   {
-    files: ['apps/rostermind/**/*.ts', 'apps/rostermind/**/*.tsx', 'apps/directory/**/*.ts', 'apps/directory/**/*.tsx'],
+    files: [
+      'apps/rostermind/**/*.ts', 'apps/rostermind/**/*.tsx',
+      'apps/directory/**/*.ts', 'apps/directory/**/*.tsx',
+      'apps/admin/**/*.ts', 'apps/admin/**/*.tsx',
+    ],
+    plugins: { '@next/next': nextPlugin },
     rules: {
       'no-restricted-syntax': 'off',
+      ...nextPlugin.configs.recommended.rules,
+      ...nextPlugin.configs['core-web-vitals'].rules,
     },
   },
 ]

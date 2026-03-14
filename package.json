@@ -2,6 +2,7 @@
   "name": "rzf-workspace",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@9.15.0",
   "engines": {
     "node": ">=20.0.0",
@@ -22,6 +23,7 @@
     "db:studio": "pnpm --filter @rzf/db studio"
   },
   "devDependencies": {
+    "@next/eslint-plugin-next": "^16.1.6",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
     "@typescript-eslint/parser": "^8.20.0",
     "clsx": "^2.1.1",
