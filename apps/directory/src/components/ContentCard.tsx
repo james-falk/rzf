@@ -21,10 +21,19 @@ interface ContentCardProps {
     name: string
     platform: string
     avatarUrl: string | null
+    feedUrl?: string | null
     featured: boolean
     partnerTier: string | null
   } | null
   playerMentions: Array<{ player: PlayerChip }>
+}
+
+function extractDomain(url: string): string | null {
+  try {
+    return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '')
+  } catch {
+    return null
+  }
 }
 
 const PLATFORM_BADGE: Record<string, { label: string; color: string }> = {
@@ -61,6 +70,8 @@ export function ContentCard({
 }: ContentCardProps) {
   const platform = source?.platform ?? 'RSS'
   const badge = PLATFORM_BADGE[platform] ?? PLATFORM_BADGE.RSS!
+  // Derive a domain for Clearbit logo fallback
+  const logoDomain = extractDomain(source?.feedUrl ?? sourceUrl)
 
   return (
     <a
@@ -70,8 +81,8 @@ export function ContentCard({
       className="group flex flex-col overflow-hidden rounded-xl border transition-all hover:border-red-800/40 hover:shadow-lg"
       style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
     >
-      {/* Thumbnail */}
-      {(thumbnailUrl || contentType === 'video') && (
+      {/* Thumbnail — always shown for video; shown for articles when thumbnail is available */}
+      {(thumbnailUrl || contentType === 'video' || (contentType === 'article' && logoDomain)) && (
         <div className="relative aspect-video w-full overflow-hidden bg-zinc-900">
           {thumbnailUrl ? (
             <Image
@@ -81,6 +92,22 @@ export function ContentCard({
               className="object-cover transition group-hover:scale-105"
               unoptimized
             />
+          ) : logoDomain ? (
+            // Clearbit brand logo as fallback — crisp at any size
+            <div className="flex h-full flex-col items-center justify-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://logo.clearbit.com/${logoDomain}`}
+                alt={source?.name ?? ''}
+                className="h-12 w-12 rounded-lg object-contain"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+              />
+              {source?.name && (
+                <span className="text-xs font-medium" style={{ color: 'rgb(115,115,115)' }}>
+                  {source.name}
+                </span>
+              )}
+            </div>
           ) : (
             <div className="flex h-full items-center justify-center">
               <svg viewBox="0 0 24 24" className="h-10 w-10 text-red-600" fill="currentColor">

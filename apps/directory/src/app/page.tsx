@@ -14,6 +14,7 @@ async function getData() {
         fetchedAt: { gte: new Date(Date.now() - 48 * 60 * 60 * 1000) },
         player: { status: { not: 'Inactive' } },
       },
+      distinct: ['playerId'],
       include: {
         player: { select: { sleeperId: true, firstName: true, lastName: true, position: true, team: true } },
       },
@@ -36,7 +37,7 @@ async function getData() {
       },
       include: {
         source: {
-          select: { name: true, platform: true, avatarUrl: true, featured: true, partnerTier: true },
+          select: { name: true, platform: true, feedUrl: true, avatarUrl: true, featured: true, partnerTier: true },
         },
         playerMentions: {
           include: {

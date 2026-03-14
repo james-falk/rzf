@@ -21,6 +21,7 @@ interface FeedItem {
   source: {
     name: string
     platform: string
+    feedUrl?: string | null
     avatarUrl: string | null
     featured: boolean
     partnerTier: string | null

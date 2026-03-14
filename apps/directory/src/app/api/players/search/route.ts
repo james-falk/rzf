@@ -9,6 +9,9 @@ export async function GET(req: NextRequest) {
 
   const players = await db.player.findMany({
     where: {
+      // Exclude inactive players and players without a team
+      status: { not: 'Inactive' },
+      team: { not: null },
       ...(q
         ? {
             OR: [
