@@ -50,7 +50,7 @@ const CONTENT_TYPES = [
   { key: 'video', label: 'Videos' },
 ]
 
-function clearbitLogo(feedUrl: string | null, name: string): string | null {
+function clearbitLogo(feedUrl: string | null, _name: string): string | null {
   if (!feedUrl) return null
   try {
     const url = feedUrl.startsWith('http') ? feedUrl : `https://${feedUrl}`
@@ -83,7 +83,7 @@ export function FeedWithFilters({ items, sources, userTier }: FeedWithFiltersPro
   const toggleSource = (id: string) => {
     setCheckedSources((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
       return next
     })
   }
