@@ -190,7 +190,7 @@ export function ContentCard({
             <span className="text-[10px]" style={{ color: 'rgb(82,82,91)' }}>+{playerMentions.length - 3}</span>
           )}
           {publishedAt && (
-            <span className="ml-auto text-[10px]" style={{ color: 'rgb(82,82,91)' }}>
+            <span className="ml-auto text-[10px]" style={{ color: 'rgb(82,82,91)' }} suppressHydrationWarning>
               {timeAgo(publishedAt)}
             </span>
           )}

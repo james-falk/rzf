@@ -9,18 +9,17 @@ import { ContentCard } from '@/components/ContentCard'
 async function getData() {
   try {
   const [trendingRaw, featuredSources, latestContent, allSources] = await Promise.all([
-    // Top 20 trending players (last 48h, skip inactive)
+    // Trending players (last 48h, skip inactive) — fetch extra to dedup in JS
     db.trendingPlayer.findMany({
       where: {
         fetchedAt: { gte: new Date(Date.now() - 48 * 60 * 60 * 1000) },
         player: { status: { not: 'Inactive' } },
       },
-      distinct: ['playerId'],
       include: {
         player: { select: { sleeperId: true, firstName: true, lastName: true, position: true, team: true } },
       },
       orderBy: { count: 'desc' },
-      take: 20,
+      take: 200,
     }),
 
     // Featured / partner sources
@@ -59,7 +58,17 @@ async function getData() {
     }),
   ])
 
-  const trending = (trendingRaw as Array<typeof trendingRaw[0] & { player: { sleeperId: string; firstName: string; lastName: string; position: string | null; team: string | null } }>).map((t) => ({ ...t.player, count: t.count }))
+  // Deduplicate by sleeperId in JS — Prisma's distinct+orderBy combo doesn't
+  // reliably deduplicate when ordering by a column other than the distinct column.
+  const seen = new Set<string>()
+  const trending = (trendingRaw as Array<typeof trendingRaw[0] & { player: { sleeperId: string; firstName: string; lastName: string; position: string | null; team: string | null } }>)
+    .filter((t) => {
+      if (seen.has(t.player.sleeperId)) return false
+      seen.add(t.player.sleeperId)
+      return true
+    })
+    .slice(0, 20)
+    .map((t) => ({ ...t.player, count: t.count }))
 
   // Separate featured content (from partner sources) for the featured section
   const featuredSourceNames = new Set(featuredSources.map((s) => s.name))
