@@ -32,13 +32,17 @@ export function createAgentWorker(): Worker<AgentJobData> {
       await track('agent.run.started', { agentType, userTier: 'unknown', leagueId: 'input' in input ? (input as { leagueId?: string }).leagueId : undefined }, input.userId)
 
       try {
-        // Fetch runtime config from DB (system prompt override + model tier).
+        // Fetch runtime config from DB (system prompt override, model tier, and source config).
         // Falls back gracefully if config row is missing.
         const agentConfig = await db.agentConfig.findUnique({ where: { agentType } }).catch(() => null)
         const runtimeConfig = agentConfig
           ? {
               systemPromptOverride: agentConfig.systemPrompt,
               modelTierOverride: agentConfig.modelTier,
+              allowedSourceTiers: agentConfig.allowedSourceTiers,
+              allowedPlatforms: agentConfig.allowedPlatforms,
+              recencyWindowHours: agentConfig.recencyWindowHours,
+              maxContentItems: agentConfig.maxContentItems,
             }
           : undefined
 
@@ -69,6 +73,8 @@ export function createAgentWorker(): Worker<AgentJobData> {
 
         const durationMs = Date.now() - startTime
         const tokensUsed = (output as { tokensUsed?: number }).tokensUsed ?? 0
+        const confidenceScore = (output as { confidenceScore?: number }).confidenceScore ?? null
+        const sourcesUsed = (output as { sourcesUsed?: unknown }).sourcesUsed ?? null
 
         // Write result to DB
         await db.agentRun.update({
@@ -78,6 +84,8 @@ export function createAgentWorker(): Worker<AgentJobData> {
             outputJson: JSON.parse(JSON.stringify(output)),
             tokensUsed,
             durationMs,
+            confidenceScore,
+            sourcesUsed: sourcesUsed ? JSON.parse(JSON.stringify(sourcesUsed)) : null,
           },
         })
 

@@ -1,6 +1,17 @@
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
-import type { InjuryWatchInput, InjuryWatchOutput } from '@rzf/shared/types'
+import { LLMConnector } from '@rzf/connectors/llm'
+import type { InjuryWatchInput, InjuryWatchOutput, AgentRuntimeConfig } from '@rzf/shared/types'
+import { injectContent, type InjectedContent } from '../content-injector.js'
+import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
+
+// Default source injection config for this agent
+const DEFAULTS = {
+  recencyWindowHours: 48,
+  maxContentItems: 10,
+  allowedTiers: [1, 2, 3],
+  allowedPlatforms: ['rss', 'youtube'],
+}
 
 function toSeverity(injuryStatus: string | null, status: string | null): 'high' | 'medium' | 'low' {
   const injury = (injuryStatus ?? '').toLowerCase()
@@ -20,7 +31,10 @@ function toSeverity(injuryStatus: string | null, status: string | null): 'high' 
   return 'low'
 }
 
-export async function runInjuryWatchAgent(input: InjuryWatchInput): Promise<InjuryWatchOutput> {
+export async function runInjuryWatchAgent(
+  input: InjuryWatchInput,
+  config?: AgentRuntimeConfig,
+): Promise<InjuryWatchOutput> {
   const { userId, leagueId } = input
 
   const sleeperProfile = await db.sleeperProfile.findUnique({ where: { userId } })
@@ -40,6 +54,7 @@ export async function runInjuryWatchAgent(input: InjuryWatchInput): Promise<Inju
     where: { sleeperId: { in: rosterPlayerIds } },
   })
 
+  // ── Rule-based severity classification (always runs) ──────────────────────
   const alerts = players
     .filter((p) => starterIds.has(p.sleeperId))
     .map((p) => {
@@ -47,7 +62,7 @@ export async function runInjuryWatchAgent(input: InjuryWatchInput): Promise<Inju
       return {
         playerId: p.sleeperId,
         playerName: `${p.firstName} ${p.lastName}`.trim(),
-        position: p.position,
+        position: p.position ?? 'UNKNOWN',
         team: p.team ?? null,
         status: p.status ?? null,
         injuryStatus: p.injuryStatus ?? null,
@@ -71,10 +86,97 @@ export async function runInjuryWatchAgent(input: InjuryWatchInput): Promise<Inju
 
   const starterCount = players.filter((p) => starterIds.has(p.sleeperId)).length
 
-  return {
-    alerts,
-    riskyStarters: alerts.length,
-    healthyStarters: Math.max(0, starterCount - alerts.length),
-    tokensUsed: 0,
+  // ── Content injection ──────────────────────────────────────────────────────
+  const alertPlayerIds = alerts.map((a) => a.playerId)
+  const injection = await injectContent(alertPlayerIds, {
+    agentType: 'injury_watch',
+    recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+    maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+    allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+    allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+  })
+
+  // ── LLM enhancement (only when news is available) ─────────────────────────
+  if (injection.items.length === 0 || alerts.length === 0) {
+    return {
+      alerts,
+      riskyStarters: alerts.length,
+      healthyStarters: Math.max(0, starterCount - alerts.length),
+      tokensUsed: 0,
+      confidenceScore: injection.confidenceScore,
+      sourcesUsed: injection.sourcesUsed,
+    }
+  }
+
+  console.log(`[injury-watch] Calling LLM to enrich ${alerts.length} alert(s) with ${injection.items.length} news item(s)`)
+
+  try {
+    const newsSnippets = injection.items.map((item: InjectedContent) => ({
+      playerId: item.playerId,
+      sourceName: item.sourceName,
+      sourceTier: item.sourceTier,
+      title: item.title,
+      snippet: item.snippet,
+      publishedAt: item.publishedAt,
+    }))
+
+    const alertContexts = alerts.map((a) => ({
+      playerId: a.playerId,
+      playerName: a.playerName,
+      position: a.position,
+      team: a.team,
+      injuryStatus: a.injuryStatus,
+      status: a.status,
+      severity: a.severity,
+    }))
+
+    const systemPrompt = buildSystemPrompt(config?.systemPromptOverride)
+    const userPrompt = buildUserPrompt(alertContexts, newsSnippets)
+
+    const { data: enriched, tokensUsed } = await LLMConnector.completeJSON(
+      { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
+      (raw) => {
+        if (!Array.isArray(raw)) throw new Error('Expected JSON array from LLM')
+        return raw as Array<{
+          playerId: string
+          summary: string
+          recommendation: string
+          handcuffSuggestion?: string | null
+        }>
+      },
+    )
+
+    // Merge LLM-enriched fields into rule-based alerts
+    const enrichedMap = new Map(enriched.map((e) => [e.playerId, e]))
+    const mergedAlerts = alerts.map((alert) => {
+      const llm = enrichedMap.get(alert.playerId)
+      if (!llm) return alert
+      return {
+        ...alert,
+        summary: llm.summary || alert.summary,
+        recommendation: llm.recommendation || alert.recommendation,
+        handcuffSuggestion: llm.handcuffSuggestion ?? undefined,
+      }
+    })
+
+    return {
+      alerts: mergedAlerts,
+      riskyStarters: mergedAlerts.length,
+      healthyStarters: Math.max(0, starterCount - mergedAlerts.length),
+      tokensUsed,
+      confidenceScore: injection.confidenceScore,
+      sourcesUsed: injection.sourcesUsed,
+    }
+  } catch (err) {
+    // If LLM enrichment fails, fall back to rule-based output gracefully
+    console.warn('[injury-watch] LLM enrichment failed, using rule-based output:', err instanceof Error ? err.message : String(err))
+    return {
+      alerts,
+      riskyStarters: alerts.length,
+      healthyStarters: Math.max(0, starterCount - alerts.length),
+      tokensUsed: 0,
+      confidenceScore: injection.confidenceScore,
+      sourcesUsed: injection.sourcesUsed,
+    }
   }
 }

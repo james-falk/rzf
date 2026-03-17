@@ -71,31 +71,64 @@
 
 ---
 
-## Phase 3 — Content & Intelligence
+## Phase 3 — Content & Intelligence ✅ (Agent Content Injection complete)
 
-- [ ] **Content ingestion pipeline** — RSS/YouTube ingest → ContentItem table
-  - Currently `ContentItem` table exists but is empty; `contentLinks` uses static FantasyPros URLs
-  - Goal: replace with real matched articles/videos per player
+- [x] **Content ingestion pipeline** — RSS/YouTube ingest → `ContentItem` table, player mention linking via alias matching
+- [x] **Agent content injection** — unified `injectContent()` wired into all 6 agents; tiered source filtering; per-agent `recencyWindowHours`, `maxContentItems`, `allowedTiers`, `allowedPlatforms` configurable from admin
+- [x] **Source tiers** — `ContentSource.tier` (1=premium, 2=established, 3=general); Rotowire/PFT = Tier 1; ESPN/CBS/YouTube = Tier 2
+- [x] **Confidence scoring** — 0-100 per-run score (tier quality + player coverage + recency freshness); stored on `AgentRun`; displayed as badge in UI
+- [x] **NFL schedule-aware recency** — `nfl-schedule.ts` tightens windows on game days for injury-watch and lineup agents
+- [x] **Injury-watch LLM enrichment** — optional LLM path enriches summaries/recommendations/handcuff suggestions from real news; falls back to rule-based gracefully
+- [x] **5 new RSS sources** — FantasyPros, The Ringer, Football Outsiders, 4for4.com, NFL Trade Rumors
 - [ ] **NewsDigestAgent** — weekly personalized digest from ContentItem + roster context
 - [ ] **Player trend signals** — snap count %, target share, opportunity scores from box scores
 - [ ] **Season-long projections** — ROS outlook, not just this week
 
 ---
 
-## Phase 4 — OpenClaw / Operator Tooling
+## Phase 4 — RosterMind Chat Continuity & UX Depth
+
+> Goal: transform the analyze page from a one-shot agent runner into a cohesive multi-run session.
+
+- [ ] **Continuous chat sessions** — multi-run conversations; each new agent run appends to the same thread without resetting the page
+- [ ] **Credit awareness in chat** — inline credit counter visible in chat; warn before each run that consumes a credit; confirm prompt ("This will use 1 credit — continue?")
+- [ ] **ChatSession persistence** — store follow-up messages per session in DB (`ChatSession` + `ChatMessage` models); 30-day retention; allows history replay
+- [ ] **Session summary** — auto-generated summary card shown at end of multi-run session
+- [ ] **Agent parameter refinement** — clearer prompts for required params; inline validation before dispatch; smarter intent routing
+- [ ] **Admin Source Control Panel** — checkboxes per agent to toggle which source tiers/platforms are injected; edit `allowedSourceTiers`, `allowedPlatforms`, `recencyWindowHours`, `maxContentItems` from Admin UI
+- [ ] **Confidence score dial-in** — monitor per-agent confidence averages; surface in admin; add alert when score consistently below 50
+
+---
+
+## Phase 5 — X / Twitter Engine
+
+> Builds the social layer of the RZF ecosystem. Requires X API access (Rostermind + RZF accounts).
+
+- [ ] **Twitter connector** (`packages/connectors/twitter/`) — read-only ingestion of fantasy football content via Twitter API v2 (filtered stream / search); stores as `ContentItem` with `platform: twitter`
+- [ ] **X Feed tab** in directory — curated feed of ingested fantasy Twitter content
+- [ ] **Automated weekly posts** — worker jobs generate and post tailored content weekly:
+  - Start/Sit recommendations
+  - Waiver wire pickups
+  - Good matchups of the week
+  - Recent notable trades
+  - Trending players
+- [ ] **Comment responder** — monitors replies to specific tweet formats (e.g. "start/sit for [Player X] or [Player Y]?"); uses agent output to generate a response; drops product link (Rostermind) in reply
+- [ ] **Post scheduler** — admin UI to preview and schedule queued posts; toggle auto-post on/off
+- [ ] **Bot account management** — support for multiple accounts (rostermind_ai, rzf_official, worker bots)
+
+---
+
+## Phase 6 — OpenClaw / Operator Tooling
 
 - [ ] **On-prem OpenClaw bot** (Telegram) — operator interface to `/internal` routes
   - Trigger agent runs for specific users, bump credits, check queue health
   - Runs on always-on PC; connects via `x-admin-secret` header
-  - Estimated effort: 1 session once priorities are confirmed
 - [ ] **Weekly operator digest** — Telegram summary of signups, runs, errors, revenue
-- [ ] **Per-user OpenClaw assistant** (Phase 4+) — personal proactive agent for paid users
-  - Auto-runs team eval weekly + notifies via Telegram/Discord
-  - Requires: per-user agent state table + cron scheduling + notification delivery
+- [ ] **Per-user proactive agent** — auto-runs team eval weekly, notifies via Telegram/Discord
 
 ---
 
-## Phase 5 — Browse-Mode Agents (Orgo VMs)
+## Phase 7 — Browse-Mode Agents (Orgo VMs)
 
 > Requires ORGO_API_KEY. Only build when browse tasks can't be solved via API.
 
@@ -123,4 +156,6 @@
 | `AGENTS.md` auto-sync (`pnpm sync:docs`) | Low | Currently manual updates |
 | Worker retry behavior on OpenAI rate limits | Medium | Should detect 429 and backoff longer |
 | `TeamEvalOutput` schema expansion | Medium | Add `tradeTargets`, `waiverTargets` sections once agent suite is stable |
-| FantasyPros `contentLinks` are static URLs | Medium | Replace with real ContentItem DB queries in Phase 3 |
+| FantasyPros `contentLinks` static URLs | Low | Replaced with real ContentItem DB queries via content-injector in Phase 3 ✅ |
+| Confidence score calibration | Medium | Need real run data to tune tier weights and formula components |
+| New RSS source URL verification | Medium | FantasyPros and 4for4 feed URLs need confirming before relying on them |

@@ -39,6 +39,7 @@ export function buildUserPrompt(
   bench: EnrichedPlayer[],
   trendingAdds: string[],
   focusNote?: string,
+  newsContext?: string,
 ): string {
   const scoringType = league.scoring_settings['rec'] === 1
     ? 'PPR'
@@ -77,11 +78,12 @@ export function buildUserPrompt(
     : ''
 
   const focusSection = focusNote ? `\nUSER FOCUS: ${focusNote}` : ''
+  const newsPart = newsContext ? `\n\n${newsContext}` : ''
 
   return `League: ${league.name} | Type: ${leagueType} | Format: ${scoringType} | Roster: ${league.roster_positions.join(', ')}
 
 STARTING LINEUP:
-${rosterSections}${benchSection}${trendingSection}${focusSection}
+${rosterSections}${benchSection}${trendingSection}${focusSection}${newsPart}
 
 Evaluate this roster and respond with the JSON analysis.`
 }

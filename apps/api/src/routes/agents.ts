@@ -145,6 +145,7 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
       durationMs: run.durationMs,
       rating: run.rating,
       errorMessage: run.errorMessage,
+      confidenceScore: run.confidenceScore,
       createdAt: run.createdAt,
     })
   })

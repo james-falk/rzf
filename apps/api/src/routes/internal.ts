@@ -418,7 +418,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const [allRuns, recentRuns, agentTypeAgg] = await Promise.all([
       db.agentRun.findMany({
         where: { createdAt: { gte: thirtyDaysAgo } },
-        select: { status: true, tokensUsed: true, durationMs: true, agentType: true, createdAt: true },
+        select: { status: true, tokensUsed: true, durationMs: true, agentType: true, createdAt: true, confidenceScore: true },
         orderBy: { createdAt: 'asc' },
       }),
       db.agentRun.findMany({
@@ -467,6 +467,8 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const successRate = allRuns.length > 0 ? Math.round((doneRuns.length / allRuns.length) * 100) : 0
     const avgTokens = doneRuns.length > 0 ? Math.round(doneRuns.reduce((s, r) => s + (r.tokensUsed ?? 0), 0) / doneRuns.length) : 0
     const avgDuration = doneRuns.length > 0 ? Math.round(doneRuns.reduce((s, r) => s + (r.durationMs ?? 0), 0) / doneRuns.length) : 0
+    const scoredRuns = doneRuns.filter((r) => r.confidenceScore != null)
+    const avgConfidence = scoredRuns.length > 0 ? Math.round(scoredRuns.reduce((s, r) => s + (r.confidenceScore ?? 0), 0) / scoredRuns.length) : null
 
     return reply.send({
       summary: {
@@ -477,6 +479,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         avgTokens,
         avgDurationMs: avgDuration,
         failed: allRuns.filter((r) => r.status === 'failed').length,
+        avgConfidence,
       },
       daily: Array.from(dailyMap.values()),
       byAgentType: Array.from(agentSummary.values()),
@@ -510,6 +513,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         feedUrl: s.feedUrl,
         avatarUrl: s.avatarUrl,
         isActive: s.isActive,
+        tier: s.tier,
         refreshIntervalMins: s.refreshIntervalMins,
         lastFetchedAt: lastFetch,
         itemCount: s._count.items,

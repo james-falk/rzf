@@ -114,6 +114,7 @@ export default function SourcesPage() {
               <th className="w-6 px-4 py-2" />
               <th className="px-4 py-2 font-medium">Source</th>
               <th className="px-4 py-2 font-medium">Platform</th>
+              <th className="px-4 py-2 font-medium">Tier</th>
               <th className="px-4 py-2 font-medium">Health</th>
               <th className="px-4 py-2 font-medium">Last Fetched</th>
               <th className="px-4 py-2 font-medium">Items</th>
@@ -122,9 +123,9 @@ export default function SourcesPage() {
           </thead>
           <tbody className="divide-y divide-white/5">
             {loading ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-zinc-400">Loading...</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-zinc-400">Loading...</td></tr>
             ) : sortedSources.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-zinc-500">No sources configured yet</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-zinc-500">No sources configured yet</td></tr>
             ) : sortedSources.map((s) => (
               <>
                 <tr
@@ -146,6 +147,15 @@ export default function SourcesPage() {
                     <Badge variant="default">{s.platform}</Badge>
                   </td>
                   <td className="px-4 py-3">
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                      s.tier === 1 ? 'bg-yellow-500/10 text-yellow-400' :
+                      s.tier === 2 ? 'bg-blue-500/10 text-blue-400' :
+                      'bg-zinc-500/10 text-zinc-400'
+                    }`}>
+                      T{s.tier}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
                     <Badge variant={s.health}>{s.health}</Badge>
                   </td>
                   <td className="px-4 py-3 text-zinc-400">
@@ -156,7 +166,7 @@ export default function SourcesPage() {
                 </tr>
                 {expandedId === s.id && (
                   <tr key={`${s.id}-detail`}>
-                    <td colSpan={7} className="border-t border-white/5 bg-zinc-950/50 px-6 py-4">
+                    <td colSpan={8} className="border-t border-white/5 bg-zinc-950/50 px-6 py-4">
                       <p className="mb-3 text-xs font-semibold uppercase text-zinc-500">Recent Items</p>
                       {itemsLoading === s.id ? (
                         <p className="text-sm text-zinc-400">Loading...</p>

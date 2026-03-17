@@ -5,6 +5,14 @@ import { buildUserContext } from '@rzf/shared'
 import { TeamEvalOutputSchema } from '@rzf/shared/types'
 import type { TeamEvalInput, TeamEvalOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
+import { injectContent, formatContentByPlayer } from '../content-injector.js'
+
+const DEFAULTS = {
+  recencyWindowHours: 168, // 7 days
+  maxContentItems: 10,
+  allowedTiers: [1, 2, 3],
+  allowedPlatforms: ['rss', 'youtube'],
+}
 
 export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRuntimeConfig): Promise<TeamEvalOutput> {
   const { userId, leagueId, focusNote } = input
@@ -119,64 +127,48 @@ export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRunti
   const starters = enrichedPlayers.filter((p) => p.isStarter)
   const bench = enrichedPlayers.filter((p) => !p.isStarter)
 
-  // ── 7. Build content links from ingested content ───────────────────────────
+  // ── 7. Content injection ───────────────────────────────────────────────────
   const starterPlayerIds = starters.map((p) => p.sleeperId)
-  const recentMentions = await db.contentPlayerMention.findMany({
-    where: {
-      playerId: { in: starterPlayerIds },
-      content: { parentId: null },
-    },
-    include: {
-      player: true,
-      content: {
-        select: {
-          sourceUrl: true,
-          title: true,
-          contentType: true,
-          publishedAt: true,
-          fetchedAt: true,
-        },
-      },
-    },
-    take: 100,
+  const injection = await injectContent(starterPlayerIds, {
+    agentType: 'team_eval',
+    recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+    maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+    allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+    allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
   })
 
-  recentMentions.sort((a, b) => {
-    const aTs = (a.content.publishedAt ?? a.content.fetchedAt).getTime()
-    const bTs = (b.content.publishedAt ?? b.content.fetchedAt).getTime()
-    return bTs - aTs
-  })
+  // Build player name map for formatting
+  const playerNameMap = new Map<string, string>()
+  for (const p of starters) playerNameMap.set(p.sleeperId, p.name)
 
+  const newsContext = formatContentByPlayer(injection.items, playerNameMap)
+
+  // Build contentLinks from injection items for the result display
   const seen = new Set<string>()
   const contentLinks: TeamEvalOutput['contentLinks'] = []
-
-  for (const mention of recentMentions) {
-    if (seen.has(mention.content.sourceUrl)) continue
-
+  for (const item of injection.items) {
+    if (seen.has(item.sourceUrl) || contentLinks.length >= 6) continue
     const linkType: TeamEvalOutput['contentLinks'][number]['type'] =
-      mention.content.contentType === 'video' || mention.content.contentType === 'vlog' ? 'youtube' : 'article'
-
+      item.contentType === 'video' || item.contentType === 'vlog' ? 'youtube' : 'article'
     contentLinks.push({
-      playerId: mention.playerId,
-      playerName: `${mention.player.firstName} ${mention.player.lastName}`.trim(),
-      title: mention.content.title,
-      url: mention.content.sourceUrl,
+      playerId: item.playerId,
+      playerName: playerNameMap.get(item.playerId) ?? item.playerId,
+      title: item.title,
+      url: item.sourceUrl,
       type: linkType,
     })
-    seen.add(mention.content.sourceUrl)
-
-    if (contentLinks.length >= 6) break
+    seen.add(item.sourceUrl)
   }
 
   // ── 8. LLM call ────────────────────────────────────────────────────────────
-  console.log(`[team-eval] Calling LLM — starters=${starters.length} bench=${bench.length} trendingAdds=${trendingAddNames.length}`)
+  console.log(`[team-eval] Calling LLM — starters=${starters.length} bench=${bench.length} news=${injection.items.length} confidence=${injection.confidenceScore}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote)
+  const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote, newsContext || undefined)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
     (raw) => {
-      const parsed = TeamEvalOutputSchema.omit({ contentLinks: true, tokensUsed: true }).parse(raw)
+      const parsed = TeamEvalOutputSchema.omit({ contentLinks: true, tokensUsed: true, confidenceScore: true, sourcesUsed: true }).parse(raw)
       return parsed
     },
   )
@@ -188,5 +180,7 @@ export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRunti
     ...llmOutput,
     contentLinks,
     tokensUsed,
+    confidenceScore: injection.confidenceScore,
+    sourcesUsed: injection.sourcesUsed,
   }
 }

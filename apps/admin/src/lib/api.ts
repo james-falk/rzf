@@ -47,6 +47,7 @@ export interface RunStats {
     avgTokens: number
     avgDurationMs: number
     failed: number
+    avgConfidence: number | null
   }
   daily: Array<{ date: string; done: number; failed: number; queued: number; running: number; tokens: number }>
   byAgentType: Array<{ agentType: string; total: number; done: number; failed: number; avgTokens: number; avgDurationMs: number }>
@@ -60,6 +61,7 @@ export interface AgentRun {
   durationMs: number | null
   rating: string | null
   errorMessage: string | null
+  confidenceScore: number | null
   inputJson: Record<string, unknown>
   outputJson: Record<string, unknown> | null
   createdAt: string
@@ -73,6 +75,7 @@ export interface SourceSummary {
   feedUrl: string
   avatarUrl: string | null
   isActive: boolean
+  tier: number
   refreshIntervalMins: number
   lastFetchedAt: string | null
   itemCount: number
@@ -325,6 +328,10 @@ export interface AgentConfig {
   enabled: boolean
   showInAnalyze: boolean
   sortOrder: number
+  allowedSourceTiers: number[]
+  allowedPlatforms: string[]
+  recencyWindowHours: number
+  maxContentItems: number
   updatedAt: string
   updatedBy: string | null
 }

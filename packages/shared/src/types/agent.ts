@@ -65,6 +65,8 @@ export const TeamEvalOutputSchema = z.object({
   keyInsights: z.array(z.string()),
   contentLinks: z.array(ContentLinkSchema),
   tokensUsed: z.number(),
+  confidenceScore: z.number().int().min(0).max(100).optional(),
+  sourcesUsed: z.unknown().optional(),
 })
 
 export type TeamEvalOutput = z.infer<typeof TeamEvalOutputSchema>
@@ -79,6 +81,7 @@ export const InjuryAlertSchema = z.object({
   severity: z.enum(['high', 'medium', 'low']),
   summary: z.string(),
   recommendation: z.string(),
+  handcuffSuggestion: z.string().optional(),
 })
 
 export const InjuryWatchOutputSchema = z.object({
@@ -86,6 +89,8 @@ export const InjuryWatchOutputSchema = z.object({
   riskyStarters: z.number().int().nonnegative(),
   healthyStarters: z.number().int().nonnegative(),
   tokensUsed: z.number(),
+  confidenceScore: z.number().int().min(0).max(100).optional(),
+  sourcesUsed: z.unknown().optional(),
 })
 
 export type InjuryWatchOutput = z.infer<typeof InjuryWatchOutputSchema>
@@ -114,6 +119,8 @@ export const WaiverOutputSchema = z.object({
   recommendations: z.array(WaiverRecommendationSchema).max(5),
   summary: z.string(),
   tokensUsed: z.number(),
+  confidenceScore: z.number().int().min(0).max(100).optional(),
+  sourcesUsed: z.unknown().optional(),
 })
 
 export type WaiverOutput = z.infer<typeof WaiverOutputSchema>
@@ -162,6 +169,8 @@ export const TradeAnalysisOutputSchema = z.object({
   receivingAnalysis: z.array(TradePlayerBreakdownTolerantSchema),
   keyInsights: z.array(z.string()),
   tokensUsed: z.number(),
+  confidenceScore: z.number().int().min(0).max(100).optional(),
+  sourcesUsed: z.unknown().optional(),
 })
 
 export type TradeAnalysisOutput = z.infer<typeof TradeAnalysisOutputSchema>
@@ -197,6 +206,8 @@ export const LineupOutputSchema = z.object({
   keyMatchups: z.array(z.string()),
   warnings: z.array(z.string()),
   tokensUsed: z.number(),
+  confidenceScore: z.number().int().min(0).max(100).optional(),
+  sourcesUsed: z.unknown().optional(),
 })
 
 export type LineupOutput = z.infer<typeof LineupOutputSchema>
@@ -227,6 +238,8 @@ export const PlayerScoutOutputSchema = z.object({
   summary: z.string(),
   keyInsights: z.array(z.string()),
   tokensUsed: z.number(),
+  confidenceScore: z.number().int().min(0).max(100).optional(),
+  sourcesUsed: z.unknown().optional(),
 })
 
 export type PlayerScoutOutput = z.infer<typeof PlayerScoutOutputSchema>
@@ -236,6 +249,11 @@ export type PlayerScoutOutput = z.infer<typeof PlayerScoutOutputSchema>
 export interface AgentRuntimeConfig {
   systemPromptOverride?: string
   modelTierOverride?: string
+  // Source injection config — populated from AgentConfig DB row
+  allowedSourceTiers?: number[]
+  allowedPlatforms?: string[]
+  recencyWindowHours?: number
+  maxContentItems?: number
 }
 
 // ─── Agent Job Payloads (BullMQ queue data) ───────────────────────────────────

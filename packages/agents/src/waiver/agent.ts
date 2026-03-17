@@ -5,6 +5,14 @@ import { buildUserContext } from '@rzf/shared'
 import { WaiverOutputSchema } from '@rzf/shared/types'
 import type { WaiverInput, WaiverOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
+import { injectContent } from '../content-injector.js'
+
+const DEFAULTS = {
+  recencyWindowHours: 72,
+  maxContentItems: 10,
+  allowedTiers: [1, 2, 3],
+  allowedPlatforms: ['rss', 'youtube'],
+}
 
 export async function runWaiverAgent(input: WaiverInput, config?: AgentRuntimeConfig): Promise<WaiverOutput> {
   const { userId, leagueId, targetPosition } = input
@@ -59,20 +67,24 @@ export async function runWaiverAgent(input: WaiverInput, config?: AgentRuntimeCo
       (!targetPosition || t.player.position === targetPosition),
   )
 
-  // ── 5. Enrich candidates with recent news ─────────────────────────────────
+  // ── 5. Content injection ───────────────────────────────────────────────────
   const candidateIds = candidates.map((c) => c.player.sleeperId)
-  const recentMentions = await db.contentPlayerMention.findMany({
-    where: { playerId: { in: candidateIds } },
-    include: { content: { select: { title: true, fetchedAt: true } } },
-    orderBy: { content: { fetchedAt: 'desc' } },
-    take: 100,
+  const injection = await injectContent(candidateIds, {
+    agentType: 'waiver',
+    recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+    maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+    allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+    allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
   })
 
+  // Build newsMap for prompt: playerId → headline strings (up to 2)
   const newsMap = new Map<string, string[]>()
-  for (const mention of recentMentions) {
-    const existing = newsMap.get(mention.playerId) ?? []
-    if (existing.length < 2) existing.push(mention.content.title)
-    newsMap.set(mention.playerId, existing)
+  for (const item of injection.items) {
+    const existing = newsMap.get(item.playerId) ?? []
+    if (existing.length < 2) {
+      existing.push(`[${item.sourceName}] ${item.title}`)
+    }
+    newsMap.set(item.playerId, existing)
   }
 
   // ── 6. Build roster context ────────────────────────────────────────────────
@@ -99,16 +111,16 @@ export async function runWaiverAgent(input: WaiverInput, config?: AgentRuntimeCo
   }))
 
   // ── 7. LLM call ────────────────────────────────────────────────────────────
-  console.log(`[waiver] Calling LLM — ${candidateContext.length} candidates, week ${nflState.week}`)
+  console.log(`[waiver] Calling LLM — ${candidateContext.length} candidates week=${nflState.week} news=${injection.items.length}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(candidateContext, rosterContext, targetPosition)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
-    (raw) => WaiverOutputSchema.omit({ tokensUsed: true }).parse(raw),
+    (raw) => WaiverOutputSchema.omit({ tokensUsed: true, confidenceScore: true, sourcesUsed: true }).parse(raw),
   )
 
-  console.log(`[waiver] Complete — tokens=${tokensUsed} recommendations=${llmOutput.recommendations.length}`)
+  console.log(`[waiver] Complete — tokens=${tokensUsed} recommendations=${llmOutput.recommendations.length} confidence=${injection.confidenceScore}`)
 
-  return { ...llmOutput, tokensUsed }
+  return { ...llmOutput, tokensUsed, confidenceScore: injection.confidenceScore, sourcesUsed: injection.sourcesUsed }
 }

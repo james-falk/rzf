@@ -6,6 +6,15 @@ import { buildUserContext } from '@rzf/shared'
 import { PlayerScoutOutputSchema } from '@rzf/shared/types'
 import type { PlayerScoutInput, PlayerScoutOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
+import { injectContent } from '../content-injector.js'
+
+const DEFAULTS = {
+  recencyWindowHours: 168, // 7 days
+  maxContentItems: 10,
+  allowedTiers: [1, 2, 3],
+  // Scout explicitly includes youtube for deep-dive analysis
+  allowedPlatforms: ['rss', 'youtube'],
+}
 
 export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: AgentRuntimeConfig): Promise<PlayerScoutOutput> {
   const { userId, playerId, context } = input
@@ -31,17 +40,11 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
   const week = nflState.week
   const season = parseInt(nflState.season, 10)
 
-  const [player, tradeValue, ranking, recentMentions, recentTradeCount, ddTrades] = await Promise.all([
+  const [player, tradeValue, ranking, recentTradeCount, ddTrades, injection] = await Promise.all([
     db.player.findUnique({ where: { sleeperId: playerId } }),
     db.playerTradeValue.findFirst({ where: { sleeperId: playerId, source: 'fantasycalc' } }),
     db.playerRanking.findFirst({
       where: { playerId, source: 'fantasypros', week, season },
-    }),
-    db.contentPlayerMention.findMany({
-      where: { playerId },
-      include: { content: { select: { title: true, fetchedAt: true, sourceUrl: true } } },
-      orderBy: { content: { fetchedAt: 'desc' } },
-      take: 10,
     }),
     db.tradeTransaction.count({
       where: {
@@ -49,8 +52,7 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
           { adds: { path: [playerId], not: undefined } as never },
         ],
       },
-    }).catch(() => 0), // Graceful fallback if JSON query fails
-    // Community trade data from Dynasty Daddy (query-time, graceful fallback)
+    }).catch(() => 0),
     (async () => {
       try {
         const p = await db.player.findUnique({
@@ -64,6 +66,13 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
         return null
       }
     })(),
+    injectContent([playerId], {
+      agentType: 'player_scout',
+      recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+      maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+      allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+      allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+    }),
   ])
 
   if (!player) {
@@ -83,9 +92,9 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
     // use the fallback count
   }
 
-  const recentNews = recentMentions.map((m: { content: { title: string } }) => m.content.title).slice(0, 8)
+  // Build recentNews from injection (tiered, time-filtered)
+  const recentNews = injection.items.map((item) => `[${item.sourceName}] ${item.title}`)
 
-  // Community trade volume from Dynasty Daddy (last 7 days)
   const communityTradeCount = ddTrades?.trades?.length ?? 0
   const weeklyTradeVolume =
     ddTrades?.tradeVolume?.find((v: { week_interval: number; count: number }) => v.week_interval === 1)?.count ?? 0
@@ -121,7 +130,7 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
   }
 
   // ── 4. LLM call ────────────────────────────────────────────────────────────
-  console.log(`[player-scout] Calling LLM — ${player.firstName} ${player.lastName}`)
+  console.log(`[player-scout] Calling LLM — ${player.firstName} ${player.lastName} news=${injection.items.length} confidence=${injection.confidenceScore}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(playerContext)
 
@@ -130,11 +139,12 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
     (raw) => PlayerScoutOutputSchema.omit({
       playerId: true, playerName: true, position: true, team: true,
       injuryStatus: true, rankOverall: true, rankPosition: true,
-      dynasty1qbValue: true, redraftValue: true, recentTradesCount: true, tokensUsed: true,
+      dynasty1qbValue: true, redraftValue: true, recentTradesCount: true,
+      tokensUsed: true, confidenceScore: true, sourcesUsed: true,
     }).parse(raw),
   )
 
-  console.log(`[player-scout] Complete — tokens=${tokensUsed} trend=${llmOutput.trend}`)
+  console.log(`[player-scout] Complete — tokens=${tokensUsed} trend=${determineTrend()}`)
 
   return {
     playerId,
@@ -149,5 +159,7 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
     recentTradesCount: Math.max(tradeCount, communityTradeCount),
     ...llmOutput,
     tokensUsed,
+    confidenceScore: injection.confidenceScore,
+    sourcesUsed: injection.sourcesUsed,
   }
 }

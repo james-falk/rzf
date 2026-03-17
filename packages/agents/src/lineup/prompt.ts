@@ -56,6 +56,7 @@ export function buildUserPrompt(
   starters: RosterSlot[],
   bench: RosterSlot[],
   week: number,
+  newsContext?: string,
 ): string {
   const scoringType = league.scoring_settings['rec'] === 1
     ? 'PPR'
@@ -75,6 +76,8 @@ export function buildUserPrompt(
     return parts.join(' | ')
   }
 
+  const newsPart = newsContext ? `\n\n${newsContext}` : ''
+
   return `[League: ${league.name} | ${leagueType} | ${scoringType} | Week ${week}]
 [Roster Slots: ${league.roster_positions.join(', ')}]
 
@@ -82,7 +85,7 @@ export function buildUserPrompt(
 ${starters.map(formatPlayer).join('\n')}
 
 [BENCH]
-${bench.map(formatPlayer).join('\n')}
+${bench.map(formatPlayer).join('\n')}${newsPart}
 
 Optimize the starting lineup. Set the best possible starters for this week. Return JSON only.`
 }

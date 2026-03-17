@@ -4,6 +4,26 @@ All meaningful changes are logged here. Most recent first.
 
 ---
 
+## 2026-03-17
+
+### Phase 1 — Agent Content Injection: tiered sources, confidence scoring, schedule-aware recency
+
+- **Content Injector** (`packages/agents/src/content-injector.ts`): new unified `injectContent()` utility used by all 6 agents. Filters `ContentPlayerMention → ContentItem → ContentSource` by source tier (1/2/3), platform, and recency window. Deduplicates by URL, caps 2 items per player + `maxContentItems` total. Returns `InjectedContent[]`, a 0-100 `confidenceScore`, and `sourcesUsed[]` breakdown.
+- **Confidence score formula**: three components — `tierScore` (0-40, weighted avg source quality), `coverageScore` (0-35, % of players with news), `recencyScore` (0-25, avg freshness fraction). Written to `AgentRun.confidenceScore` on every completed run.
+- **NFL Schedule utility** (`packages/agents/src/nfl-schedule.ts`): `adjustWindowForSchedule()` tightens recency windows near game days — injury-watch shrinks to 12h on Sundays/game-day TNF, 24h Fri/Sat. Lineup shrinks proportionally. Other agents use their configured base window unchanged.
+- **Schema**: `ContentSource.tier Int @default(2)` (1=premium, 2=established, 3=general); `AgentRun.confidenceScore Int?` and `AgentRun.sourcesUsed Json?`; `AgentConfig` gains four source-control fields: `allowedSourceTiers`, `allowedPlatforms`, `recencyWindowHours`, `maxContentItems` — all admin-configurable per agent.
+- **All 6 agents updated**: team-eval, waiver, trade-analysis, player-scout — ad-hoc `contentPlayerMention` queries replaced with `injectContent()`. Lineup agent — content injected for first time (previously had none). Injury-watch — upgraded from purely rule-based: now calls LLM (haiku) to enrich summaries/recommendations/handcuff suggestions when news is available; falls back to rule-based output gracefully if LLM fails or no content exists.
+- **Injury-watch prompt** (`packages/agents/src/injury-watch/prompt.ts`): new file with `buildSystemPrompt()` and `buildUserPrompt()` for the LLM enrichment path. News snippets formatted with source name, tier label, and relative publish age.
+- **Lineup prompt updated**: `buildUserPrompt()` now accepts optional `newsContext` string injected as a per-player news block above the optimization instruction.
+- **Team-eval prompt updated**: `buildUserPrompt()` now accepts optional `newsContext` injected into the LLM prompt; `contentLinks` in the output still populated from the same injection result.
+- **Worker** (`apps/worker/src/workers/agent.worker.ts`): passes `allowedSourceTiers`, `allowedPlatforms`, `recencyWindowHours`, `maxContentItems` from `AgentConfig` DB row to `runtimeConfig`; extracts `confidenceScore` + `sourcesUsed` from agent output and writes to `AgentRun`.
+- **API** (`apps/api/src/routes/agents.ts`): `GET /agents/:id` response now includes `confidenceScore`.
+- **Frontend** (`apps/rostermind/src/components/AgentResults.tsx`): `ConfidenceBadge` component renders above every result card — green "High Confidence" (80+), yellow "Moderate Confidence" (50-79), gray "Limited Data" (<50 or null). `AgentRunResult` interface extended with `confidenceScore?: number | null`.
+- **Shared types** (`packages/shared/src/types/agent.ts`): `AgentRuntimeConfig` extended with 4 source config fields; all 6 output schemas gain optional `confidenceScore` and `sourcesUsed` fields; `InjuryAlertSchema` gains optional `handcuffSuggestion`.
+- **Content sources seed**: all existing sources assigned tiers (Rotowire/PFT = Tier 1, ESPN/CBS/YouTube = Tier 2, Flock/Domain = Tier 3); 5 new RSS sources added: FantasyPros NFL News, The Ringer NFL, Football Outsiders, 4for4.com Articles, NFL Trade Rumors.
+
+---
+
 ## 2026-03-13
 
 ### Admin & Directory overhaul — token tracking, queue improvements, full directory UI rebuild

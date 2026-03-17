@@ -5,6 +5,14 @@ import { buildUserContext } from '@rzf/shared'
 import { LineupOutputSchema } from '@rzf/shared/types'
 import type { LineupInput, LineupOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
+import { injectContent, formatContentByPlayer } from '../content-injector.js'
+
+const DEFAULTS = {
+  recencyWindowHours: 48,
+  maxContentItems: 10,
+  allowedTiers: [1, 2, 3],
+  allowedPlatforms: ['rss', 'youtube'],
+}
 
 export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeConfig): Promise<LineupOutput> {
   const { userId, leagueId, week: requestedWeek } = input
@@ -88,22 +96,40 @@ export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeCo
   const starters = allPlayerIds.filter((id) => starterIds.has(id)).map(buildSlot)
   const bench = allPlayerIds.filter((id) => !starterIds.has(id)).map(buildSlot)
 
-  // ── 5. LLM call ────────────────────────────────────────────────────────────
-  console.log(`[lineup] Calling LLM — week=${week} starters=${starters.length} bench=${bench.length}`)
+  // ── 5. Content injection ───────────────────────────────────────────────────
+  const injection = await injectContent(allPlayerIds, {
+    agentType: 'lineup',
+    recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+    maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+    allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+    allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+  })
+
+  // Build player name map for formatting
+  const playerNameMap = new Map<string, string>()
+  for (const id of allPlayerIds) {
+    const p = playerMap.get(id)
+    if (p) playerNameMap.set(id, `${p.firstName} ${p.lastName}`.trim())
+  }
+  const newsContext = formatContentByPlayer(injection.items, playerNameMap)
+
+  // ── 6. LLM call ────────────────────────────────────────────────────────────
+  console.log(`[lineup] Calling LLM — week=${week} starters=${starters.length} bench=${bench.length} news=${injection.items.length}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(
     { name: league.name, roster_positions: league.roster_positions, scoring_settings: league.scoring_settings, settings: league.settings },
     starters,
     bench,
     week,
+    newsContext || undefined,
   )
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
-    (raw) => LineupOutputSchema.omit({ tokensUsed: true }).parse(raw),
+    (raw) => LineupOutputSchema.omit({ tokensUsed: true, confidenceScore: true, sourcesUsed: true }).parse(raw),
   )
 
-  console.log(`[lineup] Complete — tokens=${tokensUsed}`)
+  console.log(`[lineup] Complete — tokens=${tokensUsed} confidence=${injection.confidenceScore}`)
 
-  return { ...llmOutput, tokensUsed }
+  return { ...llmOutput, tokensUsed, confidenceScore: injection.confidenceScore, sourcesUsed: injection.sourcesUsed }
 }

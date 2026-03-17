@@ -1,3 +1,5 @@
+'use client'
+
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -37,11 +39,11 @@ function extractDomain(url: string): string | null {
 }
 
 const PLATFORM_BADGE: Record<string, { label: string; color: string }> = {
-  YOUTUBE: { label: 'YouTube', color: 'rgba(239,68,68,0.2)' },
-  RSS: { label: 'Article', color: 'rgba(59,130,246,0.2)' },
-  X: { label: 'X / Twitter', color: 'rgba(100,116,139,0.2)' },
-  PODCAST: { label: 'Podcast', color: 'rgba(168,85,247,0.2)' },
-  FANTASYPROS: { label: 'FantasyPros', color: 'rgba(34,197,94,0.2)' },
+  youtube: { label: 'YouTube', color: 'rgba(239,68,68,0.2)' },
+  rss: { label: 'Article', color: 'rgba(59,130,246,0.2)' },
+  twitter: { label: 'X / Twitter', color: 'rgba(100,116,139,0.2)' },
+  podcast: { label: 'Podcast', color: 'rgba(168,85,247,0.2)' },
+  reddit: { label: 'Reddit', color: 'rgba(234,179,8,0.2)' },
 }
 
 const PARTNER_BADGE: Record<string, string> = {
@@ -68,8 +70,8 @@ export function ContentCard({
   source,
   playerMentions,
 }: ContentCardProps) {
-  const platform = source?.platform ?? 'RSS'
-  const badge = PLATFORM_BADGE[platform] ?? PLATFORM_BADGE.RSS!
+  const platform = source?.platform ?? 'rss'
+  const badge = PLATFORM_BADGE[platform] ?? PLATFORM_BADGE['rss']!
   // Derive a domain for Clearbit logo fallback
   const logoDomain = extractDomain(source?.feedUrl ?? sourceUrl)
 

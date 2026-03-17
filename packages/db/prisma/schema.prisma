@@ -208,6 +208,11 @@ model AgentRun {
 
   errorMessage String?
 
+  /// Confidence score 0-100 based on source quality, coverage, and recency
+  confidenceScore Int?
+  /// JSON breakdown of sources and content items injected for this run
+  sourcesUsed     Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -457,6 +462,9 @@ model ContentSource {
   lastFetchedAt       DateTime?
   isActive            Boolean  @default(true)
 
+  /// Agent injection tier: 1=premium (beat reporters), 2=established, 3=general
+  tier Int @default(2)
+
   /// Partner/sponsor highlight — shown with a badge in the directory
   featured    Boolean  @default(false)
   /// Tiered partner display: "gold", "silver", "bronze", or null
@@ -649,8 +657,18 @@ model AgentConfig {
   enabled      Boolean  @default(true)
   showInAnalyze Boolean @default(true)
   sortOrder    Int      @default(0)
-  updatedAt    DateTime @updatedAt
-  updatedBy    String?
+
+  /// Source tiers allowed for injection (1=premium, 2=established, 3=general)
+  allowedSourceTiers Int[]    @default([1, 2, 3])
+  /// Platforms allowed for injection (rss, youtube, twitter, etc.)
+  allowedPlatforms   String[] @default(["rss", "youtube"])
+  /// Recency window in hours for content injection
+  recencyWindowHours Int      @default(168)
+  /// Max total content items to inject per run
+  maxContentItems    Int      @default(10)
+
+  updatedAt DateTime @updatedAt
+  updatedBy String?
 
   @@map("agent_configs")
 }

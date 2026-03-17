@@ -107,7 +107,7 @@ export default function RunsPage() {
       </div>
 
       {/* KPI stat cards */}
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-7">
         <StatCard label="Total (30d)" value={stats?.summary.totalLast30Days ?? '—'} />
         <StatCard label="Today" value={stats?.summary.today ?? '—'} />
         <StatCard label="This Week" value={stats?.summary.week ?? '—'} />
@@ -118,6 +118,16 @@ export default function RunsPage() {
             (stats?.summary.successRate ?? 100) >= 90 ? 'success'
             : (stats?.summary.successRate ?? 100) >= 70 ? 'warning'
             : 'danger'
+          }
+        />
+        <StatCard
+          label="Avg Confidence"
+          value={stats?.summary.avgConfidence != null ? `${stats.summary.avgConfidence}` : '—'}
+          sub="0-100 source quality score"
+          variant={
+            (stats?.summary.avgConfidence ?? 0) >= 80 ? 'success'
+            : (stats?.summary.avgConfidence ?? 0) >= 50 ? 'warning'
+            : 'default'
           }
         />
         <StatCard
@@ -202,6 +212,7 @@ export default function RunsPage() {
               <th className="px-4 py-2 font-medium">User</th>
               <th className="px-4 py-2 font-medium">Agent</th>
               <th className="px-4 py-2 font-medium">Status</th>
+              <th className="px-4 py-2 font-medium">Confidence</th>
               <th className="px-4 py-2 font-medium">Tokens</th>
               <th className="px-4 py-2 font-medium">Duration</th>
               <th className="px-4 py-2 font-medium">Rating</th>
@@ -210,9 +221,9 @@ export default function RunsPage() {
           </thead>
           <tbody className="divide-y divide-white/5">
             {tableLoading ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-zinc-400">Loading...</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-zinc-400">Loading...</td></tr>
             ) : runs.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-zinc-500">No runs found</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-zinc-500">No runs found</td></tr>
             ) : runs.map((r) => (
               <>
                 <tr
@@ -228,6 +239,19 @@ export default function RunsPage() {
                   <td className="px-4 py-3">
                     <Badge variant={r.status as 'done' | 'failed' | 'running' | 'queued'}>{r.status}</Badge>
                   </td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {r.confidenceScore != null ? (
+                      <span className={`font-medium ${
+                        r.confidenceScore >= 80 ? 'text-emerald-400' :
+                        r.confidenceScore >= 50 ? 'text-yellow-400' :
+                        'text-zinc-500'
+                      }`}>
+                        {r.confidenceScore}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-600">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 tabular-nums text-zinc-400">{r.tokensUsed ?? '-'}</td>
                   <td className="px-4 py-3 tabular-nums text-zinc-400">{formatDuration(r.durationMs)}</td>
                   <td className="px-4 py-3">{r.rating === 'up' ? '👍' : r.rating === 'down' ? '👎' : '—'}</td>
@@ -235,7 +259,7 @@ export default function RunsPage() {
                 </tr>
                 {expandedId === r.id && (
                   <tr key={`${r.id}-detail`}>
-                    <td colSpan={8} className="border-t border-white/5 bg-zinc-950/50 px-6 py-4">
+                    <td colSpan={9} className="border-t border-white/5 bg-zinc-950/50 px-6 py-4">
                       <div className="grid gap-4 lg:grid-cols-2">
                         <div>
                           <p className="mb-1 text-xs font-semibold uppercase text-zinc-500">Input</p>

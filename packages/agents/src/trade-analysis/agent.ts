@@ -5,6 +5,14 @@ import { buildUserContext } from '@rzf/shared'
 import { TradeAnalysisOutputSchema } from '@rzf/shared/types'
 import type { TradeAnalysisInput, TradeAnalysisOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
+import { injectContent } from '../content-injector.js'
+
+const DEFAULTS = {
+  recencyWindowHours: 168, // 7 days
+  maxContentItems: 10,
+  allowedTiers: [1, 2, 3],
+  allowedPlatforms: ['rss', 'youtube'],
+}
 
 export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: AgentRuntimeConfig): Promise<TradeAnalysisOutput> {
   const { userId, leagueId, giving, receiving } = input
@@ -27,8 +35,8 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: 
 
   const allPlayerIds = [...giving, ...receiving]
 
-  // ── 2. Fetch all player data in parallel ───────────────────────────────────
-  const [players, tradeValues, rankings, recentMentions] = await Promise.all([
+  // ── 2. Fetch all player data + content in parallel ─────────────────────────
+  const [players, tradeValues, rankings, injection] = await Promise.all([
     db.player.findMany({ where: { sleeperId: { in: allPlayerIds } } }),
     db.playerTradeValue.findMany({ where: { sleeperId: { in: allPlayerIds }, source: 'fantasycalc' } }),
     db.playerRanking.findMany({
@@ -36,11 +44,12 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: 
       orderBy: { fetchedAt: 'desc' },
       take: allPlayerIds.length,
     }),
-    db.contentPlayerMention.findMany({
-      where: { playerId: { in: allPlayerIds } },
-      include: { content: { select: { title: true, fetchedAt: true } } },
-      orderBy: { content: { fetchedAt: 'desc' } },
-      take: 50,
+    injectContent(allPlayerIds, {
+      agentType: 'trade_analysis',
+      recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+      maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+      allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+      allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
     }),
   ])
 
@@ -48,16 +57,17 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: 
   const valueMap = new Map(tradeValues.map((v) => [v.sleeperId, v]))
   const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
 
+  // Build newsMap from injection result: playerId → formatted headlines
   const newsMap = new Map<string, string[]>()
-  for (const mention of recentMentions) {
-    const existing = newsMap.get(mention.playerId) ?? []
-    if (existing.length < 3) existing.push(mention.content.title)
-    newsMap.set(mention.playerId, existing)
+  for (const item of injection.items) {
+    const existing = newsMap.get(item.playerId) ?? []
+    if (existing.length < 3) {
+      existing.push(`[${item.sourceName}] ${item.title}`)
+    }
+    newsMap.set(item.playerId, existing)
   }
 
   // ── 3. Get community trade context from Dynasty Daddy ─────────────────────
-  // Returns last 10 real trades + 8-week volume for each player involved.
-  // Falls back gracefully if the DD API is unavailable.
   const communityTradeData = new Map<string, { recentCount: number; weeklyVolume: number }>()
   await Promise.all(
     allPlayerIds.map(async (playerId) => {
@@ -103,16 +113,16 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: 
   const receivingContext = receiving.map(enrichPlayer)
 
   // ── 5. LLM call ────────────────────────────────────────────────────────────
-  console.log(`[trade-analysis] Calling LLM`)
+  console.log(`[trade-analysis] Calling LLM — news=${injection.items.length} confidence=${injection.confidenceScore}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
   const userPrompt = buildUserPrompt(givingContext, receivingContext)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'sonnet' },
-    (raw) => TradeAnalysisOutputSchema.omit({ tokensUsed: true }).parse(raw),
+    (raw) => TradeAnalysisOutputSchema.omit({ tokensUsed: true, confidenceScore: true, sourcesUsed: true }).parse(raw),
   )
 
   console.log(`[trade-analysis] Complete — tokens=${tokensUsed} verdict=${llmOutput.verdict}`)
 
-  return { ...llmOutput, tokensUsed }
+  return { ...llmOutput, tokensUsed, confidenceScore: injection.confidenceScore, sourcesUsed: injection.sourcesUsed }
 }

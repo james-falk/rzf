@@ -29,8 +29,8 @@ const db = new PrismaClient()
 
 const RSS_SOURCES = [
   // ── Rotowire ─────────────────────────────────────────────────────────────
-  // High-quality injury reports, depth chart news, waiver wire analysis.
-  // Free feed, no auth required.
+  // Tier 1: Injury reports, depth chart news, waiver wire analysis.
+  // Fantasy-specific, high signal, free feed.
   {
     name: 'Rotowire NFL',
     platform: 'rss' as const,
@@ -38,6 +38,7 @@ const RSS_SOURCES = [
     avatarUrl: 'https://www.rotowire.com/favicon.ico',
     refreshIntervalMins: 30,
     isActive: true,
+    tier: 1,
   },
 
   // ── NFL.com ───────────────────────────────────────────────────────────────
@@ -50,10 +51,11 @@ const RSS_SOURCES = [
   //   avatarUrl: 'https://www.nfl.com/favicon.ico',
   //   refreshIntervalMins: 60,
   //   isActive: false,
+  //   tier: 2,
   // },
 
   // ── CBS Sports NFL ────────────────────────────────────────────────────────
-  // Broad NFL coverage as a replacement for NFL.com. Clean RSS feed.
+  // Tier 2: Broad NFL coverage. Clean feed.
   {
     name: 'CBS Sports NFL',
     platform: 'rss' as const,
@@ -61,10 +63,11 @@ const RSS_SOURCES = [
     avatarUrl: 'https://www.cbssports.com/favicon.ico',
     refreshIntervalMins: 60,
     isActive: true,
+    tier: 2,
   },
 
   // ── ESPN NFL ──────────────────────────────────────────────────────────────
-  // Broad NFL coverage: scores, analysis, injury updates.
+  // Tier 2: Broad NFL coverage — scores, analysis, injury updates.
   {
     name: 'ESPN NFL',
     platform: 'rss' as const,
@@ -72,10 +75,11 @@ const RSS_SOURCES = [
     avatarUrl: 'https://a.espncdn.com/favicon.ico',
     refreshIntervalMins: 60,
     isActive: true,
+    tier: 2,
   },
 
   // ── Pro Football Talk (PFT) ───────────────────────────────────────────────
-  // Breaking news, rumor mill, transaction wire. High volume.
+  // Tier 1: Breaking news, rumor mill, transaction wire. High volume, high signal.
   {
     name: 'Pro Football Talk',
     platform: 'rss' as const,
@@ -83,18 +87,70 @@ const RSS_SOURCES = [
     avatarUrl: 'https://profootballtalk.nbcsports.com/favicon.ico',
     refreshIntervalMins: 30,
     isActive: true,
+    tier: 1,
   },
 
-  // ── Field Yates / Adam Schefter (ESPN) ────────────────────────────────────
-  // TODO: confirm URL — ESPN does not always publish reporter-specific RSS.
-  // Leaving inactive until URL is verified.
-  // {
-  //   name: 'ESPN NFL Insider',
-  //   platform: 'rss' as const,
-  //   feedUrl: 'https://www.espn.com/espn/rss/nfl/insider',
-  //   refreshIntervalMins: 60,
-  //   isActive: false,
-  // },
+  // ── FantasyPros NFL News ──────────────────────────────────────────────────
+  // Tier 2: Fantasy-specific news and analysis aggregation.
+  // NOTE: Verify feed URL before running — FantasyPros may not expose a standard RSS.
+  {
+    name: 'FantasyPros NFL News',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.fantasypros.com/nfl/rss/news.php',
+    avatarUrl: 'https://www.fantasypros.com/favicon.ico',
+    refreshIntervalMins: 60,
+    isActive: true,
+    tier: 2,
+  },
+
+  // ── The Ringer NFL ───────────────────────────────────────────────────────
+  // Tier 2: Analytical NFL coverage. Good depth on trends and player analysis.
+  {
+    name: 'The Ringer NFL',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.theringer.com/nfl.rss',
+    avatarUrl: 'https://www.theringer.com/favicon.ico',
+    refreshIntervalMins: 120,
+    isActive: true,
+    tier: 2,
+  },
+
+  // ── Football Outsiders ────────────────────────────────────────────────────
+  // Tier 2: Data-driven, advanced stats and analytical coverage.
+  {
+    name: 'Football Outsiders',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.footballoutsiders.com/rss.xml',
+    avatarUrl: 'https://www.footballoutsiders.com/favicon.ico',
+    refreshIntervalMins: 120,
+    isActive: true,
+    tier: 2,
+  },
+
+  // ── 4for4 Fantasy Football ────────────────────────────────────────────────
+  // Tier 2: Data-driven fantasy articles, projections, start/sit analysis.
+  // NOTE: Verify feed URL before running.
+  {
+    name: '4for4 Fantasy Football Articles',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.4for4.com/content/rss.xml',
+    avatarUrl: 'https://www.4for4.com/favicon.ico',
+    refreshIntervalMins: 60,
+    isActive: true,
+    tier: 2,
+  },
+
+  // ── NFL Trade Rumors ──────────────────────────────────────────────────────
+  // Tier 2: Trade and transaction news aggregation.
+  {
+    name: 'NFL Trade Rumors',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.nfltraderumors.co/feed/',
+    avatarUrl: null,
+    refreshIntervalMins: 60,
+    isActive: true,
+    tier: 2,
+  },
 ] as const
 
 // ─── YouTube Sources ──────────────────────────────────────────────────────────
@@ -111,6 +167,7 @@ const YOUTUBE_SOURCES = [
     isActive: true,
     featured: true,
     partnerTier: 'gold',
+    tier: 2,
   },
   {
     name: 'ESPN Fantasy Sports',
@@ -122,6 +179,7 @@ const YOUTUBE_SOURCES = [
     isActive: true,
     featured: true,
     partnerTier: 'gold',
+    tier: 2,
   },
   {
     name: 'CBS Sports Fantasy Football',
@@ -132,6 +190,7 @@ const YOUTUBE_SOURCES = [
     refreshIntervalMins: 120,
     isActive: true,
     featured: false,
+    tier: 2,
   },
   {
     name: 'Flock Fantasy',
@@ -142,6 +201,7 @@ const YOUTUBE_SOURCES = [
     refreshIntervalMins: 120,
     isActive: true,
     featured: false,
+    tier: 3,
   },
   {
     name: 'Domain Fantasy Football',
@@ -152,6 +212,7 @@ const YOUTUBE_SOURCES = [
     refreshIntervalMins: 120,
     isActive: true,
     featured: false,
+    tier: 3,
   },
   {
     name: 'FantasyPros Dynasty',
@@ -162,6 +223,7 @@ const YOUTUBE_SOURCES = [
     refreshIntervalMins: 120,
     isActive: true,
     featured: false,
+    tier: 2,
   },
 ] as const
 
@@ -216,9 +278,10 @@ async function seed() {
         avatarUrl: source.avatarUrl,
         refreshIntervalMins: source.refreshIntervalMins,
         isActive: source.isActive,
+        tier: source.tier,
       },
     })
-    console.log(`  ${source.isActive ? '✓' : '○'} ${source.name}`)
+    console.log(`  ${source.isActive ? '✓' : '○'} ${source.name} [Tier ${source.tier}]`)
   }
 
   console.log('\nYouTube sources:')
@@ -232,11 +295,12 @@ async function seed() {
         refreshIntervalMins: source.refreshIntervalMins,
         isActive: source.isActive,
         featured: source.featured,
+        tier: source.tier,
         ...(source.avatarUrl ? { avatarUrl: source.avatarUrl } : {}),
         ...('partnerTier' in source ? { partnerTier: source.partnerTier } : {}),
       },
     })
-    console.log(`  ${source.isActive ? '✓' : '○'} ${source.name}${source.featured ? ' [featured]' : ''}`)
+    console.log(`  ${source.isActive ? '✓' : '○'} ${source.name}${source.featured ? ' [featured]' : ''} [Tier ${source.tier}]`)
   }
 
   // Deactivate any known-bad sources
