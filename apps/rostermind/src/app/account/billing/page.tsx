@@ -16,6 +16,7 @@ export default function BillingPage() {
   const [loadingUsage, setLoadingUsage] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [verifying, setVerifying] = useState(false)
 
   useEffect(() => {
     async function initBillingPage() {
@@ -29,14 +30,35 @@ export default function BillingPage() {
       const isSuccess = params.get('success') === 'true'
 
       if (isSuccess && sessionId) {
-        try {
-          const verified = await api.verifyCheckout(token, sessionId)
-          // Use the verified tier directly — no need to re-fetch
-          setUsage({ tier: verified.tier, runCredits: verified.runCredits, monthlyRunsUsed: 0 })
-          setLoadingUsage(false)
-          return
-        } catch {
-          // Verification failed — fall through to normal usage fetch
+        setVerifying(true)
+        // Attempt verify-checkout up to 3 times (in case of transient Stripe API delay)
+        for (let attempt = 0; attempt < 3; attempt++) {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, 2000))
+          try {
+            const verified = await api.verifyCheckout(token, sessionId)
+            setUsage({ tier: verified.tier, runCredits: verified.runCredits, monthlyRunsUsed: 0 })
+            setLoadingUsage(false)
+            setVerifying(false)
+            return
+          } catch {
+            // continue to next attempt
+          }
+        }
+        // verify-checkout failed after retries — poll getUsage for up to 15s
+        // waiting for the Stripe webhook to update the DB
+        for (let poll = 0; poll < 5; poll++) {
+          await new Promise((r) => setTimeout(r, 3000))
+          try {
+            const data = await api.getUsage(token)
+            if (data.tier === 'paid') {
+              setUsage({ tier: data.tier, runCredits: data.runCredits, monthlyRunsUsed: data.monthlyRunsUsed })
+              setLoadingUsage(false)
+              setVerifying(false)
+              return
+            }
+          } catch {
+            // keep polling
+          }
         }
       }
 
@@ -110,6 +132,12 @@ export default function BillingPage() {
       <div className="max-w-lg rounded-xl border border-white/10 bg-zinc-900 p-8">
         {loadingUsage ? (
           <div className="space-y-3">
+            {verifying && (
+              <p className="mb-2 text-sm font-medium text-indigo-300">
+                <span className="mr-2 inline-block h-3 w-3 animate-spin rounded-full border-2 border-indigo-300/30 border-t-indigo-300" />
+                Confirming your upgrade…
+              </p>
+            )}
             <div className="h-4 w-24 animate-pulse rounded bg-zinc-800" />
             <div className="h-8 w-32 animate-pulse rounded bg-zinc-800" />
             <div className="h-4 w-48 animate-pulse rounded bg-zinc-800" />

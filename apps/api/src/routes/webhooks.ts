@@ -20,6 +20,14 @@ interface ClerkUserDeletedEvent {
 type ClerkWebhookEvent = ClerkUserCreatedEvent | ClerkUserDeletedEvent
 
 export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
+  // Stripe and Svix both verify signatures against the exact raw bytes they sent.
+  // Fastify parses JSON bodies before handlers run, so re-stringifying req.body
+  // produces different bytes and causes signature verification to always fail.
+  // Scoping this parser inside the plugin means it only applies to /webhooks/* routes.
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, function (_req, body: Buffer, done) {
+    done(null, body)
+  })
+
   // POST /webhooks/clerk — handle Clerk user lifecycle events
   // Clerk sends svix-signed webhooks
   app.post('/webhooks/clerk', async (req: FastifyRequest, reply) => {
@@ -35,11 +43,12 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: 'Missing svix headers' })
     }
 
+    const rawBody = (req.body as Buffer).toString('utf8')
+
     let event: ClerkWebhookEvent
     try {
       const wh = new Webhook(env.CLERK_WEBHOOK_SECRET)
-      const body = JSON.stringify(req.body)
-      event = wh.verify(body, {
+      event = wh.verify(rawBody, {
         'svix-id': svixId,
         'svix-timestamp': svixTimestamp,
         'svix-signature': svixSignature,
@@ -95,8 +104,8 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
     let event: Stripe.Event
     try {
       const stripe = new Stripe(env.STRIPE_SECRET_KEY)
-      const rawBody = JSON.stringify(req.body)
-      event = stripe.webhooks.constructEvent(rawBody, sig, env.STRIPE_WEBHOOK_SECRET)
+      // req.body is a raw Buffer here due to the scoped content-type parser above
+      event = stripe.webhooks.constructEvent(req.body as Buffer, sig, env.STRIPE_WEBHOOK_SECRET)
     } catch {
       return reply.status(400).send({ error: 'Invalid Stripe signature' })
     }
