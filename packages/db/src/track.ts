@@ -5,6 +5,7 @@ export type AnalyticsEventType =
   | 'user.signup'
   | 'user.upgrade.prompted'
   | 'user.upgraded'
+  | 'user.downgraded'
   // Agent events
   | 'agent.run.started'
   | 'agent.run.completed'
@@ -18,6 +19,7 @@ export type EventPayloads = {
   'user.signup': { email: string; tier: 'free' }
   'user.upgrade.prompted': { triggeredBy: 'credit_exhaustion' }
   'user.upgraded': { fromTier: string; toTier: string }
+  'user.downgraded': { fromTier: string; toTier: string; reason: string }
   'agent.run.started': { agentType: string; userTier: string; leagueId?: string }
   'agent.run.completed': { agentType: string; tokensUsed: number; durationMs: number; grade?: string }
   'agent.run.failed': { agentType: string; errorType: string; errorMessage: string }
