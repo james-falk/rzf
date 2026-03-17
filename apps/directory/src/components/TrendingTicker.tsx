@@ -23,9 +23,9 @@ const POSITION_COLOR: Record<string, string> = {
 }
 
 export function TrendingTicker({ players }: { players: TrendingPlayer[] }) {
-  if (players.length === 0) return null
-
   const [paused, setPaused] = useState(false)
+
+  if (players.length === 0) return null
   // Duplicate for seamless loop
   const doubled = [...players, ...players]
 
