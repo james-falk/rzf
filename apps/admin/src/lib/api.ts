@@ -397,6 +397,8 @@ export interface XAccount {
   id: string
   handle: string
   xUserId: string
+  /** "rostermind" | "directory" | "custom" */
+  label: string
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -406,7 +408,7 @@ export interface XAccount {
 export interface ScheduledPost {
   id: string
   xAccountId: string
-  xAccount?: { handle: string }
+  xAccount?: { handle: string; label?: string }
   content: string
   mediaUrls: string[]
   postType: string
@@ -421,7 +423,7 @@ export interface ScheduledPost {
 export interface TweetMonitorRule {
   id: string
   xAccountId: string
-  xAccount?: { handle: string }
+  xAccount?: { handle: string; label?: string }
   query: string
   isActive: boolean
   lastRanAt: string | null
@@ -431,7 +433,7 @@ export interface TweetMonitorRule {
 export interface PendingReply {
   id: string
   xAccountId: string
-  xAccount?: { handle: string }
+  xAccount?: { handle: string; label?: string }
   tweetId: string
   authorHandle: string
   tweetText: string
@@ -450,33 +452,45 @@ export interface XStats {
 }
 
 export const xEngineApi = {
-  // Account
-  getAccount(): Promise<{ account: XAccount | null; isConfigured: boolean; tierNote: string }> {
-    return adminFetch('/internal/x/account')
+  // Accounts (multi)
+  getAccounts(): Promise<{ accounts: XAccount[]; isConfigured: boolean; tierNote: string }> {
+    return adminFetch('/internal/x/accounts')
   },
-  connectWithCode(code: string, callbackUrl: string): Promise<{ account: XAccount }> {
+  // Single account (backwards compat; optional ?label= or ?id= filter)
+  getAccount(params?: { label?: string; id?: string }): Promise<{ account: XAccount | null; isConfigured: boolean; tierNote: string }> {
+    const qs = new URLSearchParams()
+    if (params?.label) qs.set('label', params.label)
+    if (params?.id) qs.set('id', params.id)
+    const q = qs.toString()
+    return adminFetch(`/internal/x/account${q ? `?${q}` : ''}`)
+  },
+  connectWithCode(code: string, callbackUrl: string, label: 'rostermind' | 'directory' | 'custom' = 'directory'): Promise<{ account: XAccount }> {
     return adminFetch('/internal/x/account', {
       method: 'POST',
-      body: JSON.stringify({ code, callbackUrl }),
+      body: JSON.stringify({ code, callbackUrl, label }),
     })
   },
   disconnectAccount(id: string): Promise<{ success: boolean }> {
     return adminFetch(`/internal/x/account/${id}`, { method: 'DELETE' })
   },
-  getAuthUrl(callbackUrl: string): Promise<{ url: string; state: string }> {
-    return adminFetch(`/internal/x/auth-url?callbackUrl=${encodeURIComponent(callbackUrl)}`)
+  // label is embedded into state so it survives the OAuth redirect
+  getAuthUrl(callbackUrl: string, label: 'rostermind' | 'directory' | 'custom' = 'directory'): Promise<{ url: string; state: string }> {
+    const qs = new URLSearchParams({ callbackUrl, label })
+    return adminFetch(`/internal/x/auth-url?${qs}`)
   },
 
-  // Stats
-  getStats(): Promise<XStats> {
-    return adminFetch('/internal/x/stats')
+  // Stats — pass accountId to scope to one account
+  getStats(accountId?: string): Promise<XStats> {
+    const qs = accountId ? `?accountId=${accountId}` : ''
+    return adminFetch(`/internal/x/stats${qs}`)
   },
 
   // Scheduled Posts
-  getPosts(params?: { status?: string; page?: number }): Promise<{ posts: ScheduledPost[]; total: number; pages: number }> {
+  getPosts(params?: { status?: string; page?: number; accountId?: string }): Promise<{ posts: ScheduledPost[]; total: number; pages: number }> {
     const qs = new URLSearchParams()
     if (params?.status) qs.set('status', params.status)
     if (params?.page) qs.set('page', String(params.page))
+    if (params?.accountId) qs.set('accountId', params.accountId)
     return adminFetch(`/internal/x/posts?${qs}`)
   },
   createPost(data: { xAccountId: string; content: string; postType: string; scheduledFor: string; mediaUrls?: string[] }): Promise<{ post: ScheduledPost }> {
@@ -485,13 +499,14 @@ export const xEngineApi = {
   updatePost(id: string, data: { content?: string; scheduledFor?: string; status?: 'pending' | 'cancelled' }): Promise<{ post: ScheduledPost }> {
     return adminFetch(`/internal/x/posts/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
   },
-  generateDraft(postType: string, context?: string): Promise<{ draft: string }> {
-    return adminFetch('/internal/x/posts/generate', { method: 'POST', body: JSON.stringify({ postType, context }) })
+  generateDraft(postType: string, context?: string, accountLabel: string = 'directory'): Promise<{ draft: string }> {
+    return adminFetch('/internal/x/posts/generate', { method: 'POST', body: JSON.stringify({ postType, context, accountLabel }) })
   },
 
   // Monitor Rules
-  getRules(): Promise<{ rules: TweetMonitorRule[] }> {
-    return adminFetch('/internal/x/rules')
+  getRules(accountId?: string): Promise<{ rules: TweetMonitorRule[] }> {
+    const qs = accountId ? `?accountId=${accountId}` : ''
+    return adminFetch(`/internal/x/rules${qs}`)
   },
   createRule(data: { xAccountId: string; query: string }): Promise<{ rule: TweetMonitorRule }> {
     return adminFetch('/internal/x/rules', { method: 'POST', body: JSON.stringify(data) })
@@ -507,14 +522,16 @@ export const xEngineApi = {
   },
 
   // Pending Replies
-  getReplies(params?: { status?: string; page?: number }): Promise<{ replies: PendingReply[]; total: number; pages: number }> {
+  getReplies(params?: { status?: string; page?: number; accountId?: string }): Promise<{ replies: PendingReply[]; total: number; pages: number }> {
     const qs = new URLSearchParams()
     if (params?.status) qs.set('status', params.status)
     if (params?.page) qs.set('page', String(params.page))
+    if (params?.accountId) qs.set('accountId', params.accountId)
     return adminFetch(`/internal/x/replies?${qs}`)
   },
-  syncMentions(): Promise<{ synced: number; created: number }> {
-    return adminFetch('/internal/x/replies/sync', { method: 'POST' })
+  syncMentions(accountId?: string): Promise<{ synced: number; created: number }> {
+    const qs = accountId ? `?accountId=${accountId}` : ''
+    return adminFetch(`/internal/x/replies/sync${qs}`, { method: 'POST' })
   },
   generateReply(id: string): Promise<{ aiReply: string }> {
     return adminFetch(`/internal/x/replies/${id}/generate`, { method: 'POST' })

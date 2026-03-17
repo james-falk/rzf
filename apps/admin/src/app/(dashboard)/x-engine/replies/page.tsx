@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { xEngineApi, type PendingReply } from '@/lib/api'
+import { xEngineApi, type PendingReply, type XAccount } from '@/lib/api'
 
 const STATUS_TABS = ['pending', 'approved', 'sent', 'skipped']
 
@@ -12,7 +12,15 @@ const STATUS_COLORS: Record<string, string> = {
   skipped:  'bg-zinc-700 text-zinc-400',
 }
 
+const LABEL_COLORS: Record<string, string> = {
+  rostermind: 'bg-indigo-500/10 text-indigo-400',
+  directory:  'bg-emerald-500/10 text-emerald-400',
+  custom:     'bg-zinc-700 text-zinc-400',
+}
+
 export default function RepliesPage() {
+  const [accounts, setAccounts] = useState<XAccount[]>([])
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [replies, setReplies] = useState<PendingReply[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -21,10 +29,10 @@ export default function RepliesPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
 
-  const load = useCallback(async () => {
+  const loadReplies = useCallback(async (accountId?: string) => {
     setLoading(true)
     try {
-      const res = await xEngineApi.getReplies({ status, page })
+      const res = await xEngineApi.getReplies({ status, page, accountId })
       setReplies(res.replies)
       setTotal(res.total)
       setPages(res.pages)
@@ -33,14 +41,34 @@ export default function RepliesPage() {
     }
   }, [status, page])
 
-  useEffect(() => { void load() }, [load])
+  // Load accounts on mount, default to RosterMind
+  useEffect(() => {
+    xEngineApi.getAccounts().then((res) => {
+      setAccounts(res.accounts)
+      const rm = res.accounts.find((a) => a.label === 'rostermind') ?? res.accounts[0]
+      if (rm) {
+        setSelectedAccountId(rm.id)
+        void loadReplies(rm.id)
+      } else {
+        void loadReplies()
+      }
+    }).catch(() => { void loadReplies() })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => { void loadReplies(selectedAccountId || undefined) }, [loadReplies, selectedAccountId])
+
+  function handleAccountChange(id: string) {
+    setSelectedAccountId(id)
+    setPage(1)
+  }
 
   async function handleSync() {
     setSyncing(true)
     try {
-      const res = await xEngineApi.syncMentions()
+      const res = await xEngineApi.syncMentions(selectedAccountId || undefined)
       alert(`Synced ${res.synced} mentions, ${res.created} new.`)
-      await load()
+      await loadReplies(selectedAccountId || undefined)
     } catch {
       alert('Sync failed. Check API credentials and tier limits.')
     } finally {
@@ -72,6 +100,35 @@ export default function RepliesPage() {
         </p>
       </div>
 
+      {/* Account picker */}
+      {accounts.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500">Account:</span>
+          <div className="flex gap-1.5">
+            {accounts.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => handleAccountChange(a.id)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  selectedAccountId === a.id ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                @{a.handle} <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${LABEL_COLORS[a.label] ?? ''}`}>{a.label}</span>
+              </button>
+            ))}
+          </div>
+          {/* Show AI voice indicator */}
+          {selectedAccountId && (() => {
+            const acct = accounts.find((a) => a.id === selectedAccountId)
+            return acct ? (
+              <span className="ml-2 text-xs text-zinc-600">
+                AI voice: <span className="capitalize text-zinc-500">{acct.label}</span>
+              </span>
+            ) : null
+          })()}
+        </div>
+      )}
+
       {/* Status tabs */}
       <div className="flex gap-2">
         {STATUS_TABS.map((s) => (
@@ -92,12 +149,14 @@ export default function RepliesPage() {
         <div className="py-16 text-center text-sm text-zinc-500">Loading…</div>
       ) : replies.length === 0 ? (
         <div className="py-16 text-center text-sm text-zinc-500">
-          {status === 'pending' ? 'No pending mentions. Click "Sync Mentions" to pull the latest @mentions.' : `No ${status} replies.`}
+          {status === 'pending'
+            ? 'No pending mentions. Click "Sync Mentions" to pull the latest @mentions.'
+            : `No ${status} replies.`}
         </div>
       ) : (
         <div className="space-y-4">
           {replies.map((reply) => (
-            <ReplyCard key={reply.id} reply={reply} onUpdate={load} />
+            <ReplyCard key={reply.id} reply={reply} onUpdate={() => loadReplies(selectedAccountId || undefined)} />
           ))}
         </div>
       )}
@@ -120,6 +179,8 @@ function ReplyCard({ reply, onUpdate }: { reply: PendingReply; onUpdate: () => v
   const [draft, setDraft] = useState('')
   const [generating, setGenerating] = useState(false)
   const [sending, setSending] = useState(false)
+
+  const accountLabel = reply.xAccount?.label ?? 'custom'
 
   async function handleGenerate() {
     setGenerating(true)
@@ -160,11 +221,16 @@ function ReplyCard({ reply, onUpdate }: { reply: PendingReply; onUpdate: () => v
           {reply.authorHandle.slice(0, 1).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-white">@{reply.authorHandle}</span>
             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium capitalize ${STATUS_COLORS[reply.status] ?? ''}`}>
               {reply.status}
             </span>
+            {reply.xAccount?.label && (
+              <span className={`rounded-full px-2 py-0.5 text-[10px] capitalize ${LABEL_COLORS[reply.xAccount.label] ?? ''}`}>
+                {reply.xAccount.label} voice
+              </span>
+            )}
             <a
               href={`https://x.com/i/web/status/${reply.tweetId}`}
               target="_blank"
@@ -177,6 +243,15 @@ function ReplyCard({ reply, onUpdate }: { reply: PendingReply; onUpdate: () => v
           <p className="mt-1 text-sm text-zinc-300">{reply.tweetText}</p>
           <p className="mt-1 text-xs text-zinc-600">{new Date(reply.createdAt).toLocaleDateString()}</p>
         </div>
+      </div>
+
+      {/* AI voice hint */}
+      <div className="mt-3 rounded-lg border border-white/5 bg-zinc-800/40 px-3 py-2 text-xs text-zinc-500">
+        {accountLabel === 'rostermind'
+          ? 'AI will reply as RosterMind — helpful fantasy analysis, links to rzf.gg/chat'
+          : accountLabel === 'directory'
+          ? 'AI will reply as RZF Directory — informational, references rankings/tools at rzf.gg'
+          : 'AI will reply as RZF — general fantasy football assistant'}
       </div>
 
       {/* AI Reply section */}
@@ -233,14 +308,12 @@ function ReplyCard({ reply, onUpdate }: { reply: PendingReply; onUpdate: () => v
           ) : (
             <div className="space-y-2">
               <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-wide">AI Suggested Reply</p>
-              <div className="flex gap-2">
-                <textarea
-                  rows={3}
-                  value={aiReply}
-                  onChange={(e) => setAiReply(e.target.value.slice(0, 280))}
-                  className="flex-1 resize-none rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
-                />
-              </div>
+              <textarea
+                rows={3}
+                value={aiReply}
+                onChange={(e) => setAiReply(e.target.value.slice(0, 280))}
+                className="w-full resize-none rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-zinc-200 focus:border-zinc-500 focus:outline-none"
+              />
               <p className="text-xs text-zinc-600">{aiReply.length}/280 chars</p>
               <div className="flex gap-2">
                 <button

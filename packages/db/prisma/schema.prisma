@@ -832,6 +832,8 @@ model XAccount {
   id           String    @id @default(cuid())
   handle       String
   xUserId      String    @unique
+  /// "rostermind" | "directory" | "custom"
+  label        String    @default("directory")
   /// Encrypted OAuth 2.0 access token
   accessToken  String    @db.Text
   refreshToken String?   @db.Text

@@ -12,43 +12,62 @@ interface IngestedTweet {
   publicMetrics?: { likeCount: number; retweetCount: number; replyCount: number }
 }
 
+const LABEL_COLORS: Record<string, string> = {
+  rostermind: 'bg-indigo-500/10 text-indigo-400',
+  directory:  'bg-emerald-500/10 text-emerald-400',
+  custom:     'bg-zinc-700 text-zinc-400',
+}
+
 export default function MonitorPage() {
+  const [accounts, setAccounts] = useState<XAccount[]>([])
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [rules, setRules] = useState<TweetMonitorRule[]>([])
-  const [account, setAccount] = useState<XAccount | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newQuery, setNewQuery] = useState('')
   const [saving, setSaving] = useState(false)
-
-  // Live run results (ephemeral — not stored to DB here)
   const [runningRuleId, setRunningRuleId] = useState<string | null>(null)
   const [runResults, setRunResults] = useState<{ ruleId: string; tweets: IngestedTweet[] } | null>(null)
 
-  async function loadAll() {
+  async function loadAll(accountId?: string) {
     setLoading(true)
     try {
-      const [rulesRes, accountRes] = await Promise.all([
-        xEngineApi.getRules(),
-        xEngineApi.getAccount(),
-      ])
+      const rulesRes = await xEngineApi.getRules(accountId || undefined)
       setRules(rulesRes.rules)
-      setAccount(accountRes.account)
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { void loadAll() }, [])
+  // Load accounts on mount, default to directory
+  useEffect(() => {
+    xEngineApi.getAccounts().then((res) => {
+      setAccounts(res.accounts)
+      const dir = res.accounts.find((a) => a.label === 'directory') ?? res.accounts[0]
+      if (dir) {
+        setSelectedAccountId(dir.id)
+        void loadAll(dir.id)
+      } else {
+        void loadAll()
+      }
+    }).catch(() => { void loadAll() })
+  }, [])
+
+  function handleAccountChange(id: string) {
+    setSelectedAccountId(id)
+    setRunResults(null)
+    void loadAll(id)
+  }
 
   async function handleAddRule() {
-    if (!account) return alert('No connected X account.')
+    if (!selectedAccountId) return alert('Select an X account first.')
     if (!newQuery.trim()) return
     setSaving(true)
     try {
-      await xEngineApi.createRule({ xAccountId: account.id, query: newQuery.trim() })
+      await xEngineApi.createRule({ xAccountId: selectedAccountId, query: newQuery.trim() })
       setNewQuery('')
       setShowAddForm(false)
-      await loadAll()
+      await loadAll(selectedAccountId)
     } finally {
       setSaving(false)
     }
@@ -56,13 +75,13 @@ export default function MonitorPage() {
 
   async function handleToggle(rule: TweetMonitorRule) {
     await xEngineApi.toggleRule(rule.id, !rule.isActive)
-    await loadAll()
+    await loadAll(selectedAccountId)
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this rule?')) return
     await xEngineApi.deleteRule(id)
-    await loadAll()
+    await loadAll(selectedAccountId)
   }
 
   async function handleRun(rule: TweetMonitorRule) {
@@ -101,6 +120,26 @@ export default function MonitorPage() {
         </p>
       </div>
 
+      {/* Account picker */}
+      {accounts.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-zinc-500">Account:</span>
+          <div className="flex gap-1.5">
+            {accounts.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => handleAccountChange(a.id)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  selectedAccountId === a.id ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                }`}
+              >
+                @{a.handle} <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${LABEL_COLORS[a.label] ?? ''}`}>{a.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Add rule form */}
       {showAddForm && (
         <div className="rounded-xl border border-white/10 bg-zinc-900 p-5">
@@ -115,7 +154,7 @@ export default function MonitorPage() {
             />
             <button
               onClick={handleAddRule}
-              disabled={saving || !newQuery.trim()}
+              disabled={saving || !newQuery.trim() || !selectedAccountId}
               className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 transition hover:bg-white disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Add'}
@@ -127,7 +166,9 @@ export default function MonitorPage() {
               Cancel
             </button>
           </div>
-          <p className="mt-2 text-xs text-zinc-600">Use Twitter search syntax. Add <code className="bg-zinc-800 px-1 rounded">-is:retweet</code> to exclude retweets.</p>
+          <p className="mt-2 text-xs text-zinc-600">
+            Use Twitter search syntax. Add <code className="bg-zinc-800 px-1 rounded">-is:retweet</code> to exclude retweets.
+          </p>
         </div>
       )}
 
@@ -153,8 +194,17 @@ export default function MonitorPage() {
                 <div className="flex-1 min-w-0">
                   <code className="block text-sm text-zinc-200 break-all">{rule.query}</code>
                   <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
-                    {rule.xAccount && <span>@{rule.xAccount.handle}</span>}
-                    <span>·</span>
+                    {rule.xAccount && (
+                      <>
+                        <span>@{rule.xAccount.handle}</span>
+                        {rule.xAccount.label && (
+                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] capitalize ${LABEL_COLORS[rule.xAccount.label] ?? ''}`}>
+                            {rule.xAccount.label}
+                          </span>
+                        )}
+                        <span>·</span>
+                      </>
+                    )}
                     <span className={rule.isActive ? 'text-emerald-400' : 'text-zinc-500'}>{rule.isActive ? 'Active' : 'Paused'}</span>
                     {rule.lastRanAt && <><span>·</span><span>Last run: {new Date(rule.lastRanAt).toLocaleDateString()}</span></>}
                   </div>
@@ -200,12 +250,7 @@ export default function MonitorPage() {
                               <span>↩ {t.publicMetrics.replyCount}</span>
                             </div>
                           )}
-                          <a
-                            href={`https://x.com/i/web/status/${t.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-1 block text-[11px] text-blue-400 hover:underline"
-                          >
+                          <a href={`https://x.com/i/web/status/${t.id}`} target="_blank" rel="noopener noreferrer" className="mt-1 block text-[11px] text-blue-400 hover:underline">
                             View on X ↗
                           </a>
                         </div>

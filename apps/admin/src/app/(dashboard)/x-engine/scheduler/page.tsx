@@ -19,13 +19,51 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: 'bg-zinc-700 text-zinc-400',
 }
 
+const LABEL_COLORS: Record<string, string> = {
+  rostermind: 'bg-indigo-500/10 text-indigo-400',
+  directory:  'bg-emerald-500/10 text-emerald-400',
+  custom:     'bg-zinc-700 text-zinc-400',
+}
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('en-US', {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 }
 
+function AccountPicker({
+  accounts,
+  selectedId,
+  onChange,
+}: {
+  accounts: XAccount[]
+  selectedId: string
+  onChange: (id: string) => void
+}) {
+  if (accounts.length === 0) return <p className="text-sm text-zinc-500">No connected X accounts.</p>
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-zinc-500">Account:</span>
+      <div className="flex gap-1.5">
+        {accounts.map((a) => (
+          <button
+            key={a.id}
+            onClick={() => onChange(a.id)}
+            className={`rounded-full px-3 py-1 text-xs font-medium capitalize transition ${
+              selectedId === a.id ? 'bg-white text-zinc-900' : 'bg-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+          >
+            @{a.handle} <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[10px] ${LABEL_COLORS[a.label] ?? ''}`}>{a.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function SchedulerPage() {
+  const [accounts, setAccounts] = useState<XAccount[]>([])
+  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [posts, setPosts] = useState<ScheduledPost[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -33,25 +71,34 @@ export default function SchedulerPage() {
   const [filterStatus, setFilterStatus] = useState('')
   const [loading, setLoading] = useState(true)
   const [showDrawer, setShowDrawer] = useState(false)
-  const [account, setAccount] = useState<XAccount | null>(null)
+
+  // Load accounts, default to directory account
+  useEffect(() => {
+    xEngineApi.getAccounts().then((res) => {
+      setAccounts(res.accounts)
+      const dir = res.accounts.find((a) => a.label === 'directory') ?? res.accounts[0]
+      if (dir) setSelectedAccountId(dir.id)
+    }).catch(() => null)
+  }, [])
 
   const load = useCallback(async () => {
+    if (!selectedAccountId && accounts.length > 0) return
     setLoading(true)
     try {
-      const res = await xEngineApi.getPosts({ status: filterStatus || undefined, page })
+      const res = await xEngineApi.getPosts({
+        status: filterStatus || undefined,
+        page,
+        accountId: selectedAccountId || undefined,
+      })
       setPosts(res.posts)
       setTotal(res.total)
       setPages(res.pages)
     } finally {
       setLoading(false)
     }
-  }, [filterStatus, page])
+  }, [filterStatus, page, selectedAccountId, accounts.length])
 
   useEffect(() => { void load() }, [load])
-
-  useEffect(() => {
-    xEngineApi.getAccount().then((r) => setAccount(r.account)).catch(() => null)
-  }, [])
 
   async function handleCancel(id: string) {
     if (!confirm('Cancel this post?')) return
@@ -75,6 +122,13 @@ export default function SchedulerPage() {
         </button>
       </div>
 
+      {/* Account picker */}
+      <AccountPicker
+        accounts={accounts}
+        selectedId={selectedAccountId}
+        onChange={(id) => { setSelectedAccountId(id); setPage(1) }}
+      />
+
       {/* Filter tabs */}
       <div className="flex gap-2">
         {['', 'pending', 'posted', 'failed', 'cancelled'].map((s) => (
@@ -88,7 +142,6 @@ export default function SchedulerPage() {
         ))}
       </div>
 
-      {/* Total */}
       <p className="text-xs text-zinc-500">{total} post{total !== 1 ? 's' : ''}</p>
 
       {/* Posts list */}
@@ -100,7 +153,7 @@ export default function SchedulerPage() {
         <div className="space-y-3">
           {posts.map((post) => (
             <div key={post.id} className="flex gap-4 rounded-xl border border-white/10 bg-zinc-900 p-5">
-              {/* Left: type chip */}
+              {/* Left: chips */}
               <div className="flex flex-col items-start gap-2 w-32 shrink-0">
                 <span className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-[11px] font-medium text-zinc-400 capitalize">
                   {POST_TYPES.find((t) => t.value === post.postType)?.label ?? post.postType}
@@ -108,6 +161,11 @@ export default function SchedulerPage() {
                 <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium capitalize ${STATUS_COLORS[post.status] ?? 'bg-zinc-800 text-zinc-400'}`}>
                   {post.status}
                 </span>
+                {post.xAccount?.label && (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] capitalize ${LABEL_COLORS[post.xAccount.label] ?? 'bg-zinc-700 text-zinc-400'}`}>
+                    {post.xAccount.label}
+                  </span>
+                )}
               </div>
 
               {/* Center: content */}
@@ -118,21 +176,14 @@ export default function SchedulerPage() {
                   {post.xAccount && <> · @{post.xAccount.handle}</>}
                 </p>
                 {post.tweetId && (
-                  <a
-                    href={`https://x.com/i/web/status/${post.tweetId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 block text-xs text-blue-400 hover:underline"
-                  >
+                  <a href={`https://x.com/i/web/status/${post.tweetId}`} target="_blank" rel="noopener noreferrer" className="mt-1 block text-xs text-blue-400 hover:underline">
                     View on X ↗
                   </a>
                 )}
-                {post.errorMessage && (
-                  <p className="mt-1 text-xs text-red-400">{post.errorMessage}</p>
-                )}
+                {post.errorMessage && <p className="mt-1 text-xs text-red-400">{post.errorMessage}</p>}
               </div>
 
-              {/* Right: actions */}
+              {/* Actions */}
               {post.status === 'pending' && (
                 <button
                   onClick={() => handleCancel(post.id)}
@@ -158,7 +209,8 @@ export default function SchedulerPage() {
       {/* New Post Drawer */}
       {showDrawer && (
         <NewPostDrawer
-          account={account}
+          accounts={accounts}
+          defaultAccountId={selectedAccountId}
           onClose={() => setShowDrawer(false)}
           onCreated={() => { setShowDrawer(false); void load() }}
         />
@@ -168,14 +220,17 @@ export default function SchedulerPage() {
 }
 
 function NewPostDrawer({
-  account,
+  accounts,
+  defaultAccountId,
   onClose,
   onCreated,
 }: {
-  account: XAccount | null
+  accounts: XAccount[]
+  defaultAccountId: string
   onClose: () => void
   onCreated: () => void
 }) {
+  const [xAccountId, setXAccountId] = useState(defaultAccountId)
   const [content, setContent] = useState('')
   const [postType, setPostType] = useState('custom')
   const [scheduledFor, setScheduledFor] = useState(() => {
@@ -188,17 +243,16 @@ function NewPostDrawer({
   const [context, setContext] = useState('')
   const [charCount, setCharCount] = useState(0)
 
+  const selectedAccount = accounts.find((a) => a.id === xAccountId)
+
   function handleContentChange(val: string) {
-    if (val.length <= 280) {
-      setContent(val)
-      setCharCount(val.length)
-    }
+    if (val.length <= 280) { setContent(val); setCharCount(val.length) }
   }
 
   async function handleGenerate() {
     setGenerating(true)
     try {
-      const res = await xEngineApi.generateDraft(postType, context || undefined)
+      const res = await xEngineApi.generateDraft(postType, context || undefined, selectedAccount?.label ?? 'directory')
       setContent(res.draft)
       setCharCount(res.draft.length)
     } catch {
@@ -209,16 +263,11 @@ function NewPostDrawer({
   }
 
   async function handleSave() {
-    if (!account) return alert('No connected X account.')
+    if (!xAccountId) return alert('Select an X account.')
     if (!content.trim()) return alert('Post content required.')
     setSaving(true)
     try {
-      await xEngineApi.createPost({
-        xAccountId: account.id,
-        content,
-        postType,
-        scheduledFor: new Date(scheduledFor).toISOString(),
-      })
+      await xEngineApi.createPost({ xAccountId, content, postType, scheduledFor: new Date(scheduledFor).toISOString() })
       onCreated()
     } catch {
       alert('Failed to create post')
@@ -229,10 +278,7 @@ function NewPostDrawer({
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 z-40 bg-black/60" onClick={onClose} />
-
-      {/* Drawer */}
       <div className="fixed inset-y-0 right-0 z-50 w-full max-w-md overflow-y-auto border-l border-white/10 bg-zinc-950 p-6 shadow-2xl">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-white">New Scheduled Post</h2>
@@ -240,6 +286,24 @@ function NewPostDrawer({
         </div>
 
         <div className="space-y-5">
+          {/* Account selector */}
+          <div>
+            <label className="mb-2 block text-xs font-medium text-zinc-400">Post As</label>
+            <div className="flex flex-col gap-1.5">
+              {accounts.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => setXAccountId(a.id)}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${xAccountId === a.id ? 'border-zinc-400 bg-zinc-800 text-white' : 'border-white/10 text-zinc-400 hover:text-white'}`}
+                >
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] capitalize ${LABEL_COLORS[a.label] ?? ''}`}>{a.label}</span>
+                  @{a.handle}
+                </button>
+              ))}
+              {accounts.length === 0 && <p className="text-xs text-amber-400">No X accounts connected. Connect one from the Overview page.</p>}
+            </div>
+          </div>
+
           {/* Post type */}
           <div>
             <label className="mb-2 block text-xs font-medium text-zinc-400">Post Type</label>
@@ -256,7 +320,7 @@ function NewPostDrawer({
             </div>
           </div>
 
-          {/* AI generate */}
+          {/* AI context */}
           <div>
             <label className="mb-2 block text-xs font-medium text-zinc-400">Context (optional — for AI draft)</label>
             <input
@@ -272,6 +336,9 @@ function NewPostDrawer({
             >
               {generating ? 'Generating…' : '✦ AI Draft'}
             </button>
+            {selectedAccount && (
+              <p className="mt-1 text-[11px] text-zinc-600">Voice: <span className="capitalize">{selectedAccount.label}</span></p>
+            )}
           </div>
 
           {/* Content */}
@@ -300,14 +367,10 @@ function NewPostDrawer({
             />
           </div>
 
-          {!account && (
-            <p className="text-xs text-amber-400">No X account connected. Connect one from the Overview page first.</p>
-          )}
-
           <div className="flex gap-3 pt-2">
             <button
               onClick={handleSave}
-              disabled={saving || !account}
+              disabled={saving || accounts.length === 0}
               className="flex-1 rounded-lg bg-zinc-100 py-2 text-sm font-medium text-zinc-900 transition hover:bg-white disabled:opacity-50"
             >
               {saving ? 'Saving…' : 'Schedule Post'}

@@ -12,28 +12,72 @@ async function adminGuard(
   return requireAdminSecret(req, reply)
 }
 
+// Per-label AI reply system prompts
+const REPLY_SYSTEM_PROMPTS: Record<string, string> = {
+  rostermind:
+    'You are RosterMind, an AI-powered fantasy football assistant from Red Zone Fantasy. Reply to the user\'s fantasy question in a concise, helpful, and confident tone. Keep replies under 200 characters. Include a reference to rzf.gg/chat when you\'d recommend they run a deeper analysis. Use 1-2 relevant hashtags like #FantasyFootball. Never be spammy.',
+  directory:
+    'You are RZF Directory, a fantasy football resource hub from Red Zone Fantasy. Reply with a helpful tip and, when relevant, point to tools or rankings at rzf.gg. Keep replies under 200 characters. Use 1-2 hashtags like #FantasyFootball. Be informative and punchy — no fluff.',
+  custom:
+    'You are a fantasy football AI assistant from Red Zone Fantasy (rzf.gg). Reply to the user\'s question helpfully. Keep replies under 200 characters. Use 1-2 relevant hashtags.',
+}
+
+// AI draft system prompts per label
+const DRAFT_SYSTEM_PROMPTS: Record<string, string> = {
+  rostermind:
+    'You are the RosterMind social media voice — an AI fantasy football assistant. Posts should be conversational and prompt engagement (questions, polls, "Who would you start?"). Keep under 240 characters. Use #FantasyFootball #RosterMind. Max 1-2 emojis.',
+  directory:
+    'You are RZF Directory — a fantasy football data and tools hub. Posts should be authoritative, stat-driven, and actionable (rankings, waiver pickups, start/sit advice). Keep under 240 characters. Use #FantasyFootball #NFL. Max 1-2 emojis.',
+  custom:
+    'You are a fantasy football social media expert. Write punchy, engaging Twitter/X posts. Keep under 240 characters. Use #FantasyFootball. Max 1-2 emojis.',
+}
+
+const ACCOUNT_SELECT = {
+  id: true,
+  handle: true,
+  xUserId: true,
+  label: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+  tokenExpiry: true,
+} as const
+
 export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
 
-  // ── Account ──────────────────────────────────────────────────────────────────
+  // ── Accounts ──────────────────────────────────────────────────────────────────
 
-  // GET /internal/x/account — get the connected X account (first active)
-  app.get('/internal/x/account', { preHandler: adminGuard }, async (_req, reply) => {
-    const account = await db.xAccount.findFirst({
+  // GET /internal/x/accounts — list all connected accounts
+  app.get('/internal/x/accounts', { preHandler: adminGuard }, async (_req, reply) => {
+    const accounts = await db.xAccount.findMany({
       where: { isActive: true },
-      select: { id: true, handle: true, xUserId: true, isActive: true, createdAt: true, updatedAt: true, tokenExpiry: true },
+      select: ACCOUNT_SELECT,
+      orderBy: { createdAt: 'asc' },
     })
-
     const isConfigured = !!(process.env['X_CLIENT_ID'] && process.env['X_CLIENT_SECRET'])
-    const tierNote = 'Free tier: 500 posts/month, 100 reads/month. Upgrade to Basic ($100/mo) for full ingestion.'
+    const tierNote = 'Free tier: 500 posts/month write, 100 reads/month. Upgrade to Basic ($100/mo) for full ingestion.'
+    return reply.send({ accounts, isConfigured, tierNote })
+  })
 
+  // GET /internal/x/account — single account (backwards compat); accepts ?label= or ?id=
+  app.get('/internal/x/account', { preHandler: adminGuard }, async (req, reply) => {
+    const { label, id } = req.query as { label?: string; id?: string }
+    const where = id ? { id } : label ? { label, isActive: true } : { isActive: true }
+    const account = await db.xAccount.findFirst({
+      where,
+      select: ACCOUNT_SELECT,
+    })
+    const isConfigured = !!(process.env['X_CLIENT_ID'] && process.env['X_CLIENT_SECRET'])
+    const tierNote = 'Free tier: 500 posts/month write, 100 reads/month. Upgrade to Basic ($100/mo) for full ingestion.'
     return reply.send({ account, isConfigured, tierNote })
   })
 
-  // POST /internal/x/account — save tokens from OAuth callback
+  // POST /internal/x/account — save tokens from OAuth callback; accepts label
   app.post('/internal/x/account', { preHandler: adminGuard }, async (req, reply) => {
     const bodySchema = z.object({
       code: z.string(),
       callbackUrl: z.string().url(),
+      label: z.enum(['rostermind', 'directory', 'custom']).default('directory'),
     })
     const body = bodySchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ error: 'Invalid request' })
@@ -55,6 +99,7 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
       create: {
         xUserId: verify.data.id,
         handle: verify.data.username,
+        label: body.data.label,
         accessToken: result.data.accessToken,
         refreshToken: result.data.refreshToken,
         tokenExpiry,
@@ -62,6 +107,7 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
       },
       update: {
         handle: verify.data.username,
+        label: body.data.label,
         accessToken: result.data.accessToken,
         refreshToken: result.data.refreshToken ?? undefined,
         tokenExpiry,
@@ -69,7 +115,7 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
       },
     })
 
-    return reply.send({ account: { id: account.id, handle: account.handle, xUserId: account.xUserId } })
+    return reply.send({ account: { id: account.id, handle: account.handle, xUserId: account.xUserId, label: account.label } })
   })
 
   // DELETE /internal/x/account/:id — disconnect account
@@ -79,24 +125,28 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true })
   })
 
-  // GET /internal/x/auth-url — generate OAuth authorization URL
+  // GET /internal/x/auth-url — generate OAuth authorization URL; accepts label in state
   app.get('/internal/x/auth-url', { preHandler: adminGuard }, async (req, reply) => {
-    const { callbackUrl } = req.query as { callbackUrl?: string }
+    const { callbackUrl, label = 'directory' } = req.query as { callbackUrl?: string; label?: string }
     if (!callbackUrl) return reply.status(400).send({ error: 'callbackUrl required' })
-    const state = Math.random().toString(36).slice(2)
+    // Embed the label into the state so it survives the OAuth redirect
+    const state = `${Math.random().toString(36).slice(2)}:${label}`
     const url = XConnector.buildAuthUrl(callbackUrl, state)
     return reply.send({ url, state })
   })
 
   // ── Scheduled Posts ───────────────────────────────────────────────────────────
 
-  // GET /internal/x/posts — list scheduled posts
+  // GET /internal/x/posts — list scheduled posts; ?accountId= filter
   app.get('/internal/x/posts', { preHandler: adminGuard }, async (req, reply) => {
-    const { status, page = '1' } = req.query as { status?: string; page?: string }
+    const { status, page = '1', accountId } = req.query as { status?: string; page?: string; accountId?: string }
     const pageNum = Math.max(1, parseInt(page) || 1)
     const PAGE_SIZE = 20
 
-    const where = status ? { status } : {}
+    const where = {
+      ...(status ? { status } : {}),
+      ...(accountId ? { xAccountId: accountId } : {}),
+    }
 
     const [posts, total] = await Promise.all([
       db.scheduledPost.findMany({
@@ -104,7 +154,7 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
         orderBy: { scheduledFor: 'asc' },
         take: PAGE_SIZE,
         skip: (pageNum - 1) * PAGE_SIZE,
-        include: { xAccount: { select: { handle: true } } },
+        include: { xAccount: { select: { handle: true, label: true } } },
       }),
       db.scheduledPost.count({ where }),
     ])
@@ -163,11 +213,12 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ post })
   })
 
-  // POST /internal/x/posts/generate — AI-draft a tweet using haiku
+  // POST /internal/x/posts/generate — AI-draft a tweet; uses account label for prompt voice
   app.post('/internal/x/posts/generate', { preHandler: adminGuard }, async (req, reply) => {
     const bodySchema = z.object({
       postType: z.enum(['start_sit', 'waiver', 'trade', 'trending', 'matchup', 'custom']),
       context: z.string().max(500).optional(),
+      accountLabel: z.enum(['rostermind', 'directory', 'custom']).default('directory'),
     })
 
     const body = bodySchema.safeParse(req.body)
@@ -183,8 +234,7 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const description = typeDescriptions[body.data.postType] ?? 'a fantasy football tweet'
-
-    const systemPrompt = `You are a fantasy football social media expert. Write punchy, engaging Twitter/X posts. Keep it under 240 characters. Use relevant hashtags like #FantasyFootball #NFL. Be direct and informative. No emojis overload — max 1-2 per post.`
+    const systemPrompt = DRAFT_SYSTEM_PROMPTS[body.data.accountLabel] ?? DRAFT_SYSTEM_PROMPTS['custom']!
     const userPrompt = `Write ${description}.${body.data.context ? ` Context: ${body.data.context}` : ''} Keep it under 240 characters.`
 
     try {
@@ -198,11 +248,13 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Monitor Rules ─────────────────────────────────────────────────────────────
 
-  // GET /internal/x/rules — list monitor rules
-  app.get('/internal/x/rules', { preHandler: adminGuard }, async (_req, reply) => {
+  // GET /internal/x/rules — list monitor rules; ?accountId= filter
+  app.get('/internal/x/rules', { preHandler: adminGuard }, async (req, reply) => {
+    const { accountId } = req.query as { accountId?: string }
     const rules = await db.tweetMonitorRule.findMany({
+      where: accountId ? { xAccountId: accountId } : {},
       orderBy: { createdAt: 'desc' },
-      include: { xAccount: { select: { handle: true } } },
+      include: { xAccount: { select: { handle: true, label: true } } },
     })
     return reply.send({ rules })
   })
@@ -224,7 +276,7 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     return reply.status(201).send({ rule })
   })
 
-  // PATCH /internal/x/rules/:id — toggle active / delete rule
+  // PATCH /internal/x/rules/:id — toggle active
   app.patch('/internal/x/rules/:id', { preHandler: adminGuard }, async (req, reply) => {
     const { id } = req.params as { id: string }
     const bodySchema = z.object({ isActive: z.boolean() })
@@ -234,14 +286,14 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ rule })
   })
 
-  // DELETE /internal/x/rules/:id — delete rule
+  // DELETE /internal/x/rules/:id
   app.delete('/internal/x/rules/:id', { preHandler: adminGuard }, async (req, reply) => {
     const { id } = req.params as { id: string }
     await db.tweetMonitorRule.delete({ where: { id } })
     return reply.send({ success: true })
   })
 
-  // POST /internal/x/rules/:id/run — run a monitor rule now (pull latest tweets)
+  // POST /internal/x/rules/:id/run — pull latest tweets for a rule
   app.post('/internal/x/rules/:id/run', { preHandler: adminGuard }, async (req, reply) => {
     const { id } = req.params as { id: string }
 
@@ -264,29 +316,38 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
 
   // ── Pending Replies ───────────────────────────────────────────────────────────
 
-  // GET /internal/x/replies — list pending replies queue
+  // GET /internal/x/replies — ?status=, ?accountId=, ?page=
   app.get('/internal/x/replies', { preHandler: adminGuard }, async (req, reply) => {
-    const { status = 'pending', page = '1' } = req.query as { status?: string; page?: string }
+    const { status = 'pending', page = '1', accountId } = req.query as { status?: string; page?: string; accountId?: string }
     const pageNum = Math.max(1, parseInt(page) || 1)
     const PAGE_SIZE = 20
 
+    const where = {
+      status,
+      ...(accountId ? { xAccountId: accountId } : {}),
+    }
+
     const [replies, total] = await Promise.all([
       db.pendingReply.findMany({
-        where: { status },
+        where,
         orderBy: { createdAt: 'desc' },
         take: PAGE_SIZE,
         skip: (pageNum - 1) * PAGE_SIZE,
-        include: { xAccount: { select: { handle: true } } },
+        include: { xAccount: { select: { handle: true, label: true } } },
       }),
-      db.pendingReply.count({ where: { status } }),
+      db.pendingReply.count({ where }),
     ])
 
     return reply.send({ replies, total, pages: Math.ceil(total / PAGE_SIZE) })
   })
 
-  // POST /internal/x/replies/sync — pull latest mentions and queue for review
-  app.post('/internal/x/replies/sync', { preHandler: adminGuard }, async (_req, reply) => {
-    const account = await db.xAccount.findFirst({ where: { isActive: true } })
+  // POST /internal/x/replies/sync — pull latest mentions; ?accountId= to target specific account
+  app.post('/internal/x/replies/sync', { preHandler: adminGuard }, async (req, reply) => {
+    const { accountId } = req.query as { accountId?: string }
+
+    const account = await db.xAccount.findFirst({
+      where: accountId ? { id: accountId, isActive: true } : { isActive: true },
+    })
     if (!account) return reply.status(404).send({ error: 'No connected X account' })
 
     const result = await XConnector.getMentions(account.accessToken, account.xUserId, 20)
@@ -316,14 +377,18 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ synced: tweets.length, created })
   })
 
-  // POST /internal/x/replies/:id/generate — AI-generate a reply draft
+  // POST /internal/x/replies/:id/generate — AI-generate a reply; prompt differs by account label
   app.post('/internal/x/replies/:id/generate', { preHandler: adminGuard }, async (req, reply) => {
     const { id } = req.params as { id: string }
 
-    const pendingReply = await db.pendingReply.findUnique({ where: { id } })
+    const pendingReply = await db.pendingReply.findUnique({
+      where: { id },
+      include: { xAccount: { select: { label: true } } },
+    })
     if (!pendingReply) return reply.status(404).send({ error: 'Reply not found' })
 
-    const systemPrompt = `You are a fantasy football AI assistant replying to a Twitter/X mention. Keep replies concise (under 200 chars), helpful, and engaging. Reference RZF (Red Zone Fantasy) subtly if relevant. Use 1-2 relevant hashtags. Do not be spammy.`
+    const label = pendingReply.xAccount.label
+    const systemPrompt = REPLY_SYSTEM_PROMPTS[label] ?? REPLY_SYSTEM_PROMPTS['custom']!
     const userPrompt = `The user @${pendingReply.authorHandle} posted: "${pendingReply.tweetText}"\n\nWrite a helpful fantasy football reply. Keep it under 200 characters.`
 
     try {
@@ -338,7 +403,7 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     }
   })
 
-  // POST /internal/x/replies/:id/send — approve and send a reply
+  // POST /internal/x/replies/:id/send — approve and send
   app.post('/internal/x/replies/:id/send', { preHandler: adminGuard }, async (req, reply) => {
     const { id } = req.params as { id: string }
     const bodySchema = z.object({ content: z.string().min(1).max(280) })
@@ -369,26 +434,32 @@ export async function xEngineRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ success: true, tweetId: result.data?.id })
   })
 
-  // PATCH /internal/x/replies/:id/skip — skip a reply
+  // PATCH /internal/x/replies/:id/skip
   app.patch('/internal/x/replies/:id/skip', { preHandler: adminGuard }, async (req, reply) => {
     const { id } = req.params as { id: string }
     await db.pendingReply.update({ where: { id }, data: { status: 'skipped' } })
     return reply.send({ success: true })
   })
 
-  // ── Stats summary ─────────────────────────────────────────────────────────────
+  // ── Stats ─────────────────────────────────────────────────────────────────────
 
-  // GET /internal/x/stats — quick stats for the X Engine overview page
-  app.get('/internal/x/stats', { preHandler: adminGuard }, async (_req, reply) => {
+  // GET /internal/x/stats — ?accountId= for per-account stats, or aggregate across all
+  app.get('/internal/x/stats', { preHandler: adminGuard }, async (req, reply) => {
+    const { accountId } = req.query as { accountId?: string }
+
     const now = new Date()
     const weekStart = new Date(now)
     weekStart.setDate(weekStart.getDate() - 7)
 
+    const postWhere = accountId
+      ? { xAccountId: accountId }
+      : {}
+
     const [postedThisWeek, pendingPosts, activeRules, pendingReplies] = await Promise.all([
-      db.scheduledPost.count({ where: { status: 'posted', updatedAt: { gte: weekStart } } }),
-      db.scheduledPost.count({ where: { status: 'pending' } }),
-      db.tweetMonitorRule.count({ where: { isActive: true } }),
-      db.pendingReply.count({ where: { status: 'pending' } }),
+      db.scheduledPost.count({ where: { ...postWhere, status: 'posted', updatedAt: { gte: weekStart } } }),
+      db.scheduledPost.count({ where: { ...postWhere, status: 'pending' } }),
+      db.tweetMonitorRule.count({ where: { ...(accountId ? { xAccountId: accountId } : {}), isActive: true } }),
+      db.pendingReply.count({ where: { ...(accountId ? { xAccountId: accountId } : {}), status: 'pending' } }),
     ])
 
     return reply.send({ postedThisWeek, pendingPosts, activeRules, pendingReplies })
