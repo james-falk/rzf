@@ -40,8 +40,8 @@ export function FeedbackWidget() {
       {/* Floating button */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full px-4 py-2.5 text-xs font-medium shadow-xl transition"
-        style={{ background: 'rgb(26,26,26)', border: '1px solid rgb(48,48,48)', color: 'rgb(163,163,163)' }}
+        className="fixed right-6 z-40 flex items-center gap-2 rounded-full px-4 py-2.5 text-xs font-medium shadow-xl transition"
+        style={{ bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))', background: 'rgb(26,26,26)', border: '1px solid rgb(48,48,48)', color: 'rgb(163,163,163)' }}
         onMouseEnter={(e) => { e.currentTarget.style.color = 'white'; e.currentTarget.style.borderColor = 'rgb(80,80,80)' }}
         onMouseLeave={(e) => { e.currentTarget.style.color = 'rgb(163,163,163)'; e.currentTarget.style.borderColor = 'rgb(48,48,48)' }}
       >
@@ -61,7 +61,7 @@ export function FeedbackWidget() {
                   <p className="text-sm font-semibold text-white">Share Feedback</p>
                   <p className="text-xs" style={{ color: 'rgb(115,115,115)' }}>What would you like to see improved?</p>
                 </div>
-                <button onClick={() => setOpen(false)} style={{ color: 'rgb(115,115,115)' }} className="hover:text-white transition">
+                <button onClick={() => setOpen(false)} style={{ color: 'rgb(115,115,115)' }} className="flex h-9 w-9 items-center justify-center rounded-lg hover:text-white transition hover:bg-white/5">
                   <X size={16} />
                 </button>
               </div>

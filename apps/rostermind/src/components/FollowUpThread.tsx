@@ -95,7 +95,7 @@ export function FollowUpThread({
         <button
           type="submit"
           disabled={!input.trim() || loading}
-          className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-500 disabled:opacity-40"
+          className="flex h-11 w-11 items-center justify-center rounded-lg bg-indigo-600 text-white transition hover:bg-indigo-500 disabled:opacity-40"
         >
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M2 8h12M8 2l6 6-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>

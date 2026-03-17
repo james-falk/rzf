@@ -75,11 +75,11 @@ export default function HistoryPage() {
                   <p className="text-xs text-zinc-500">{formatRelativeTime(run.createdAt)}</p>
                 </div>
 
-                <div className="flex items-center gap-5 text-xs">
-                  <span className="text-zinc-500">
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="hidden sm:block text-zinc-500">
                     {run.tokensUsed != null ? `${run.tokensUsed} tok` : '—'}
                   </span>
-                  <span className="text-zinc-500">
+                  <span className="hidden sm:block text-zinc-500">
                     {run.durationMs != null ? `${(run.durationMs / 1000).toFixed(1)}s` : '—'}
                   </span>
                   {run.rating && (
@@ -91,7 +91,7 @@ export default function HistoryPage() {
                   {run.status === 'done' ? (
                     <Link
                       href={`/dashboard/history/${run.id}`}
-                      className="rounded-lg border border-white/10 px-3 py-1.5 text-zinc-300 transition hover:border-indigo-500/50 hover:text-indigo-300"
+                      className="rounded-lg border border-white/10 px-3 py-2.5 text-zinc-300 transition hover:border-indigo-500/50 hover:text-indigo-300"
                     >
                       View →
                     </Link>

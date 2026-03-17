@@ -110,14 +110,14 @@ export function FeedWithFilters({ items, sources, userTier }: FeedWithFiltersPro
         <div className="flex items-center gap-1 rounded-lg p-1" style={{ background: 'rgb(18,18,18)', border: '1px solid rgb(38,38,38)' }}>
           <button
             onClick={() => setTab('feed')}
-            className="rounded-md px-4 py-1.5 text-sm font-medium transition-all"
+            className="rounded-md px-4 py-2.5 text-sm font-medium transition-all"
             style={tab === 'feed' ? { background: 'rgb(220,38,38)', color: 'white' } : { color: 'rgb(115,115,115)' }}
           >
             All Feed
           </button>
           <button
             onClick={() => setTab('custom')}
-            className="rounded-md px-4 py-1.5 text-sm font-medium transition-all"
+            className="rounded-md px-4 py-2.5 text-sm font-medium transition-all"
             style={tab === 'custom' ? { background: 'rgb(220,38,38)', color: 'white' } : { color: 'rgb(115,115,115)' }}
           >
             Custom Feeds
@@ -224,7 +224,7 @@ export function FeedWithFilters({ items, sources, userTier }: FeedWithFiltersPro
                   <button
                     key={ct.key}
                     onClick={() => setContentType(ct.key)}
-                    className="rounded-full px-3 py-1 text-xs font-medium transition-all"
+                    className="rounded-full px-3 py-2 text-xs font-medium transition-all"
                     style={
                       contentType === ct.key
                         ? { background: 'rgb(220,38,38)', color: 'white' }
@@ -237,7 +237,7 @@ export function FeedWithFilters({ items, sources, userTier }: FeedWithFiltersPro
                 {/* Mobile source filter toggle */}
                 <button
                   onClick={() => setSidebarOpen((o) => !o)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all lg:hidden"
+                  className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-all lg:hidden"
                   style={
                     checkedSources.size > 0
                       ? { background: 'rgba(220,38,38,0.15)', color: 'rgb(252,165,165)', border: '1px solid rgba(220,38,38,0.3)' }

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
+import { useState } from 'react'
 
 interface TrendingPlayer {
   sleeperId: string
@@ -24,6 +25,7 @@ const POSITION_COLOR: Record<string, string> = {
 export function TrendingTicker({ players }: { players: TrendingPlayer[] }) {
   if (players.length === 0) return null
 
+  const [paused, setPaused] = useState(false)
   // Duplicate for seamless loop
   const doubled = [...players, ...players]
 
@@ -43,13 +45,17 @@ export function TrendingTicker({ players }: { players: TrendingPlayer[] }) {
       <div className="relative">
         <div
           className="flex gap-3 animate-ticker whitespace-nowrap"
-          style={{ width: 'max-content' }}
+          style={{ width: 'max-content', animationPlayState: paused ? 'paused' : 'running' }}
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          onTouchStart={() => setPaused(true)}
+          onTouchEnd={() => setPaused(false)}
         >
           {doubled.map((p, i) => (
             <Link
               key={`${p.sleeperId}-${i}`}
               href={`/players/${p.sleeperId}`}
-              className="inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition hover:border-red-800/50 hover:bg-white/5"
+              className="inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2.5 text-xs font-medium transition hover:border-red-800/50 hover:bg-white/5"
               style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(18,18,18)' }}
             >
               <div className="relative h-6 w-6 shrink-0 overflow-hidden rounded-full bg-zinc-800">

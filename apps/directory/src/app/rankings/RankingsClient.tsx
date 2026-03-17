@@ -106,7 +106,7 @@ export function RankingsClient({ sites }: { sites: RankingSite[] }) {
       <div className="mb-6 flex flex-wrap gap-2">
         <button
           onClick={() => setActive(new Set())}
-          className="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
+          className="rounded-full px-4 py-2.5 text-sm font-medium transition-all"
           style={
             active.size === 0
               ? { background: 'rgb(220,38,38)', color: 'white' }
@@ -123,7 +123,7 @@ export function RankingsClient({ sites }: { sites: RankingSite[] }) {
             <button
               key={cat}
               onClick={() => toggleCategory(cat)}
-              className="rounded-full px-4 py-1.5 text-sm font-medium transition-all"
+              className="rounded-full px-4 py-2.5 text-sm font-medium transition-all"
               style={
                 isActive
                   ? { background: CATEGORY_COLOR[cat] ?? 'rgba(220,38,38,0.15)', color: CATEGORY_TEXT[cat] ?? 'white', border: `1px solid ${CATEGORY_TEXT[cat] ?? 'rgb(220,38,38)'}33` }
@@ -150,47 +150,48 @@ export function RankingsClient({ sites }: { sites: RankingSite[] }) {
           {filtered.map((site) => (
             <div
               key={site.id}
-              className="group flex items-center gap-4 rounded-xl border p-4 transition-all hover:border-red-800/40"
+              className="group flex flex-col gap-3 rounded-xl border p-4 transition-all hover:border-red-800/40 sm:flex-row sm:items-center"
               style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
             >
-              <SiteLogo site={site} />
-
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <a
-                    href={site.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-semibold text-white transition-colors hover:text-red-400"
-                  >
-                    {site.name}
-                  </a>
-                  {site.featured && (
-                    <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase" style={{ background: 'rgba(234,179,8,0.15)', color: 'rgb(253,224,71)' }}>
-                      ★ Partner
-                    </span>
-                  )}
-                  {site.categories.map((cat) => (
-                    <span
-                      key={cat}
-                      className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                      style={{ background: CATEGORY_COLOR[cat] ?? 'rgba(115,115,115,0.15)', color: CATEGORY_TEXT[cat] ?? 'rgb(163,163,163)' }}
+              <div className="flex min-w-0 flex-1 items-center gap-4">
+                <SiteLogo site={site} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href={site.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-white transition-colors hover:text-red-400"
                     >
-                      {cat}
-                    </span>
-                  ))}
+                      {site.name}
+                    </a>
+                    {site.featured && (
+                      <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase" style={{ background: 'rgba(234,179,8,0.15)', color: 'rgb(253,224,71)' }}>
+                        ★ Partner
+                      </span>
+                    )}
+                    {site.categories.map((cat) => (
+                      <span
+                        key={cat}
+                        className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                        style={{ background: CATEGORY_COLOR[cat] ?? 'rgba(115,115,115,0.15)', color: CATEGORY_TEXT[cat] ?? 'rgb(163,163,163)' }}
+                      >
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs sm:line-clamp-1" style={{ color: 'rgb(115,115,115)' }}>
+                    {site.description}
+                  </p>
                 </div>
-                <p className="mt-1 line-clamp-1 text-xs" style={{ color: 'rgb(115,115,115)' }}>
-                  {site.description}
-                </p>
               </div>
 
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="flex items-center gap-3 sm:shrink-0">
                 {site.promoCode && (
                   <button
                     onClick={() => handleCopyPromo(site)}
                     title={site.promoDesc ?? 'Copy promo code'}
-                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:border-yellow-500/40 hover:bg-yellow-500/10"
+                    className="flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-all hover:border-yellow-500/40 hover:bg-yellow-500/10"
                     style={{ borderColor: 'rgba(234,179,8,0.3)', color: 'rgb(253,224,71)', background: 'rgba(234,179,8,0.08)' }}
                   >
                     {copied === site.id ? (
@@ -205,7 +206,7 @@ export function RankingsClient({ sites }: { sites: RankingSite[] }) {
                   href={site.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all hover:border-red-800/50 hover:bg-red-800/10"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-all hover:border-red-800/50 hover:bg-red-800/10"
                   style={{ borderColor: 'rgb(38,38,38)', color: 'rgb(115,115,115)' }}
                 >
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">

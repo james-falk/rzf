@@ -130,7 +130,7 @@ export function ToolsClient({ tools }: { tools: FantasyTool[] }) {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setActive(new Set())}
-            className="rounded-full px-3 py-1 text-xs font-medium transition-all"
+            className="rounded-full px-3 py-2 text-xs font-medium transition-all"
             style={active.size === 0 ? { background: 'rgb(220,38,38)', color: 'white' } : { background: 'rgb(26,26,26)', color: 'rgb(163,163,163)', border: '1px solid rgb(38,38,38)' }}
           >
             All <span className="opacity-60">{tools.length}</span>
@@ -141,7 +141,7 @@ export function ToolsClient({ tools }: { tools: FantasyTool[] }) {
               <button
                 key={cat}
                 onClick={() => toggleCategory(cat)}
-                className="rounded-full px-3 py-1 text-xs font-medium transition-all"
+                className="rounded-full px-3 py-2 text-xs font-medium transition-all"
                 style={
                   isActive
                     ? { background: CATEGORY_COLOR[cat] ?? 'rgba(115,115,115,0.15)', color: CATEGORY_TEXT[cat] ?? 'white', border: `1px solid ${CATEGORY_TEXT[cat] ?? 'rgb(115,115,115)'}33` }
@@ -165,52 +165,53 @@ export function ToolsClient({ tools }: { tools: FantasyTool[] }) {
           {filtered.map((tool) => (
             <div
               key={tool.id}
-              className="group flex items-center gap-4 rounded-xl border p-4 transition-all hover:border-red-800/40"
+              className="group flex flex-col gap-3 rounded-xl border p-4 transition-all hover:border-red-800/40 sm:flex-row sm:items-center"
               style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
             >
-              <ToolLogo tool={tool} />
-
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <a
-                    href={tool.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-semibold text-white transition-colors hover:text-red-400"
-                  >
-                    {tool.name}
-                  </a>
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                    style={
-                      tool.priceType === 'free'
-                        ? { background: 'rgba(34,197,94,0.15)', color: 'rgb(134,239,172)' }
-                        : tool.priceType === 'freemium'
-                        ? { background: 'rgba(59,130,246,0.15)', color: 'rgb(147,197,253)' }
-                        : { background: 'rgba(168,85,247,0.15)', color: 'rgb(216,180,254)' }
-                    }
-                  >
-                    {priceLabel(tool)}
-                  </span>
-                  {tool.categories.map((cat) => (
-                    <span
-                      key={cat}
-                      className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                      style={{ background: CATEGORY_COLOR[cat] ?? 'rgba(115,115,115,0.15)', color: CATEGORY_TEXT[cat] ?? 'rgb(163,163,163)' }}
+              <div className="flex min-w-0 flex-1 items-center gap-4">
+                <ToolLogo tool={tool} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <a
+                      href={tool.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-white transition-colors hover:text-red-400"
                     >
-                      {cat}
+                      {tool.name}
+                    </a>
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                      style={
+                        tool.priceType === 'free'
+                          ? { background: 'rgba(34,197,94,0.15)', color: 'rgb(134,239,172)' }
+                          : tool.priceType === 'freemium'
+                          ? { background: 'rgba(59,130,246,0.15)', color: 'rgb(147,197,253)' }
+                          : { background: 'rgba(168,85,247,0.15)', color: 'rgb(216,180,254)' }
+                      }
+                    >
+                      {priceLabel(tool)}
                     </span>
-                  ))}
+                    {tool.categories.map((cat) => (
+                      <span
+                        key={cat}
+                        className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                        style={{ background: CATEGORY_COLOR[cat] ?? 'rgba(115,115,115,0.15)', color: CATEGORY_TEXT[cat] ?? 'rgb(163,163,163)' }}
+                      >
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs sm:line-clamp-1" style={{ color: 'rgb(115,115,115)' }}>{tool.description}</p>
                 </div>
-                <p className="mt-1 line-clamp-1 text-xs" style={{ color: 'rgb(115,115,115)' }}>{tool.description}</p>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex items-center gap-2 sm:shrink-0">
                 {tool.promoCode && (
                   <button
                     onClick={() => handleCopyPromo(tool)}
                     title={tool.promoDesc ?? 'Copy promo code'}
-                    className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:border-yellow-500/40 hover:bg-yellow-500/10"
+                    className="flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-all hover:border-yellow-500/40 hover:bg-yellow-500/10"
                     style={{ borderColor: 'rgba(234,179,8,0.3)', color: 'rgb(253,224,71)', background: 'rgba(234,179,8,0.08)' }}
                   >
                     {copied === tool.id ? '✓ Copied!' : `🎟 ${tool.promoCode}`}
@@ -220,7 +221,7 @@ export function ToolsClient({ tools }: { tools: FantasyTool[] }) {
                   href={tool.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all hover:border-red-800/50 hover:bg-red-800/10"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-all hover:border-red-800/50 hover:bg-red-800/10"
                   style={{ borderColor: 'rgb(38,38,38)', color: 'rgb(115,115,115)' }}
                 >
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">

@@ -97,17 +97,17 @@ export function InjuryWatchResults({
 
       {/* Rating */}
       {onRate && (
-        <div className="flex items-center justify-end gap-3 text-sm text-zinc-400">
+        <div className="flex flex-wrap items-center justify-end gap-3 text-sm text-zinc-400">
           <span>Was this helpful?</span>
           <button
             onClick={() => onRate('up')}
-            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-emerald-500/50 hover:text-emerald-400', result.rating === 'up' ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400' : 'border-white/10')}
+            className={cn('rounded-lg border px-3 py-2.5 transition hover:border-emerald-500/50 hover:text-emerald-400', result.rating === 'up' ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400' : 'border-white/10')}
           >
             👍 Yes
           </button>
           <button
             onClick={() => onRate('down')}
-            className={cn('rounded-lg border px-3 py-1.5 transition hover:border-indigo-500/50 hover:text-indigo-400', result.rating === 'down' ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-white/10')}
+            className={cn('rounded-lg border px-3 py-2.5 transition hover:border-indigo-500/50 hover:text-indigo-400', result.rating === 'down' ? 'border-indigo-500/50 bg-indigo-500/10 text-indigo-400' : 'border-white/10')}
           >
             👎 No
           </button>

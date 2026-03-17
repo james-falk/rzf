@@ -173,10 +173,10 @@ export function ContentCard({
               key={player.sleeperId}
               href={`/players/${player.sleeperId}`}
               onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition hover:border-red-800/50"
+              className="flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium transition hover:border-red-800/50"
               style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(26,26,26)', color: 'rgb(163,163,163)' }}
             >
-              <div className="relative h-3.5 w-3.5 shrink-0 overflow-hidden rounded-full bg-zinc-700">
+              <div className="relative h-4 w-4 shrink-0 overflow-hidden rounded-full bg-zinc-700">
                 <Image
                   src={`https://sleepercdn.com/content/nfl/players/thumb/${player.sleeperId}.jpg`}
                   alt={`${player.firstName} ${player.lastName}`}

@@ -118,10 +118,11 @@ export default function AnalyzePage() {
   const [selectedLeague, setSelectedLeague] = useState('')
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
   const [textInput, setTextInput] = useState('')
-  const [phase, setPhase] = useState<'idle' | 'league-select' | 'trade-select' | 'scout-select' | 'running' | 'done'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'league-select' | 'trade-select' | 'scout-select' | 'running'>('idle')
   const [pendingAgentType, setPendingAgentType] = useState('team_eval')
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
   const [runId, setRunId] = useState<string | null>(null)
+  const [credits, setCredits] = useState<number | null>(null)
 
   // Trade state
   const [givingPlayers, setGivingPlayers] = useState<PlayerSearch[]>([])
@@ -172,6 +173,10 @@ export default function AnalyzePage() {
           setTradeLeague(list[0]!.league_id)
         }
       } catch { /* silent */ }
+      try {
+        const usage = await api.getUsage(token)
+        setCredits(usage.runCredits)
+      } catch { /* silent */ }
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- intentional one-time init
 
@@ -208,10 +213,11 @@ export default function AnalyzePage() {
         const run = await api.getAgentRun(token, runId)
         if (run.status === 'done' || run.status === 'failed') {
           clearInterval(pollRef.current!)
-          setPhase('done')
+          setPhase('idle')
           setMessages((prev) => prev.filter((m) => m.type !== 'loading'))
           if (run.status === 'done' && run.output) {
             push({ id: mid(), role: 'assistant', type: 'result', result: run as AgentRunResult, runId })
+            setCredits((prev) => (prev !== null ? Math.max(0, prev - 1) : prev))
           } else {
             push({ id: mid(), role: 'assistant', type: 'error', content: `${run.errorMessage ?? 'Unknown error'}\n\nRun ID: ${run.id}` })
           }
@@ -239,6 +245,10 @@ export default function AnalyzePage() {
   }, [searchQuery, scoutQuery, posFilter, tradeActiveSelector, getToken])
 
   const startRunning = useCallback(async (agentType: string, input: Record<string, unknown>) => {
+    if (credits !== null && credits <= 0) {
+      push({ id: mid(), role: 'assistant', type: 'error', content: "You're out of credits. Upgrade your plan to run more analyses." })
+      return
+    }
     setPhase('running')
     setPendingAgentType(agentType)
     push({ id: mid(), role: 'assistant', type: 'loading', agentType })
@@ -256,7 +266,7 @@ export default function AnalyzePage() {
   }, [getToken, push])
 
   const handleQuickAction = useCallback(async (action: typeof QUICK_ACTIONS[number]) => {
-    if (phase !== 'idle') return
+    if (phase === 'running') return
     push({ id: mid(), role: 'user', type: 'user', content: action.label })
     setPendingAgentType(action.type)
 
@@ -376,14 +386,13 @@ export default function AnalyzePage() {
     }, 1000)
   }, [textInput, getToken, selectedLeague, leagues, phase, push, showTypingThen, startRunning])
 
-  const handleRate = useCallback(async (rating: 'up' | 'down') => {
-    if (!runId) return
+  const handleRate = useCallback(async (rateRunId: string, rating: 'up' | 'down') => {
     try {
       const token = await getToken()
       if (!token) return
-      await api.rateAgentRun(token, runId, rating)
+      await api.rateAgentRun(token, rateRunId, rating)
     } catch { /* non-critical */ }
-  }, [runId, getToken])
+  }, [getToken])
 
   const loadingMessages = AGENT_LOADING_MESSAGES[pendingAgentType] ?? DEFAULT_LOADING_MESSAGES
 
@@ -408,7 +417,7 @@ export default function AnalyzePage() {
   }, [])
 
   return (
-    <div className="flex h-screen flex-col bg-zinc-950">
+    <div className="flex h-dvh flex-col bg-zinc-950">
       {/* Header */}
       <div className="relative border-b border-white/10 px-6 py-4 overflow-hidden">
         <div className="pointer-events-none absolute -top-6 left-1/2 h-24 w-64 -translate-x-1/2 rounded-full bg-indigo-500/10 blur-2xl" />
@@ -431,7 +440,17 @@ export default function AnalyzePage() {
             <p className="text-xs text-zinc-500">Neural fantasy analysis</p>
           </div>
           <div className="ml-auto flex items-center gap-3">
-            {phase !== 'idle' && (
+            {credits !== null && (
+              <div className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 ${credits === 0 ? 'border-red-500/30 bg-red-500/5' : 'border-white/10 bg-zinc-900'}`}>
+                <svg viewBox="0 0 12 12" className={`h-3 w-3 shrink-0 ${credits === 0 ? 'text-red-400' : 'text-indigo-400'}`} fill="currentColor">
+                  <path d="M6 1a5 5 0 100 10A5 5 0 006 1zm.5 7.5h-1v-3h1v3zm0-4h-1v-1h1v1z"/>
+                </svg>
+                <span className={`text-xs font-medium ${credits === 0 ? 'text-red-400' : 'text-zinc-400'}`}>
+                  {credits}<span className="hidden sm:inline"> {credits === 1 ? 'credit' : 'credits'}</span>
+                </span>
+              </div>
+            )}
+            {messages.length > 0 && (
               <button
                 onClick={handleReset}
                 className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:border-indigo-500/40 hover:text-white"
@@ -439,7 +458,7 @@ export default function AnalyzePage() {
                 + New Chat
               </button>
             )}
-            <div className="flex items-center gap-1.5">
+            <div className="hidden sm:flex items-center gap-1.5">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
@@ -463,6 +482,7 @@ export default function AnalyzePage() {
               onLeagueChange={setSelectedLeague}
               onYearChange={handleYearChange}
               onRun={handleLeagueRun}
+              credits={credits}
               onRate={handleRate}
               onQuickAction={handleQuickAction}
               loadingMsg={loadingMessages[loadingMsgIdx] ?? loadingMessages[0]!}
@@ -527,7 +547,7 @@ export default function AnalyzePage() {
             <input
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder={phase === 'done' ? 'Run another analysis...' : 'Ask me about your team...'}
+              placeholder="Ask me about your team..."
               className="flex-1 rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none transition focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
             />
             <button
@@ -559,7 +579,7 @@ interface PlayerSearch {
 }
 
 function MessageBubble({
-  msg, leagues, selectedLeague, selectedYear, onLeagueChange, onYearChange, onRun, onRate, onQuickAction,
+  msg, leagues, selectedLeague, selectedYear, onLeagueChange, onYearChange, onRun, credits, onRate, onQuickAction,
   loadingMsg, phase, getToken,
   givingPlayers, receivingPlayers, tradeLeague, tradeLeagues, tradeActiveSelector,
   searchQuery, searchResults, searching, posFilter,
@@ -576,7 +596,8 @@ function MessageBubble({
   onLeagueChange: (id: string) => void
   onYearChange: (year: string) => void
   onRun: () => void
-  onRate: (r: 'up' | 'down') => void
+  credits: number | null
+  onRate: (runId: string, r: 'up' | 'down') => void
   onQuickAction: (action: typeof QUICK_ACTIONS[number]) => void
   loadingMsg: string
   phase: string
@@ -664,10 +685,10 @@ function MessageBubble({
               <button
                 key={action.type}
                 onClick={() => onQuickAction(action)}
-                disabled={phase !== 'idle'}
+                disabled={phase === 'running'}
                 className={cn(
                   'flex flex-col gap-1 rounded-xl border p-3 text-left transition',
-                  phase === 'idle'
+                  phase !== 'running'
                     ? 'border-white/10 bg-zinc-900 hover:border-indigo-500/40 hover:bg-indigo-500/5 cursor-pointer'
                     : 'border-white/5 bg-zinc-900/50 cursor-not-allowed opacity-50',
                 )}
@@ -714,10 +735,10 @@ function MessageBubble({
                 </select>
                 <button
                   onClick={onRun}
-                  disabled={!selectedLeague || phase === 'running'}
+                  disabled={!selectedLeague || phase === 'running' || credits === 0}
                   className="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Run {QUICK_ACTIONS.find((a) => a.type === msg.agentType)?.label ?? 'Analysis'} →
+                  {credits === 0 ? 'No Credits Remaining' : `Run ${QUICK_ACTIONS.find((a) => a.type === msg.agentType)?.label ?? 'Analysis'} — uses 1 credit →`}
                 </button>
               </div>
             )}
@@ -755,13 +776,13 @@ function MessageBubble({
                         <p className="text-xs font-medium text-white">{p.full_name}</p>
                         <p className="text-[10px] text-zinc-400">{p.position}{p.team ? ` — ${p.team}` : ''}</p>
                       </div>
-                      <button onClick={() => onTradeRemovePlayer(p.player_id, 'giving')} className="text-xs text-zinc-500 hover:text-indigo-400">✕</button>
+                      <button onClick={() => onTradeRemovePlayer(p.player_id, 'giving')} className="flex h-8 w-8 items-center justify-center text-xs text-zinc-500 hover:text-indigo-400">✕</button>
                     </div>
                   ))}
                   {givingPlayers.length < 5 && (
                     <button
                       onClick={() => onTradeActiveSelectorChange('giving')}
-                      className="flex w-full items-center gap-1.5 rounded-lg border border-dashed border-white/10 px-2.5 py-1.5 text-xs text-zinc-500 hover:border-white/20 hover:text-zinc-300"
+                      className="flex w-full items-center gap-1.5 rounded-lg border border-dashed border-white/10 px-2.5 py-2.5 text-xs text-zinc-500 hover:border-white/20 hover:text-zinc-300"
                     >
                       + Add player
                     </button>
@@ -779,13 +800,13 @@ function MessageBubble({
                         <p className="text-xs font-medium text-white">{p.full_name}</p>
                         <p className="text-[10px] text-zinc-400">{p.position}{p.team ? ` — ${p.team}` : ''}</p>
                       </div>
-                      <button onClick={() => onTradeRemovePlayer(p.player_id, 'receiving')} className="text-xs text-zinc-500 hover:text-emerald-400">✕</button>
+                      <button onClick={() => onTradeRemovePlayer(p.player_id, 'receiving')} className="flex h-8 w-8 items-center justify-center text-xs text-zinc-500 hover:text-emerald-400">✕</button>
                     </div>
                   ))}
                   {receivingPlayers.length < 5 && (
                     <button
                       onClick={() => onTradeActiveSelectorChange('receiving')}
-                      className="flex w-full items-center gap-1.5 rounded-lg border border-dashed border-white/10 px-2.5 py-1.5 text-xs text-zinc-500 hover:border-white/20 hover:text-zinc-300"
+                      className="flex w-full items-center gap-1.5 rounded-lg border border-dashed border-white/10 px-2.5 py-2.5 text-xs text-zinc-500 hover:border-white/20 hover:text-zinc-300"
                     >
                       + Add player
                     </button>
@@ -811,12 +832,12 @@ function MessageBubble({
                     placeholder="Search player..."
                     className="flex-1 rounded-lg border border-white/10 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50"
                   />
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     {POSITIONS.map((pos) => (
                       <button
                         key={pos}
                         onClick={() => onPosFilterChange(pos)}
-                        className={cn('rounded px-1.5 py-1 text-[10px] font-medium transition', posFilter === pos ? 'bg-indigo-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white')}
+                        className={cn('rounded px-2 py-1.5 text-xs font-medium transition min-h-[32px]', posFilter === pos ? 'bg-indigo-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white')}
                       >
                         {pos}
                       </button>
@@ -845,10 +866,10 @@ function MessageBubble({
 
             <button
               onClick={onTradeRun}
-              disabled={!tradeLeague || givingPlayers.length === 0 || receivingPlayers.length === 0 || phase === 'running'}
+              disabled={!tradeLeague || givingPlayers.length === 0 || receivingPlayers.length === 0 || phase === 'running' || credits === 0}
               className="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Analyze This Trade →
+              {credits === 0 ? 'No Credits Remaining' : 'Analyze This Trade — uses 1 credit →'}
             </button>
             {(givingPlayers.length === 0 || receivingPlayers.length === 0) && (
               <p className="text-center text-xs text-zinc-600">
@@ -872,12 +893,12 @@ function MessageBubble({
                     placeholder="Search player name..."
                     className="flex-1 rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50"
                   />
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     {POSITIONS.map((pos) => (
                       <button
                         key={pos}
                         onClick={() => onScoutPosFilterChange(pos)}
-                        className={cn('rounded px-1.5 py-1 text-[10px] font-medium transition', scoutPosFilter === pos ? 'bg-indigo-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white')}
+                        className={cn('rounded px-2 py-1.5 text-xs font-medium transition min-h-[32px]', scoutPosFilter === pos ? 'bg-indigo-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white')}
                       >
                         {pos}
                       </button>
@@ -932,10 +953,10 @@ function MessageBubble({
 
             <button
               onClick={onScoutRun}
-              disabled={!scoutPlayer || phase === 'running'}
+              disabled={!scoutPlayer || phase === 'running' || credits === 0}
               className="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Generate Scouting Report →
+              {credits === 0 ? 'No Credits Remaining' : 'Generate Scouting Report — uses 1 credit →'}
             </button>
             {!scoutPlayer && (
               <p className="text-center text-xs text-zinc-600">
@@ -963,7 +984,7 @@ function MessageBubble({
         {/* Result */}
         {msg.role === 'assistant' && msg.type === 'result' && msg.result.output != null && (
           <>
-            <AgentResults result={msg.result} onRate={onRate} />
+            <AgentResults result={msg.result} onRate={(r) => onRate(msg.runId, r)} />
             <FollowUpThread runId={msg.runId} getToken={getToken} />
           </>
         )}
