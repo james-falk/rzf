@@ -328,10 +328,15 @@ async function runYouTubeRefresh(): Promise<void> {
     `[ingestion] YouTube refresh: ${result.inserted} new videos from ${result.sources} channels`,
   )
   if (result.errors.length > 0) {
+    const formatted = result.errors.map((e) => `${e.source}: ${e.message}`).join('; ')
+    const allQuota = result.errors.every((e) => e.message.includes('quota exceeded'))
+    if (allQuota) {
+      // Quota exhaustion is an expected daily limit — log and skip rather than failing the job
+      console.warn(`[ingestion] YouTube quota exceeded — skipping until tomorrow: ${formatted}`)
+      return
+    }
     // Throw so BullMQ marks this job as Failed — visible in the admin queue page
-    throw new Error(
-      `YouTube refresh had ${result.errors.length} error(s): ${result.errors.map((e: unknown) => String(e)).join('; ')}`,
-    )
+    throw new Error(`YouTube refresh had ${result.errors.length} error(s): ${formatted}`)
   }
 }
 
