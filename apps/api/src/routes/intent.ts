@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { db } from '@rzf/db'
+import { LLMConnector } from '@rzf/connectors/llm'
 import { ManagerIntentInputSchema } from '@rzf/shared/types'
 import type { AgentMeta, ManagerIntentOutput } from '@rzf/shared/types'
 import { requireAuth } from '../middleware/auth.js'
@@ -59,7 +60,7 @@ const AGENT_KEYWORDS: Record<string, string[]> = {
   player_scout: ['scout', 'player', 'scouting', 'report', 'outlook', 'buy', 'sell', 'target', 'deep dive'],
 }
 
-function classifyIntentFromRegistry(message: string, registry: AgentMeta[]): AgentMeta | null {
+function keywordClassify(message: string, registry: AgentMeta[]): { agent: AgentMeta | null; score: number } {
   const lower = message.toLowerCase()
   let bestMatch: AgentMeta | null = null
   let bestScore = 0
@@ -73,12 +74,71 @@ function classifyIntentFromRegistry(message: string, registry: AgentMeta[]): Age
     }
   }
 
-  // Default to team_eval if message is short and unclassified (general query)
-  if (!bestMatch && message.trim().length > 0) {
-    bestMatch = registry.find((a) => a.type === 'team_eval') ?? null
-  }
+  return { agent: bestMatch, score: bestScore }
+}
 
-  return bestMatch
+interface LLMIntentResult {
+  agentType: string | null
+  extractedPlayerNames: string[]
+  confidence: number
+}
+
+async function llmClassifyIntent(message: string, registry: AgentMeta[]): Promise<LLMIntentResult> {
+  const agentList = registry.map((a) => `${a.type}: ${a.description}`).join('\n')
+  const systemPrompt = `You are a fantasy football assistant intent classifier. Given a user message, determine which agent to run and extract any player names mentioned.
+
+Available agents:
+${agentList}
+
+Respond with JSON only:
+{
+  "agentType": "one of the agent type strings above, or null if unclear",
+  "extractedPlayerNames": ["array of player names mentioned in the message"],
+  "confidence": 0.0-1.0
+}`
+  const userPrompt = `User message: "${message}"`
+
+  try {
+    const { data } = await LLMConnector.completeJSON(
+      { systemPrompt, userPrompt, model: 'haiku' },
+      (raw) => raw as LLMIntentResult,
+    )
+    return data
+  } catch {
+    return { agentType: null, extractedPlayerNames: [], confidence: 0 }
+  }
+}
+
+async function fuzzyResolvePlayer(name: string): Promise<{ playerId: string; playerName: string; confidence: number } | null> {
+  try {
+    const results = await db.player.findMany({
+      where: {
+        OR: [
+          { firstName: { contains: name.split(' ')[0] ?? '', mode: 'insensitive' } },
+          { lastName: { contains: name.split(' ').slice(-1)[0] ?? '', mode: 'insensitive' } },
+        ],
+        status: { not: 'Inactive' },
+      },
+      take: 5,
+      select: { sleeperId: true, firstName: true, lastName: true, position: true, team: true },
+    })
+
+    if (results.length === 0) return null
+
+    const lower = name.toLowerCase()
+    const exact = results.find(
+      (p) => `${p.firstName} ${p.lastName}`.toLowerCase() === lower,
+    )
+    if (exact) {
+      return { playerId: exact.sleeperId, playerName: `${exact.firstName} ${exact.lastName}`, confidence: 1.0 }
+    }
+
+    // Return best partial match with lower confidence
+    const best = results[0]!
+    return { playerId: best.sleeperId, playerName: `${best.firstName} ${best.lastName}`, confidence: 0.6 }
+  } catch {
+    return null
+  }
 }
 
 // Build a live registry from the DB, falling back to the hardcoded AGENT_REGISTRY
@@ -111,35 +171,82 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
 
     const { message, context } = body.data
     const liveRegistry = await getLiveRegistry()
-    const agent = classifyIntentFromRegistry(message, liveRegistry)
 
+    // ── Stage 1: keyword fast-path ─────────────────────────────────────────────
+    const { agent: keywordAgent, score: keywordScore } = keywordClassify(message, liveRegistry)
+
+    // ── Stage 2: LLM fallback for ambiguous messages ───────────────────────────
+    let agent: AgentMeta | null = keywordAgent
+    let extractedPlayers: Array<{ name: string; playerId?: string; confidence: number }> = []
+    let needsClarification = false
+
+    if (keywordScore === 0) {
+      const llmResult = await llmClassifyIntent(message, liveRegistry)
+      if (llmResult.agentType) {
+        agent = liveRegistry.find((a) => a.type === llmResult.agentType) ?? null
+      }
+
+      // Resolve extracted player names against the DB
+      if (llmResult.extractedPlayerNames.length > 0) {
+        const resolved = await Promise.all(
+          llmResult.extractedPlayerNames.slice(0, 3).map(async (name) => {
+            const match = await fuzzyResolvePlayer(name)
+            return match
+              ? { name, playerId: match.playerId, confidence: match.confidence }
+              : { name, confidence: 0 }
+          }),
+        )
+        extractedPlayers = resolved
+
+        // If any player was extracted with low confidence, flag for clarification
+        const lowConfidence = resolved.some((p) => p.confidence > 0 && p.confidence < 0.8)
+        if (lowConfidence) needsClarification = true
+      }
+    }
+
+    // Default fallback for completely unrecognized input
     if (!agent) {
-      return reply.send({
-        agentType: null,
-        agentMeta: null,
-        gatheredParams: {},
-        missingParams: [],
-        clarifyingQuestion: "I didn't quite catch that. Try asking about your team, waiver wire, or a trade.",
-        readyToRun: false,
-        availableAgents: liveRegistry,
-      } satisfies ManagerIntentOutput)
+      if (message.trim().length > 0) {
+        agent = liveRegistry.find((a) => a.type === 'team_eval') ?? null
+      }
+      if (!agent) {
+        return reply.send({
+          agentType: null,
+          agentMeta: null,
+          gatheredParams: {},
+          missingParams: [],
+          clarifyingQuestion: "I didn't quite catch that. Try asking about your team, waiver wire, or a trade.",
+          readyToRun: false,
+          availableAgents: liveRegistry,
+          extractedPlayers: [],
+          needsClarification: false,
+        } satisfies ManagerIntentOutput)
+      }
     }
 
     // Gather what we already have from context
     const gatheredParams: Record<string, string> = {}
     if (context?.leagueId) gatheredParams['leagueId'] = context.leagueId
 
+    // Pre-populate player IDs for trade/scout from resolved players
+    if (extractedPlayers.length > 0 && extractedPlayers[0]?.playerId) {
+      gatheredParams['playerId'] = extractedPlayers[0].playerId
+    }
+
     const missingParams = agent.requiredParams.filter((p) => !gatheredParams[p])
 
-    // trade_analysis and player_scout need a dedicated page for complex input collection
     const needsDedicatedPage = agent.type === 'trade_analysis' || agent.type === 'player_scout'
     const dedicatedPageUrl = agent.type === 'trade_analysis' ? '/dashboard/trade' : '/dashboard/scout'
 
-    const clarifyingQuestion = needsDedicatedPage
-      ? `For ${agent.label}, I'll need a bit more detail. Head to the dedicated page to get started.`
-      : missingParams.includes('leagueId')
-        ? 'Which league should I analyze?'
-        : null
+    // Clarifying question: player disambiguation takes priority
+    const disambigPlayer = extractedPlayers.find((p) => p.confidence > 0 && p.confidence < 0.8)
+    const clarifyingQuestion = needsClarification && disambigPlayer
+      ? `Did you mean ${disambigPlayer.name}?`
+      : needsDedicatedPage
+        ? `For ${agent.label}, I'll need a bit more detail.`
+        : missingParams.includes('leagueId')
+          ? 'Which league should I analyze?'
+          : null
 
     return reply.send({
       agentType: agent.type,
@@ -147,9 +254,11 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
       gatheredParams,
       missingParams,
       clarifyingQuestion,
-      readyToRun: missingParams.length === 0 && !needsDedicatedPage,
+      readyToRun: missingParams.length === 0 && !needsDedicatedPage && !needsClarification,
       availableAgents: liveRegistry,
       ...(needsDedicatedPage ? { redirectUrl: dedicatedPageUrl } : {}),
+      extractedPlayers,
+      needsClarification,
     } satisfies ManagerIntentOutput)
   })
 

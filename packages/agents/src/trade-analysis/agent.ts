@@ -15,7 +15,7 @@ const DEFAULTS = {
 }
 
 export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: AgentRuntimeConfig): Promise<TradeAnalysisOutput> {
-  const { userId, leagueId, giving, receiving } = input
+  const { userId, leagueId, giving, receiving, focusNote } = input
   console.log(`[trade-analysis] Starting — userId=${userId} giving=${giving.join(',')} receiving=${receiving.join(',')}`)
 
   // ── 1. Load user preferences ───────────────────────────────────────────────
@@ -115,7 +115,7 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: 
   // ── 5. LLM call ────────────────────────────────────────────────────────────
   console.log(`[trade-analysis] Calling LLM — news=${injection.items.length} confidence=${injection.confidenceScore}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(givingContext, receivingContext)
+  const userPrompt = buildUserPrompt(givingContext, receivingContext, focusNote)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'sonnet' },

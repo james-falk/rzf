@@ -54,7 +54,7 @@ interface TradePlayer {
   recentTradeCount: number
 }
 
-export function buildUserPrompt(giving: TradePlayer[], receiving: TradePlayer[]): string {
+export function buildUserPrompt(giving: TradePlayer[], receiving: TradePlayer[], focusNote?: string): string {
   const formatPlayer = (p: TradePlayer) => {
     const lines = [
       `  Name: ${p.name} (${p.position}, ${p.team ?? 'FA'})`,
@@ -66,6 +66,8 @@ export function buildUserPrompt(giving: TradePlayer[], receiving: TradePlayer[])
     return lines.join('\n')
   }
 
+  const focusSection = focusNote ? `\nUSER FOCUS: ${focusNote}` : ''
+
   return `[Trade Proposal]
 
 GIVING (players you are trading away):
@@ -73,6 +75,6 @@ ${giving.map(formatPlayer).join('\n\n')}
 
 RECEIVING (players you are getting):
 ${receiving.map(formatPlayer).join('\n\n')}
-
+${focusSection}
 Evaluate this trade. Is it a good deal? Return JSON only.`
 }

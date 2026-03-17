@@ -49,6 +49,7 @@ export function buildUserPrompt(
   candidates: WaiverCandidate[],
   roster: RosterPlayer[],
   targetPosition?: string,
+  focusNote?: string,
 ): string {
   const rosterByPosition = roster.reduce<Record<string, string[]>>((acc, p) => {
     if (!acc[p.position]) acc[p.position] = []
@@ -71,12 +72,14 @@ export function buildUserPrompt(
     })
     .join('\n')
 
+  const focusSection = focusNote ? `\nUSER FOCUS: ${focusNote}` : ''
+
   return `[Current Roster]
 ${rosterLines}
 ${targetPosition ? `\n[Target Position]: ${targetPosition}` : ''}
 
 [Available Free Agents — Top Trending + Unranked Picks]
 ${candidateLines}
-
+${focusSection}
 Based on the roster needs and available players above, recommend the best waiver wire pickups. Prioritize filling weak spots and adding high-upside players.`
 }

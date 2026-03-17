@@ -25,6 +25,7 @@ export type TeamEvalInput = z.infer<typeof TeamEvalInputSchema>
 export const InjuryWatchInputSchema = z.object({
   userId: z.string(),
   leagueId: z.string(),
+  focusNote: z.string().max(200).optional(),
 })
 
 export type InjuryWatchInput = z.infer<typeof InjuryWatchInputSchema>
@@ -55,6 +56,8 @@ export interface ManagerIntentOutput {
   readyToRun: boolean
   availableAgents: AgentMeta[]
   redirectUrl?: string
+  extractedPlayers?: Array<{ name: string; playerId?: string; confidence: number }>
+  needsClarification?: boolean
 }
 
 export const TeamEvalOutputSchema = z.object({
@@ -101,6 +104,7 @@ export const WaiverInputSchema = z.object({
   userId: z.string(),
   leagueId: z.string(),
   targetPosition: z.enum(['QB', 'RB', 'WR', 'TE', 'K']).optional(),
+  focusNote: z.string().max(200).optional(),
 })
 
 export type WaiverInput = z.infer<typeof WaiverInputSchema>
@@ -132,6 +136,7 @@ export const TradeAnalysisInputSchema = z.object({
   leagueId: z.string(),
   giving: z.array(z.string()).min(1).max(5),
   receiving: z.array(z.string()).min(1).max(5),
+  focusNote: z.string().max(200).optional(),
 })
 
 export type TradeAnalysisInput = z.infer<typeof TradeAnalysisInputSchema>
@@ -181,6 +186,7 @@ export const LineupInputSchema = z.object({
   userId: z.string(),
   leagueId: z.string(),
   week: z.number().int().min(1).max(18).optional(),
+  focusNote: z.string().max(200).optional(),
 })
 
 export type LineupInput = z.infer<typeof LineupInputSchema>
@@ -218,6 +224,7 @@ export const PlayerScoutInputSchema = z.object({
   userId: z.string(),
   playerId: z.string(),
   context: z.string().max(300).optional(),
+  focusNote: z.string().max(200).optional(),
 })
 
 export type PlayerScoutInput = z.infer<typeof PlayerScoutInputSchema>

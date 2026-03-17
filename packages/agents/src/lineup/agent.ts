@@ -15,7 +15,7 @@ const DEFAULTS = {
 }
 
 export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeConfig): Promise<LineupOutput> {
-  const { userId, leagueId, week: requestedWeek } = input
+  const { userId, leagueId, week: requestedWeek, focusNote } = input
   console.log(`[lineup] Starting — userId=${userId} leagueId=${leagueId}`)
 
   // ── 1. Resolve Sleeper profile ─────────────────────────────────────────────
@@ -122,6 +122,7 @@ export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeCo
     bench,
     week,
     newsContext || undefined,
+    focusNote,
   )
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(

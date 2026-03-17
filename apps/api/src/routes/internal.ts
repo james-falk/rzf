@@ -797,6 +797,10 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
       showInAnalyze: z.boolean().optional(),
       sortOrder: z.number().int().optional(),
       updatedBy: z.string().optional(),
+      allowedSourceTiers: z.array(z.number().int().min(1).max(3)).optional(),
+      allowedPlatforms: z.array(z.string()).optional(),
+      recencyWindowHours: z.number().int().positive().optional(),
+      maxContentItems: z.number().int().positive().optional(),
     })
 
     const body = bodySchema.safeParse(req.body)
@@ -832,6 +836,22 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     })
 
     return reply.send({ config: updated, reset: true })
+  })
+
+  // GET /internal/agents/stats — per-agent avg confidence scores
+  app.get('/internal/agents/stats', { preHandler: adminGuard }, async (_req, reply) => {
+    const rows = await db.agentRun.groupBy({
+      by: ['agentType'],
+      where: { status: 'done', confidenceScore: { not: null } },
+      _avg: { confidenceScore: true },
+      _count: { id: true },
+    })
+    const stats = rows.map((r) => ({
+      agentType: r.agentType,
+      avgConfidence: r._avg.confidenceScore !== null ? Math.round(r._avg.confidenceScore!) : null,
+      runsWithScore: r._count.id,
+    }))
+    return reply.send({ stats })
   })
 
   // GET /internal/usage/tokens — per-user token consumption + estimated cost

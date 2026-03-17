@@ -131,7 +131,7 @@ export async function runInjuryWatchAgent(
     }))
 
     const systemPrompt = buildSystemPrompt(config?.systemPromptOverride)
-    const userPrompt = buildUserPrompt(alertContexts, newsSnippets)
+    const userPrompt = buildUserPrompt(alertContexts, newsSnippets, input.focusNote)
 
     const { data: enriched, tokensUsed } = await LLMConnector.completeJSON(
       { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },

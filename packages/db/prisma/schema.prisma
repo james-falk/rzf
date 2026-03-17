@@ -130,6 +130,7 @@ model User {
   tokenBudget     TokenBudget[]
   analyticsEvents AnalyticsEvent[]
   customFeeds     CustomFeed[]
+  chatSessions    ChatSession[]
 
   @@map("users")
 }
@@ -782,4 +783,44 @@ model CustomFeed {
 
   @@index([userId])
   @@map("custom_feeds")
+}
+
+/// A RosterMind AI chat session — one per conversation thread.
+model ChatSession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Optional LLM-generated summary after the session
+  summary String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@map("chat_sessions")
+}
+
+/// A single message within a ChatSession — mirrors the frontend ChatMessage union.
+model ChatMessage {
+  id        String @id @default(cuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// "user" | "assistant"
+  role String
+  /// "user" | "text" | "result" | "error" | "context-prompt" | "intent-confirm"
+  type String
+  /// Serialized message content (text or JSON)
+  content String @db.Text
+
+  /// Denormalized agent run ID when type = "result"
+  agentRunId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+  @@map("chat_messages")
 }

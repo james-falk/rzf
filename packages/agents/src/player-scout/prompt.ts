@@ -39,7 +39,7 @@ interface PlayerContext {
   context?: string
 }
 
-export function buildUserPrompt(player: PlayerContext): string {
+export function buildUserPrompt(player: PlayerContext, focusNote?: string): string {
   const lines = [
     `[Player Scouting Report]`,
     `Name: ${player.name}`,
@@ -65,6 +65,7 @@ export function buildUserPrompt(player: PlayerContext): string {
   }
 
   if (player.context) lines.push(`\n[User Question/Context]\n${player.context}`)
+  if (focusNote) lines.push(`\n[User Focus]\n${focusNote}`)
 
   lines.push(`\nGenerate the scouting report. Return JSON only.`)
 

@@ -85,6 +85,8 @@ export const api = {
       clarifyingQuestion: string | null
       readyToRun: boolean
       availableAgents: Array<{ type: string; label: string; description: string; available: boolean; requiredParams: string[] }>
+      extractedPlayers?: Array<{ name: string; playerId?: string; confidence: number }>
+      needsClarification?: boolean
     }>('/agents/intent', {
       method: 'POST',
       token,
@@ -178,6 +180,36 @@ export const api = {
       monthlyRunsUsed: number
       recentRuns: unknown[]
     }>('/usage', { token })
+  },
+
+  // Chat session routes
+  async createSession(token: string) {
+    return apiFetch<{ sessionId: string }>('/sessions', {
+      method: 'POST',
+      token,
+      body: '{}',
+    })
+  },
+
+  async addSessionMessage(token: string, sessionId: string, message: {
+    role: 'user' | 'assistant'
+    type: string
+    content: string
+    agentRunId?: string
+  }) {
+    return apiFetch<{ messageId: string }>(`/sessions/${sessionId}/messages`, {
+      method: 'POST',
+      token,
+      body: JSON.stringify(message),
+    })
+  },
+
+  async getSessionSummary(token: string, sessionId: string) {
+    return apiFetch<{ summary: string }>(`/sessions/${sessionId}/summary`, {
+      method: 'POST',
+      token,
+      body: '{}',
+    })
   },
 
   // Internal admin routes

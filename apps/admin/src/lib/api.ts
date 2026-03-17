@@ -203,6 +203,9 @@ export const api = {
   getAgentConfigs: () =>
     adminFetch<{ configs: AgentConfig[] }>('/internal/agents/configs'),
 
+  getAgentStats: () =>
+    adminFetch<{ stats: Array<{ agentType: string; avgConfidence: number | null; runsWithScore: number }> }>('/internal/agents/stats'),
+
   updateAgentConfig: (agentType: string, data: Partial<AgentConfig>) =>
     adminFetch<{ config: AgentConfig }>(`/internal/agents/configs/${agentType}`, {
       method: 'PUT',

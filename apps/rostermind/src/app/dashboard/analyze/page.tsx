@@ -34,6 +34,8 @@ type ChatMessage =
   | { id: string; role: 'assistant'; type: 'loading'; agentType: string }
   | { id: string; role: 'assistant'; type: 'result'; result: AgentRunResult; runId: string }
   | { id: string; role: 'assistant'; type: 'error'; content: string }
+  | { id: string; role: 'assistant'; type: 'context-prompt'; agentType: string; question: string }
+  | { id: string; role: 'assistant'; type: 'intent-confirm'; question: string; onYes: () => void; onNo: () => void }
   | { id: string; role: 'user'; type: 'user'; content: string }
 
 const QUICK_ACTIONS = [
@@ -93,6 +95,18 @@ let _id = 0
 const mid = () => `m${++_id}`
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+function getContextQuestion(agentType: string): string {
+  switch (agentType) {
+    case 'team_eval':      return 'Any specific areas to focus on? (e.g., trade targets, playoff schedule, win-now vs rebuild)'
+    case 'injury_watch':   return "Anything specific to flag? (e.g., a player's return timeline, handcuff options)"
+    case 'waiver':         return 'Any target positions or specific players you have in mind?'
+    case 'lineup':         return 'Any start/sit decisions you\'re on the fence about?'
+    case 'trade_analysis': return 'Any context on this trade? (e.g., dynasty vs redraft, win-now mode)'
+    case 'player_scout':   return "What's your main focus? (e.g., 'Should I start him?', 'What's his dynasty value?')"
+    default:               return 'Any specific focus for this analysis? (optional)'
+  }
+}
+
 function getAgentIntro(agentType: string): string {
   switch (agentType) {
     case 'team_eval':      return "Team evaluation — I'll grade every position and give you specific, actionable insights."
@@ -118,11 +132,15 @@ export default function AnalyzePage() {
   const [selectedLeague, setSelectedLeague] = useState('')
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
   const [textInput, setTextInput] = useState('')
-  const [phase, setPhase] = useState<'idle' | 'league-select' | 'trade-select' | 'scout-select' | 'running'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'context-prompting' | 'league-select' | 'trade-select' | 'scout-select' | 'running'>('idle')
   const [pendingAgentType, setPendingAgentType] = useState('team_eval')
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
   const [runId, setRunId] = useState<string | null>(null)
   const [credits, setCredits] = useState<number | null>(null)
+  const [focusNote, setFocusNote] = useState('')
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [resultCount, setResultCount] = useState(0)
+  const [summarizing, setSummarizing] = useState(false)
 
   // Trade state
   const [givingPlayers, setGivingPlayers] = useState<PlayerSearch[]>([])
@@ -132,7 +150,6 @@ export default function AnalyzePage() {
 
   // Scout state
   const [scoutPlayer, setScoutPlayer] = useState<PlayerSearch | null>(null)
-  const [scoutContext, setScoutContext] = useState('')
   const [scoutQuery, setScoutQuery] = useState('')
   const [scoutShowResults, setScoutShowResults] = useState(false)
 
@@ -141,6 +158,27 @@ export default function AnalyzePage() {
   const [searchResults, setSearchResults] = useState<PlayerSearch[]>([])
   const [searching, setSearching] = useState(false)
   const [posFilter, setPosFilter] = useState('All')
+
+  const ensureSession = useCallback(async (token: string): Promise<string> => {
+    if (sessionId) return sessionId
+    try {
+      const { sessionId: newId } = await api.createSession(token)
+      setSessionId(newId)
+      return newId
+    } catch { return '' }
+  }, [sessionId])
+
+  const persistMessage = useCallback(async (
+    token: string,
+    sid: string,
+    role: 'user' | 'assistant',
+    type: string,
+    content: string,
+    agentRunId?: string,
+  ) => {
+    if (!sid) return
+    api.addSessionMessage(token, sid, { role, type, content, agentRunId }).catch(() => {})
+  }, [])
 
   const push = useCallback((msg: ChatMessage) => setMessages((prev) => [...prev, msg]), [])
 
@@ -218,6 +256,12 @@ export default function AnalyzePage() {
           if (run.status === 'done' && run.output) {
             push({ id: mid(), role: 'assistant', type: 'result', result: run as AgentRunResult, runId })
             setCredits((prev) => (prev !== null ? Math.max(0, prev - 1) : prev))
+            setResultCount((prev) => prev + 1)
+            const token = await getToken()
+            if (token) {
+              const sid = await ensureSession(token)
+              persistMessage(token, sid, 'assistant', 'result', JSON.stringify({ agentType: run.agentType }), run.id)
+            }
           } else {
             push({ id: mid(), role: 'assistant', type: 'error', content: `${run.errorMessage ?? 'Unknown error'}\n\nRun ID: ${run.id}` })
           }
@@ -269,57 +313,39 @@ export default function AnalyzePage() {
     if (phase === 'running') return
     push({ id: mid(), role: 'user', type: 'user', content: action.label })
     setPendingAgentType(action.type)
+    setFocusNote('')
 
     if (action.type === 'trade_analysis') {
-      setPhase('trade-select')
       setGivingPlayers([])
       setReceivingPlayers([])
       setTradeActiveSelector(null)
       setSearchQuery('')
       setSearchResults([])
-      await showTypingThen(() => {
-        push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro(action.type) })
-      })
-      await delay(300)
-      await showTypingThen(() => {
-        push({ id: mid(), role: 'assistant', type: 'trade-select' })
-      }, 500)
-      return
     }
-
     if (action.type === 'player_scout') {
-      setPhase('scout-select')
       setScoutPlayer(null)
       setScoutQuery('')
-      setScoutContext('')
       setSearchResults([])
-      await showTypingThen(() => {
-        push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro(action.type) })
-      })
-      await delay(300)
-      await showTypingThen(() => {
-        push({ id: mid(), role: 'assistant', type: 'scout-select' })
-      }, 500)
-      return
     }
 
-    setPhase('league-select')
     await showTypingThen(() => {
       push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro(action.type) })
     })
     await delay(300)
+    // Enter context-prompting phase before showing the selector
+    setPhase('context-prompting')
     await showTypingThen(() => {
-      push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: action.type })
+      push({ id: mid(), role: 'assistant', type: 'context-prompt', agentType: action.type, question: getContextQuestion(action.type) })
     }, 500)
-  }, [phase, leagues, push, showTypingThen])
+  }, [phase, push, showTypingThen])
 
   const handleLeagueRun = useCallback(async () => {
     if (!selectedLeague) return
     const league = leagues.find((l) => l.league_id === selectedLeague)
     const action = QUICK_ACTIONS.find((a) => a.type === pendingAgentType)
     push({ id: mid(), role: 'user', type: 'user', content: `Run ${action?.label ?? 'analysis'} for ${league?.name ?? 'my team'}` })
-    await startRunning(pendingAgentType, { leagueId: selectedLeague })
-  }, [selectedLeague, leagues, pendingAgentType, push, startRunning])
+    await startRunning(pendingAgentType, { leagueId: selectedLeague, ...(focusNote.trim() ? { focusNote: focusNote.trim() } : {}) })
+  }, [selectedLeague, leagues, pendingAgentType, focusNote, push, startRunning])
 
   const handleTradeRun = useCallback(async () => {
     if (!tradeLeague || givingPlayers.length === 0 || receivingPlayers.length === 0) return
@@ -330,30 +356,101 @@ export default function AnalyzePage() {
       leagueId: tradeLeague,
       giving: givingPlayers.map((p) => p.player_id),
       receiving: receivingPlayers.map((p) => p.player_id),
+      ...(focusNote.trim() ? { focusNote: focusNote.trim() } : {}),
     })
-  }, [tradeLeague, givingPlayers, receivingPlayers, push, startRunning])
+  }, [tradeLeague, givingPlayers, receivingPlayers, focusNote, push, startRunning])
 
   const handleScoutRun = useCallback(async () => {
     if (!scoutPlayer) return
-    push({ id: mid(), role: 'user', type: 'user', content: `Scout ${scoutPlayer.full_name}${scoutContext.trim() ? ` — ${scoutContext.trim()}` : ''}` })
+    push({ id: mid(), role: 'user', type: 'user', content: `Scout ${scoutPlayer.full_name}${focusNote.trim() ? ` — ${focusNote.trim()}` : ''}` })
     await startRunning('player_scout', {
       playerId: scoutPlayer.player_id,
-      ...(scoutContext.trim() ? { context: scoutContext.trim() } : {}),
+      ...(focusNote.trim() ? { focusNote: focusNote.trim() } : {}),
     })
-  }, [scoutPlayer, scoutContext, push, startRunning])
+  }, [scoutPlayer, focusNote, push, startRunning])
 
   const handleTextSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     const msg = textInput.trim()
-    if (!msg) return
     setTextInput('')
+
+    // ── Context-prompting phase: capture focusNote then show selector ──────────
+    if (phase === 'context-prompting') {
+      // Empty = skip
+      push({ id: mid(), role: 'user', type: 'user', content: msg })
+      setFocusNote(msg)
+      const token = await getToken()
+      if (token) {
+        const sid = await ensureSession(token)
+        persistMessage(token, sid, 'user', 'user', msg)
+      }
+      await showTypingThen(() => {
+        if (pendingAgentType === 'trade_analysis') {
+          setPhase('trade-select')
+          push({ id: mid(), role: 'assistant', type: 'trade-select' })
+        } else if (pendingAgentType === 'player_scout') {
+          setPhase('scout-select')
+          push({ id: mid(), role: 'assistant', type: 'scout-select' })
+        } else {
+          setPhase('league-select')
+          push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: pendingAgentType })
+        }
+      }, 600)
+      return
+    }
+
+    if (!msg) return
     push({ id: mid(), role: 'user', type: 'user', content: msg })
+    const token = await getToken()
+    if (token) {
+      const sid = await ensureSession(token)
+      persistMessage(token, sid, 'user', 'user', msg)
+    }
 
     await showTypingThen(async () => {
       try {
         const token = await getToken()
         if (!token) return
         const intent = await api.callIntent(token, msg, selectedLeague ? { leagueId: selectedLeague } : undefined)
+
+        // Intent clarification: player disambiguation
+        if (intent.needsClarification && intent.clarifyingQuestion && intent.extractedPlayers?.length) {
+          const playerToConfirm = intent.extractedPlayers.find((p) => p.confidence > 0 && p.confidence < 0.8)
+          if (playerToConfirm) {
+            const confirmId = mid()
+            push({
+              id: confirmId,
+              role: 'assistant',
+              type: 'intent-confirm',
+              question: intent.clarifyingQuestion,
+              onYes: () => {
+                setMessages((prev) => prev.filter((m) => m.id !== confirmId))
+                if (intent.agentType === 'player_scout' && playerToConfirm.playerId) {
+                  setScoutPlayer({
+                    player_id: playerToConfirm.playerId,
+                    full_name: playerToConfirm.name,
+                    position: '',
+                    team: null,
+                  })
+                  setScoutQuery(playerToConfirm.name)
+                }
+                setPhase(intent.agentType === 'player_scout' ? 'scout-select'
+                  : intent.agentType === 'trade_analysis' ? 'trade-select'
+                  : 'league-select')
+                if (intent.agentType !== 'player_scout' && intent.agentType !== 'trade_analysis') {
+                  push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: intent.agentType! })
+                } else {
+                  push({ id: mid(), role: 'assistant', type: intent.agentType === 'player_scout' ? 'scout-select' : 'trade-select' })
+                }
+              },
+              onNo: () => {
+                setMessages((prev) => prev.filter((m) => m.id !== confirmId))
+                push({ id: mid(), role: 'assistant', type: 'text', content: "No problem! You can search for the player manually below." })
+              },
+            })
+            return
+          }
+        }
 
         if (!intent.agentType || !intent.agentMeta?.available) {
           push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? "I can run a team analysis, injury report, waiver recommendations, lineup optimization, trade analysis, or player scouting. Click one of the options below!" })
@@ -370,6 +467,12 @@ export default function AnalyzePage() {
           setPendingAgentType('player_scout')
           setScoutPlayer(null)
           setScoutQuery('')
+          // Pre-populate if high-confidence player was extracted
+          const highConfPlayer = intent.extractedPlayers?.find((p) => p.confidence >= 0.8 && p.playerId)
+          if (highConfPlayer) {
+            setScoutPlayer({ player_id: highConfPlayer.playerId!, full_name: highConfPlayer.name, position: '', team: null })
+            setScoutQuery(highConfPlayer.name)
+          }
           push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro('player_scout') })
           push({ id: mid(), role: 'assistant', type: 'scout-select' })
         } else if (intent.missingParams.includes('leagueId')) {
@@ -384,7 +487,7 @@ export default function AnalyzePage() {
         push({ id: mid(), role: 'assistant', type: 'error', content: 'Something went wrong. Please try again.' })
       }
     }, 1000)
-  }, [textInput, getToken, selectedLeague, leagues, phase, push, showTypingThen, startRunning])
+  }, [textInput, getToken, selectedLeague, leagues, phase, pendingAgentType, push, showTypingThen, startRunning, ensureSession, persistMessage])
 
   const handleRate = useCallback(async (rateRunId: string, rating: 'up' | 'down') => {
     try {
@@ -393,6 +496,21 @@ export default function AnalyzePage() {
       await api.rateAgentRun(token, rateRunId, rating)
     } catch { /* non-critical */ }
   }, [getToken])
+
+  const handleSummarize = useCallback(async () => {
+    if (!sessionId || summarizing) return
+    const token = await getToken()
+    if (!token) return
+    setSummarizing(true)
+    try {
+      const { summary } = await api.getSessionSummary(token, sessionId)
+      push({ id: mid(), role: 'assistant', type: 'text', content: `Session Summary: ${summary}` })
+    } catch {
+      push({ id: mid(), role: 'assistant', type: 'error', content: 'Failed to generate summary.' })
+    } finally {
+      setSummarizing(false)
+    }
+  }, [sessionId, summarizing, getToken, push])
 
   const loadingMessages = AGENT_LOADING_MESSAGES[pendingAgentType] ?? DEFAULT_LOADING_MESSAGES
 
@@ -404,13 +522,15 @@ export default function AnalyzePage() {
     setRunId(null)
     setPendingAgentType('team_eval')
     setTextInput('')
+    setFocusNote('')
+    setSessionId(null)
+    setResultCount(0)
     setGivingPlayers([])
     setReceivingPlayers([])
     setTradeLeague('')
     setTradeActiveSelector(null)
     setScoutPlayer(null)
     setScoutQuery('')
-    setScoutContext('')
     setScoutShowResults(false)
     setSearchQuery('')
     setSearchResults([])
@@ -449,6 +569,15 @@ export default function AnalyzePage() {
                   {credits}<span className="hidden sm:inline"> {credits === 1 ? 'credit' : 'credits'}</span>
                 </span>
               </div>
+            )}
+            {resultCount >= 2 && sessionId && (
+              <button
+                onClick={handleSummarize}
+                disabled={summarizing}
+                className="rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-1.5 text-xs font-medium text-indigo-400 transition hover:bg-indigo-500/10 disabled:opacity-40"
+              >
+                {summarizing ? 'Summarizing…' : 'Summarize'}
+              </button>
             )}
             {messages.length > 0 && (
               <button
@@ -522,7 +651,6 @@ export default function AnalyzePage() {
               // Scout props
               scoutPlayer={scoutPlayer}
               scoutQuery={scoutQuery}
-              scoutContext={scoutContext}
               scoutShowResults={scoutShowResults}
               scoutSearchResults={searchResults}
               scoutSearching={searching}
@@ -531,7 +659,6 @@ export default function AnalyzePage() {
               onScoutFocus={() => setScoutShowResults(true)}
               onScoutSelectPlayer={(p) => { setScoutPlayer(p); setScoutQuery(p.full_name); setSearchResults([]); setScoutShowResults(false) }}
               onScoutClearPlayer={() => { setScoutPlayer(null); setScoutQuery('') }}
-              onScoutContextChange={setScoutContext}
               onScoutPosFilterChange={setPosFilter}
               onScoutRun={handleScoutRun}
             />
@@ -547,7 +674,7 @@ export default function AnalyzePage() {
             <input
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder="Ask me about your team..."
+              placeholder={phase === 'context-prompting' ? 'Type your focus, or press Enter to skip…' : 'Ask me about your team...'}
               className="flex-1 rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none transition focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
             />
             <button
@@ -585,8 +712,8 @@ function MessageBubble({
   searchQuery, searchResults, searching, posFilter,
   onTradeLeagueChange, onTradeActiveSelectorChange, onTradeSearchChange, onPosFilterChange,
   onTradeAddPlayer, onTradeRemovePlayer, onTradeRun,
-  scoutPlayer, scoutQuery, scoutContext, scoutShowResults, scoutSearchResults, scoutSearching, scoutPosFilter,
-  onScoutQueryChange, onScoutFocus, onScoutSelectPlayer, onScoutClearPlayer, onScoutContextChange,
+  scoutPlayer, scoutQuery, scoutShowResults, scoutSearchResults, scoutSearching, scoutPosFilter,
+  onScoutQueryChange, onScoutFocus, onScoutSelectPlayer, onScoutClearPlayer,
   onScoutPosFilterChange, onScoutRun,
 }: {
   msg: ChatMessage
@@ -620,7 +747,6 @@ function MessageBubble({
   onTradeRun: () => void
   scoutPlayer: PlayerSearch | null
   scoutQuery: string
-  scoutContext: string
   scoutShowResults: boolean
   scoutSearchResults: PlayerSearch[]
   scoutSearching: boolean
@@ -629,7 +755,6 @@ function MessageBubble({
   onScoutFocus: () => void
   onScoutSelectPlayer: (p: PlayerSearch) => void
   onScoutClearPlayer: () => void
-  onScoutContextChange: (v: string) => void
   onScoutPosFilterChange: (p: string) => void
   onScoutRun: () => void
 }) {
@@ -675,6 +800,35 @@ function MessageBubble({
           <div className="rounded-2xl rounded-tl-sm border border-red-500/20 bg-red-500/10 px-4 py-3">
             <p className="text-sm font-medium text-red-400">Something went wrong</p>
             <p className="mt-1 font-mono text-xs text-red-300/80">{msg.content}</p>
+          </div>
+        )}
+
+        {/* Context prompt */}
+        {msg.role === 'assistant' && msg.type === 'context-prompt' && (
+          <div className="rounded-2xl rounded-tl-sm border border-indigo-500/20 bg-indigo-500/5 px-4 py-3 space-y-2">
+            <p className="text-sm text-zinc-200">{msg.question}</p>
+            <p className="text-xs text-zinc-500">Type your focus in the chat below, or press Enter to skip.</p>
+          </div>
+        )}
+
+        {/* Intent confirm (player disambiguation) */}
+        {msg.role === 'assistant' && msg.type === 'intent-confirm' && (
+          <div className="rounded-2xl rounded-tl-sm border border-amber-500/20 bg-amber-500/5 px-4 py-3 space-y-3">
+            <p className="text-sm text-zinc-200">{msg.question}</p>
+            <div className="flex gap-2">
+              <button
+                onClick={msg.onYes}
+                className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-500"
+              >
+                Yes
+              </button>
+              <button
+                onClick={msg.onNo}
+                className="rounded-lg border border-white/10 px-4 py-1.5 text-xs font-medium text-zinc-400 transition hover:text-white"
+              >
+                No, search manually
+              </button>
+            </div>
           </div>
         )}
 
@@ -934,21 +1088,6 @@ function MessageBubble({
                   <button onClick={onScoutClearPlayer} className="ml-auto text-xs text-zinc-500 hover:text-indigo-400">✕</button>
                 </div>
               )}
-            </div>
-
-            <div>
-              <label className="mb-1.5 block text-xs font-medium text-zinc-400">
-                Context <span className="text-zinc-600">(optional)</span>
-              </label>
-              <textarea
-                value={scoutContext}
-                onChange={(e) => onScoutContextChange(e.target.value)}
-                placeholder={`e.g. "Should I trade for him in dynasty?" or "He just got hurt — what's his outlook?"`}
-                rows={2}
-                maxLength={300}
-                className="w-full resize-none rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50"
-              />
-              <p className="mt-1 text-right text-[10px] text-zinc-600">{scoutContext.length}/300</p>
             </div>
 
             <button

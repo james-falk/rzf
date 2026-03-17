@@ -22,6 +22,8 @@ const AGENT_ICONS: Record<string, string> = {
   player_scout: '🔍',
 }
 
+const PLATFORM_OPTIONS = ['rss', 'youtube', 'twitter', 'podcast', 'reddit']
+
 export default function AgentConfigPage() {
   const router = useRouter()
   const [configs, setConfigs] = useState<AgentConfig[]>([])
@@ -31,6 +33,15 @@ export default function AgentConfigPage() {
   const [saving, setSaving] = useState(false)
   const [resetting, setResetting] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [agentStats, setAgentStats] = useState<Record<string, { avgConfidence: number | null; runsWithScore: number }>>({})
+
+  useEffect(() => {
+    api.getAgentStats().then((res) => {
+      const map: Record<string, { avgConfidence: number | null; runsWithScore: number }> = {}
+      for (const s of res.stats) map[s.agentType] = { avgConfidence: s.avgConfidence, runsWithScore: s.runsWithScore }
+      setAgentStats(map)
+    }).catch(() => { /* non-critical */ })
+  }, [])
 
   const showToast = useCallback((msg: string, type: 'success' | 'error') => {
     setToast({ msg, type })
@@ -71,6 +82,10 @@ export default function AgentConfigPage() {
         modelTier: draft.modelTier,
         enabled: draft.enabled,
         showInAnalyze: draft.showInAnalyze,
+        allowedSourceTiers: draft.allowedSourceTiers,
+        allowedPlatforms: draft.allowedPlatforms,
+        recencyWindowHours: draft.recencyWindowHours,
+        maxContentItems: draft.maxContentItems,
         updatedBy: 'admin',
       })
       setConfigs((prev) => prev.map((c) => (c.agentType === editingType ? config : c)))
@@ -143,7 +158,7 @@ export default function AgentConfigPage() {
               <span className="text-2xl">{AGENT_ICONS[config.agentType] ?? '🤖'}</span>
 
               <div className="flex-1">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <p className="font-semibold text-white">{config.label}</p>
                   <span className={cn(
                     'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase',
@@ -156,6 +171,20 @@ export default function AgentConfigPage() {
                   {config.showInAnalyze && (
                     <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
                       In Analyze
+                    </span>
+                  )}
+                  {agentStats[config.agentType] != null && (
+                    <span className={cn(
+                      'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      (agentStats[config.agentType]?.avgConfidence ?? 0) < 50
+                        ? 'border-red-500/30 bg-red-500/10 text-red-400'
+                        : (agentStats[config.agentType]?.avgConfidence ?? 0) < 70
+                          ? 'border-yellow-500/30 bg-yellow-500/10 text-yellow-400'
+                          : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-400',
+                    )}>
+                      {agentStats[config.agentType]?.avgConfidence != null
+                        ? `confidence ${agentStats[config.agentType]!.avgConfidence}%`
+                        : 'no scores yet'}
                     </span>
                   )}
                 </div>
@@ -275,6 +304,94 @@ export default function AgentConfigPage() {
                   />
                   <span className="text-sm text-zinc-300">Show in Analyze page</span>
                 </label>
+              </div>
+
+              {/* Source Control */}
+              <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-4 space-y-4">
+                <p className="text-xs font-semibold text-zinc-300">Source Control</p>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-zinc-400">Recency Window (hours)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={720}
+                      value={draft.recencyWindowHours ?? 168}
+                      onChange={(e) => setDraft((d) => ({ ...d, recencyWindowHours: parseInt(e.target.value) || 168 }))}
+                      className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-red-500/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-zinc-400">Max Content Items</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={draft.maxContentItems ?? 10}
+                      onChange={(e) => setDraft((d) => ({ ...d, maxContentItems: parseInt(e.target.value) || 10 }))}
+                      className="w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-red-500/50"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-zinc-400">Allowed Source Tiers</label>
+                  <div className="flex gap-3">
+                    {[1, 2, 3].map((tier) => {
+                      const checked = (draft.allowedSourceTiers ?? [1, 2, 3]).includes(tier)
+                      return (
+                        <label key={tier} className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const current = draft.allowedSourceTiers ?? [1, 2, 3]
+                              setDraft((d) => ({
+                                ...d,
+                                allowedSourceTiers: checked
+                                  ? current.filter((t) => t !== tier)
+                                  : [...current, tier].sort(),
+                              }))
+                            }}
+                            className="h-4 w-4 rounded accent-red-500"
+                          />
+                          <span className="text-sm text-zinc-300">
+                            T{tier} {tier === 1 ? '(Premium)' : tier === 2 ? '(Established)' : '(General)'}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-medium text-zinc-400">Allowed Platforms</label>
+                  <div className="flex flex-wrap gap-3">
+                    {PLATFORM_OPTIONS.map((platform) => {
+                      const checked = (draft.allowedPlatforms ?? ['rss', 'youtube']).includes(platform)
+                      return (
+                        <label key={platform} className="flex items-center gap-1.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              const current = draft.allowedPlatforms ?? ['rss', 'youtube']
+                              setDraft((d) => ({
+                                ...d,
+                                allowedPlatforms: checked
+                                  ? current.filter((p) => p !== platform)
+                                  : [...current, platform],
+                              }))
+                            }}
+                            className="h-4 w-4 rounded accent-red-500"
+                          />
+                          <span className="text-sm text-zinc-300 capitalize">{platform}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
 
               {/* System prompt */}

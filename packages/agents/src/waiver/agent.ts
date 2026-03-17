@@ -15,7 +15,7 @@ const DEFAULTS = {
 }
 
 export async function runWaiverAgent(input: WaiverInput, config?: AgentRuntimeConfig): Promise<WaiverOutput> {
-  const { userId, leagueId, targetPosition } = input
+  const { userId, leagueId, targetPosition, focusNote } = input
   console.log(`[waiver] Starting — userId=${userId} leagueId=${leagueId} targetPosition=${targetPosition ?? 'any'}`)
 
   // ── 1. Resolve Sleeper profile ─────────────────────────────────────────────
@@ -113,7 +113,7 @@ export async function runWaiverAgent(input: WaiverInput, config?: AgentRuntimeCo
   // ── 7. LLM call ────────────────────────────────────────────────────────────
   console.log(`[waiver] Calling LLM — ${candidateContext.length} candidates week=${nflState.week} news=${injection.items.length}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(candidateContext, rosterContext, targetPosition)
+  const userPrompt = buildUserPrompt(candidateContext, rosterContext, targetPosition, focusNote)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },

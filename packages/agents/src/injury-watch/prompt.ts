@@ -48,7 +48,7 @@ Rules:
 - Return valid JSON array only. No markdown fences.`
 }
 
-export function buildUserPrompt(alerts: AlertContext[], news: NewsSnippet[]): string {
+export function buildUserPrompt(alerts: AlertContext[], news: NewsSnippet[], focusNote?: string): string {
   const newsMap = new Map<string, NewsSnippet[]>()
   for (const n of news) {
     const existing = newsMap.get(n.playerId) ?? []
@@ -85,6 +85,7 @@ export function buildUserPrompt(alerts: AlertContext[], news: NewsSnippet[]): st
     sections.push('')
   }
 
+  if (focusNote) sections.push(`USER FOCUS: ${focusNote}`)
   sections.push('Return a JSON array with one entry per player listed above.')
   return sections.join('\n')
 }

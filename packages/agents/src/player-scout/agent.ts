@@ -17,7 +17,7 @@ const DEFAULTS = {
 }
 
 export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: AgentRuntimeConfig): Promise<PlayerScoutOutput> {
-  const { userId, playerId, context } = input
+  const { userId, playerId, context, focusNote } = input
   console.log(`[player-scout] Starting — userId=${userId} playerId=${playerId}`)
 
   // ── 1. Load user preferences ───────────────────────────────────────────────
@@ -132,7 +132,7 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
   // ── 4. LLM call ────────────────────────────────────────────────────────────
   console.log(`[player-scout] Calling LLM — ${player.firstName} ${player.lastName} news=${injection.items.length} confidence=${injection.confidenceScore}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(playerContext)
+  const userPrompt = buildUserPrompt(playerContext, focusNote)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },

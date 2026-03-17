@@ -11,6 +11,7 @@ import { intentRoutes } from './routes/intent.js'
 import { playersRoutes } from './routes/players.js'
 import { billingRoutes } from './routes/billing.js'
 import { feedbackRoutes } from './routes/feedback.js'
+import { sessionsRoutes } from './routes/sessions.js'
 
 const app = Fastify({
   logger: {
@@ -49,6 +50,7 @@ await app.register(intentRoutes)
 await app.register(playersRoutes)
 await app.register(billingRoutes)
 await app.register(feedbackRoutes)
+await app.register(sessionsRoutes)
 await app.register(internalRoutes)
 
 // ── Start ─────────────────────────────────────────────────────────────────────
