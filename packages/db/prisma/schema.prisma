@@ -824,3 +824,99 @@ model ChatMessage {
   @@index([sessionId])
   @@map("chat_messages")
 }
+
+// ─── X / Twitter Engine ───────────────────────────────────────────────────────
+
+/// A connected X/Twitter account used by the X Engine.
+model XAccount {
+  id           String    @id @default(cuid())
+  handle       String
+  xUserId      String    @unique
+  /// Encrypted OAuth 2.0 access token
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  tokenExpiry  DateTime?
+  isActive     Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scheduledPosts   ScheduledPost[]
+  monitorRules     TweetMonitorRule[]
+  pendingReplies   PendingReply[]
+
+  @@map("x_accounts")
+}
+
+/// A tweet queued for posting by the X Engine.
+model ScheduledPost {
+  id String @id @default(cuid())
+
+  xAccountId String
+  xAccount   XAccount @relation(fields: [xAccountId], references: [id], onDelete: Cascade)
+
+  /// Tweet body text (max 280 chars enforced in app)
+  content    String   @db.Text
+  /// Optional media attachment URLs
+  mediaUrls  String[]
+  /// "start_sit" | "waiver" | "trade" | "trending" | "matchup" | "custom"
+  postType   String   @default("custom")
+
+  scheduledFor DateTime
+  /// "pending" | "posted" | "failed" | "cancelled"
+  status       String   @default("pending")
+  /// X tweet ID returned after successful post
+  tweetId      String?
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([xAccountId, status])
+  @@index([scheduledFor])
+  @@map("scheduled_posts")
+}
+
+/// A saved search query used by the Tweet Monitor to ingest fantasy tweets.
+model TweetMonitorRule {
+  id String @id @default(cuid())
+
+  xAccountId String
+  xAccount   XAccount @relation(fields: [xAccountId], references: [id], onDelete: Cascade)
+
+  /// Twitter search query, e.g. "#fantasyfootball waiver wire"
+  query     String
+  isActive  Boolean   @default(true)
+  lastRanAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([xAccountId])
+  @@map("tweet_monitor_rules")
+}
+
+/// An @mention captured by the X Engine, queued for an AI-generated reply.
+model PendingReply {
+  id String @id @default(cuid())
+
+  xAccountId String
+  xAccount   XAccount @relation(fields: [xAccountId], references: [id], onDelete: Cascade)
+
+  /// Original tweet ID that mentioned us
+  tweetId      String @unique
+  /// Author handle who mentioned us
+  authorHandle String
+  /// Full text of the mention
+  tweetText    String @db.Text
+  /// AI-generated reply draft (null until generated)
+  aiReply      String? @db.Text
+  /// "pending" | "approved" | "sent" | "skipped"
+  status       String  @default("pending")
+  sentAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([xAccountId, status])
+  @@map("pending_replies")
+}

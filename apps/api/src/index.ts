@@ -12,6 +12,7 @@ import { playersRoutes } from './routes/players.js'
 import { billingRoutes } from './routes/billing.js'
 import { feedbackRoutes } from './routes/feedback.js'
 import { sessionsRoutes } from './routes/sessions.js'
+import { xEngineRoutes } from './routes/x-engine.js'
 
 const app = Fastify({
   logger: {
@@ -51,6 +52,7 @@ await app.register(playersRoutes)
 await app.register(billingRoutes)
 await app.register(feedbackRoutes)
 await app.register(sessionsRoutes)
+await app.register(xEngineRoutes)
 await app.register(internalRoutes)
 
 // ── Start ─────────────────────────────────────────────────────────────────────

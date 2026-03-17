@@ -11,7 +11,8 @@
     "./youtube": "./dist/youtube/index.js",
     "./fantasycalc": "./dist/fantasycalc/index.js",
     "./ffc": "./dist/ffc/index.js",
-    "./dynastydaddy": "./dist/dynastydaddy/index.js"
+    "./dynastydaddy": "./dist/dynastydaddy/index.js",
+    "./twitter": "./dist/twitter/index.js"
   },
   "scripts": {
     "build": "tsc --build",

@@ -391,4 +391,138 @@ export interface FantasyTool {
   sortOrder: number
 }
 
+// ─── X Engine ─────────────────────────────────────────────────────────────────
 
+export interface XAccount {
+  id: string
+  handle: string
+  xUserId: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  tokenExpiry: string | null
+}
+
+export interface ScheduledPost {
+  id: string
+  xAccountId: string
+  xAccount?: { handle: string }
+  content: string
+  mediaUrls: string[]
+  postType: string
+  scheduledFor: string
+  status: string
+  tweetId: string | null
+  errorMessage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface TweetMonitorRule {
+  id: string
+  xAccountId: string
+  xAccount?: { handle: string }
+  query: string
+  isActive: boolean
+  lastRanAt: string | null
+  createdAt: string
+}
+
+export interface PendingReply {
+  id: string
+  xAccountId: string
+  xAccount?: { handle: string }
+  tweetId: string
+  authorHandle: string
+  tweetText: string
+  aiReply: string | null
+  status: string
+  sentAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface XStats {
+  postedThisWeek: number
+  pendingPosts: number
+  activeRules: number
+  pendingReplies: number
+}
+
+export const xEngineApi = {
+  // Account
+  getAccount(): Promise<{ account: XAccount | null; isConfigured: boolean; tierNote: string }> {
+    return adminFetch('/internal/x/account')
+  },
+  connectWithCode(code: string, callbackUrl: string): Promise<{ account: XAccount }> {
+    return adminFetch('/internal/x/account', {
+      method: 'POST',
+      body: JSON.stringify({ code, callbackUrl }),
+    })
+  },
+  disconnectAccount(id: string): Promise<{ success: boolean }> {
+    return adminFetch(`/internal/x/account/${id}`, { method: 'DELETE' })
+  },
+  getAuthUrl(callbackUrl: string): Promise<{ url: string; state: string }> {
+    return adminFetch(`/internal/x/auth-url?callbackUrl=${encodeURIComponent(callbackUrl)}`)
+  },
+
+  // Stats
+  getStats(): Promise<XStats> {
+    return adminFetch('/internal/x/stats')
+  },
+
+  // Scheduled Posts
+  getPosts(params?: { status?: string; page?: number }): Promise<{ posts: ScheduledPost[]; total: number; pages: number }> {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.page) qs.set('page', String(params.page))
+    return adminFetch(`/internal/x/posts?${qs}`)
+  },
+  createPost(data: { xAccountId: string; content: string; postType: string; scheduledFor: string; mediaUrls?: string[] }): Promise<{ post: ScheduledPost }> {
+    return adminFetch('/internal/x/posts', { method: 'POST', body: JSON.stringify(data) })
+  },
+  updatePost(id: string, data: { content?: string; scheduledFor?: string; status?: 'pending' | 'cancelled' }): Promise<{ post: ScheduledPost }> {
+    return adminFetch(`/internal/x/posts/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+  },
+  generateDraft(postType: string, context?: string): Promise<{ draft: string }> {
+    return adminFetch('/internal/x/posts/generate', { method: 'POST', body: JSON.stringify({ postType, context }) })
+  },
+
+  // Monitor Rules
+  getRules(): Promise<{ rules: TweetMonitorRule[] }> {
+    return adminFetch('/internal/x/rules')
+  },
+  createRule(data: { xAccountId: string; query: string }): Promise<{ rule: TweetMonitorRule }> {
+    return adminFetch('/internal/x/rules', { method: 'POST', body: JSON.stringify(data) })
+  },
+  toggleRule(id: string, isActive: boolean): Promise<{ rule: TweetMonitorRule }> {
+    return adminFetch(`/internal/x/rules/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) })
+  },
+  deleteRule(id: string): Promise<{ success: boolean }> {
+    return adminFetch(`/internal/x/rules/${id}`, { method: 'DELETE' })
+  },
+  runRule(id: string): Promise<{ tweets: unknown[]; resultCount: number }> {
+    return adminFetch(`/internal/x/rules/${id}/run`, { method: 'POST' })
+  },
+
+  // Pending Replies
+  getReplies(params?: { status?: string; page?: number }): Promise<{ replies: PendingReply[]; total: number; pages: number }> {
+    const qs = new URLSearchParams()
+    if (params?.status) qs.set('status', params.status)
+    if (params?.page) qs.set('page', String(params.page))
+    return adminFetch(`/internal/x/replies?${qs}`)
+  },
+  syncMentions(): Promise<{ synced: number; created: number }> {
+    return adminFetch('/internal/x/replies/sync', { method: 'POST' })
+  },
+  generateReply(id: string): Promise<{ aiReply: string }> {
+    return adminFetch(`/internal/x/replies/${id}/generate`, { method: 'POST' })
+  },
+  sendReply(id: string, content: string): Promise<{ success: boolean; tweetId?: string }> {
+    return adminFetch(`/internal/x/replies/${id}/send`, { method: 'POST', body: JSON.stringify({ content }) })
+  },
+  skipReply(id: string): Promise<{ success: boolean }> {
+    return adminFetch(`/internal/x/replies/${id}/skip`, { method: 'PATCH' })
+  },
+}

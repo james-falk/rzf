@@ -15,6 +15,10 @@ import {
   MessageSquare,
   Trophy,
   Wrench,
+  Home,
+  CalendarClock,
+  Radio,
+  MessageCircleReply,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -22,10 +26,11 @@ const sections = [
   {
     label: 'Sources',
     links: [
-      { href: '/sources', label: 'Overview', icon: LayoutDashboard },
+      { href: '/sources', label: 'Overview', icon: LayoutDashboard, exact: true },
       { href: '/content', label: 'Analytics', icon: BarChart3 },
       { href: '/sources/manager', label: 'Source Manager', icon: Settings2 },
       { href: '/queue/ingestion', label: 'Ingestion Queue', icon: Layers },
+      { href: '/data', label: 'Data Sources', icon: Database },
     ],
   },
   {
@@ -45,9 +50,17 @@ const sections = [
     ],
   },
   {
+    label: 'X Engine',
+    links: [
+      { href: '/x-engine', label: 'Overview', icon: Home, exact: true },
+      { href: '/x-engine/scheduler', label: 'Post Scheduler', icon: CalendarClock },
+      { href: '/x-engine/monitor', label: 'Tweet Monitor', icon: Radio },
+      { href: '/x-engine/replies', label: 'Reply Queue', icon: MessageCircleReply },
+    ],
+  },
+  {
     label: 'System',
     links: [
-      { href: '/data', label: 'Data Sources', icon: Database },
       { href: '/feedback', label: 'Feedback', icon: MessageSquare },
     ],
   },
@@ -62,16 +75,18 @@ export function Sidebar() {
     router.push('/login')
   }
 
-  function isActive(href: string) {
-    if (href === '/sources') return pathname === '/sources'
+  function isActive(href: string, exact?: boolean) {
+    if (exact) return pathname === href
     return pathname.startsWith(href)
   }
 
   return (
     <aside className="hidden w-56 flex-shrink-0 flex-col border-r border-white/10 md:flex">
       <div className="border-b border-white/10 px-5 py-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">Red Zone Fantasy</p>
-        <p className="mt-0.5 text-xs text-zinc-400">Command Center</p>
+        <Link href="/" className="block">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-red-500">Red Zone Fantasy</p>
+          <p className="mt-0.5 text-xs text-zinc-400">Command Center</p>
+        </Link>
       </div>
 
       <nav className="flex-1 overflow-y-auto p-3">
@@ -81,13 +96,13 @@ export function Sidebar() {
               {section.label}
             </p>
             <div className="space-y-0.5">
-              {section.links.map(({ href, label, icon: Icon }) => (
+              {section.links.map(({ href, label, icon: Icon, exact }) => (
                 <Link
                   key={href}
                   href={href}
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition',
-                    isActive(href)
+                    isActive(href, exact)
                       ? 'bg-white/10 text-white'
                       : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200',
                   )}
