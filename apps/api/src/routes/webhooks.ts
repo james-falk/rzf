@@ -107,13 +107,19 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
         const userId = session.metadata?.userId
         if (!userId) break
 
+        const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null
+
         await db.user.update({
           where: { id: userId },
-          data: { tier: 'paid', runCredits: 50 },
+          data: {
+            tier: 'paid',
+            runCredits: 50,
+            ...(customerId ? { stripeCustomerId: customerId } : {}),
+          },
         })
 
         await track('user.upgraded', { fromTier: 'free', toTier: 'paid' }, userId)
-        console.log(`[webhook] Upgraded user ${userId} to paid tier`)
+        console.log(`[webhook] Upgraded user ${userId} to paid tier (customer: ${customerId})`)
         break
       }
 
@@ -121,16 +127,19 @@ export async function webhooksRoutes(app: FastifyInstance): Promise<void> {
         const sub = event.data.object as Stripe.Subscription
         const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id
 
-        // Look up user by Stripe customer ID via subscriptions metadata
-        // This is a best-effort downgrade — find any user with this customer
-        const runWithCustomer = await db.agentRun.findFirst({
-          where: { user: { email: { not: undefined } } },
-        })
-        if (!runWithCustomer) break
+        const user = await db.user.findFirst({ where: { stripeCustomerId: customerId } })
+        if (!user) {
+          console.warn(`[webhook] Subscription cancelled but no user found for customer ${customerId}`)
+          break
+        }
 
-        // If we had a stripe_customer_id on User, we'd do a direct lookup.
-        // For now, log and handle manually.
-        console.log(`[webhook] Subscription cancelled for customer ${customerId}`)
+        await db.user.update({
+          where: { id: user.id },
+          data: { tier: 'free', runCredits: 0 },
+        })
+
+        await track('user.downgraded', { fromTier: 'paid', toTier: 'free', reason: 'subscription_cancelled' }, user.id)
+        console.log(`[webhook] Downgraded user ${user.id} to free tier (subscription cancelled)`)
         break
       }
     }
