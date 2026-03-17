@@ -18,10 +18,29 @@ export default function BillingPage() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    async function fetchUsage() {
+    async function initBillingPage() {
+      const token = await getToken()
+      if (!token) { setLoadingUsage(false); return }
+
+      // If returning from a successful Stripe checkout, verify the session first
+      // so the DB upgrade is applied immediately (before the async webhook fires).
+      const params = new URLSearchParams(window.location.search)
+      const sessionId = params.get('session_id')
+      const isSuccess = params.get('success') === 'true'
+
+      if (isSuccess && sessionId) {
+        try {
+          const verified = await api.verifyCheckout(token, sessionId)
+          // Use the verified tier directly — no need to re-fetch
+          setUsage({ tier: verified.tier, runCredits: verified.runCredits, monthlyRunsUsed: 0 })
+          setLoadingUsage(false)
+          return
+        } catch {
+          // Verification failed — fall through to normal usage fetch
+        }
+      }
+
       try {
-        const token = await getToken()
-        if (!token) return
         const data = await api.getUsage(token)
         setUsage({ tier: data.tier, runCredits: data.runCredits, monthlyRunsUsed: data.monthlyRunsUsed })
       } catch {
@@ -30,7 +49,7 @@ export default function BillingPage() {
         setLoadingUsage(false)
       }
     }
-    fetchUsage()
+    void initBillingPage()
   }, [getToken])
 
   async function handleUpgrade() {
@@ -40,9 +59,10 @@ export default function BillingPage() {
       const token = await getToken()
       if (!token) throw new Error('Not authenticated')
       const origin = window.location.origin
+      // Stripe replaces {CHECKOUT_SESSION_ID} with the real session ID on redirect
       const { url } = await api.createCheckoutSession(
         token,
-        `${origin}/account/billing?success=true`,
+        `${origin}/account/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
         `${origin}/account/billing?canceled=true`,
       )
       if (url) window.location.href = url
@@ -57,9 +77,13 @@ export default function BillingPage() {
     }
   }
 
-  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
-  const justUpgraded = searchParams?.get('success') === 'true'
-  const canceled = searchParams?.get('canceled') === 'true'
+  const [justUpgraded, setJustUpgraded] = useState(false)
+  const [canceled, setCanceled] = useState(false)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    setJustUpgraded(p.get('success') === 'true')
+    setCanceled(p.get('canceled') === 'true')
+  }, [])
 
   const isPaid = usage?.tier === 'paid'
   const runsUsed = usage?.monthlyRunsUsed ?? 0

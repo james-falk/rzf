@@ -108,6 +108,14 @@ export const api = {
     })
   },
 
+  async verifyCheckout(token: string, sessionId: string) {
+    return apiFetch<{ tier: string; runCredits: number; alreadyApplied?: boolean }>('/billing/verify-checkout', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ sessionId }),
+    })
+  },
+
   async searchPlayers(token: string, q: string, position?: string) {
     const params = new URLSearchParams({ q, ...(position && position !== 'All' ? { position } : {}) })
     return apiFetch<{ players: Array<{ player_id: string; full_name: string; position: string; team: string | null; injuryStatus: string | null }> }>(

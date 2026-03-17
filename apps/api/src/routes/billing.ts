@@ -43,4 +43,55 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ url: session.url, sessionId: session.id })
   })
+
+  // POST /billing/verify-checkout — verify a completed Stripe Checkout Session and
+  // immediately apply the upgrade. Called by the client on return from Stripe to
+  // eliminate the webhook race condition.
+  app.post('/billing/verify-checkout', { preHandler: requireAuth }, async (req, reply) => {
+    if (!env.STRIPE_SECRET_KEY) {
+      return reply.status(503).send({ error: 'Payments not configured' })
+    }
+
+    const body = z.object({ sessionId: z.string() }).safeParse(req.body)
+    if (!body.success) return reply.status(400).send({ error: 'sessionId required' })
+
+    const userId = req.authUser!.userId
+
+    const stripe = getStripe()
+    let session: Stripe.Checkout.Session
+    try {
+      session = await stripe.checkout.sessions.retrieve(body.data.sessionId)
+    } catch {
+      return reply.status(400).send({ error: 'Could not retrieve Stripe session' })
+    }
+
+    // Guard: only apply if this session belongs to the calling user and is paid
+    if (session.metadata?.userId !== userId) {
+      return reply.status(403).send({ error: 'Session does not belong to this user' })
+    }
+    if (session.payment_status !== 'paid') {
+      return reply.status(400).send({ error: 'Session is not paid' })
+    }
+
+    // Idempotent: if already upgraded, just return current state
+    const existing = await db.user.findUnique({ where: { id: userId }, select: { tier: true, runCredits: true } })
+    if (existing?.tier === 'paid') {
+      return reply.send({ tier: existing.tier, runCredits: existing.runCredits, alreadyApplied: true })
+    }
+
+    const customerId = typeof session.customer === 'string' ? session.customer : (session.customer as Stripe.Customer | null)?.id ?? null
+
+    const updated = await db.user.update({
+      where: { id: userId },
+      data: {
+        tier: 'paid',
+        runCredits: 50,
+        ...(customerId ? { stripeCustomerId: customerId } : {}),
+      },
+      select: { tier: true, runCredits: true },
+    })
+
+    console.log(`[billing] verify-checkout: upgraded user ${userId} to paid (session: ${session.id})`)
+    return reply.send({ tier: updated.tier, runCredits: updated.runCredits })
+  })
 }
