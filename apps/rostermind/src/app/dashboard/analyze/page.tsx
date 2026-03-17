@@ -259,7 +259,7 @@ export default function AnalyzePage() {
       setRunId(agentRunId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start analysis.'
-      setPhase('done')
+      setPhase('idle')
       setMessages((prev) => prev.filter((m) => m.type !== 'loading'))
       push({ id: mid(), role: 'assistant', type: 'error', content: msg })
     }
