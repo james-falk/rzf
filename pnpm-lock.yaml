@@ -192,6 +192,22 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
+  apps/reddit-engine:
+    dependencies:
+      '@rzf/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@rzf/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.19.15
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   apps/rostermind:
     dependencies:
       '@clerk/nextjs':
