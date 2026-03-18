@@ -7,6 +7,7 @@ import {
   runTradeAnalysisAgent,
   runLineupAgent,
   runPlayerScoutAgent,
+  runPlayerCompareAgent,
 } from '@rzf/agents'
 import { env } from '@rzf/shared/env'
 import { AgentJobTypes } from '@rzf/shared/types'
@@ -18,7 +19,7 @@ export function createAgentWorker(): Worker<AgentJobData> {
   const worker = new Worker<AgentJobData>(
     QUEUE_NAMES.AGENTS,
     async (job) => {
-      const { agentRunId, agentType, input } = job.data
+      const { agentRunId, agentType, input, sessionId } = job.data
       const startTime = Date.now()
 
       console.log(`[agent-worker] Starting ${agentType} job ${job.id} (run: ${agentRunId})`)
@@ -35,16 +36,19 @@ export function createAgentWorker(): Worker<AgentJobData> {
         // Fetch runtime config from DB (system prompt override, model tier, and source config).
         // Falls back gracefully if config row is missing.
         const agentConfig = await db.agentConfig.findUnique({ where: { agentType } }).catch(() => null)
-        const runtimeConfig = agentConfig
-          ? {
-              systemPromptOverride: agentConfig.systemPrompt,
-              modelTierOverride: agentConfig.modelTier,
-              allowedSourceTiers: agentConfig.allowedSourceTiers,
-              allowedPlatforms: agentConfig.allowedPlatforms,
-              recencyWindowHours: agentConfig.recencyWindowHours,
-              maxContentItems: agentConfig.maxContentItems,
-            }
-          : undefined
+        const runtimeConfig = {
+          ...(agentConfig
+            ? {
+                systemPromptOverride: agentConfig.systemPrompt,
+                modelTierOverride: agentConfig.modelTier,
+                allowedSourceTiers: agentConfig.allowedSourceTiers,
+                allowedPlatforms: agentConfig.allowedPlatforms,
+                recencyWindowHours: agentConfig.recencyWindowHours,
+                maxContentItems: agentConfig.maxContentItems,
+              }
+            : {}),
+          sessionId: sessionId ?? undefined,
+        }
 
         let output: unknown
 
@@ -53,7 +57,7 @@ export function createAgentWorker(): Worker<AgentJobData> {
             output = await runTeamEvalAgent(input as Parameters<typeof runTeamEvalAgent>[0], runtimeConfig)
             break
           case AgentJobTypes.INJURY_WATCH:
-            output = await runInjuryWatchAgent(input as Parameters<typeof runInjuryWatchAgent>[0])
+            output = await runInjuryWatchAgent(input as Parameters<typeof runInjuryWatchAgent>[0], runtimeConfig)
             break
           case AgentJobTypes.WAIVER:
             output = await runWaiverAgent(input as Parameters<typeof runWaiverAgent>[0], runtimeConfig)
@@ -66,6 +70,9 @@ export function createAgentWorker(): Worker<AgentJobData> {
             break
           case AgentJobTypes.PLAYER_SCOUT:
             output = await runPlayerScoutAgent(input as Parameters<typeof runPlayerScoutAgent>[0], runtimeConfig)
+            break
+          case AgentJobTypes.PLAYER_COMPARE:
+            output = await runPlayerCompareAgent(input as Parameters<typeof runPlayerCompareAgent>[0], runtimeConfig)
             break
           default:
             throw new Error(`Unknown agent type: ${agentType}`)

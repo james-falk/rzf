@@ -6,11 +6,15 @@ import { TeamEvalOutputSchema } from '@rzf/shared/types'
 import type { TeamEvalInput, TeamEvalOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 import { injectContent, formatContentByPlayer } from '../content-injector.js'
+import { getMultiMarketValues } from '../multi-market-values.js'
+import { buildSessionContext } from '../session-context.js'
 
+// Tier 1, all platforms: broad roster report benefits from quality sources.
+// Tightened from Tier 1+2 — Tier 1 beat reporters are sufficient for team eval.
 const DEFAULTS = {
   recencyWindowHours: 168, // 7 days
-  maxContentItems: 10,
-  allowedTiers: [1, 2, 3],
+  maxContentItems: 15,
+  allowedTiers: [1],
   allowedPlatforms: ['rss', 'youtube'],
 }
 
@@ -81,13 +85,19 @@ export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRunti
 
   const rankingMap = new Map(rankings.map((r) => [r.playerId, r]))
 
-  // ── 5. DB lookup: trending adds ───────────────────────────────────────────
-  const trending = await db.trendingPlayer.findMany({
-    where: { type: 'add' },
-    orderBy: { fetchedAt: 'desc' },
-    take: 10,
-    include: { player: true },
-  })
+  // ── 5. DB lookup: trending adds + multi-market values + session context ─────
+  const starterPlayerIds = allPlayerIds.filter((id) => starterIds.has(id) && id !== 'DEF' && !id.match(/^[A-Z]{2,3}$/))
+
+  const [trending, marketValues, sessionContext] = await Promise.all([
+    db.trendingPlayer.findMany({
+      where: { type: 'add' },
+      orderBy: { fetchedAt: 'desc' },
+      take: 10,
+      include: { player: true },
+    }),
+    getMultiMarketValues(starterPlayerIds),
+    buildSessionContext(userId, config?.sessionId),
+  ])
 
   const trendingAddNames = trending.map(
     (t) => `${t.player.firstName} ${t.player.lastName}`.trim(),
@@ -161,9 +171,10 @@ export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRunti
   }
 
   // ── 8. LLM call ────────────────────────────────────────────────────────────
+  const leagueStyle = (userPrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft'
   console.log(`[team-eval] Calling LLM — starters=${starters.length} bench=${bench.length} news=${injection.items.length} confidence=${injection.confidenceScore}`)
   const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote, newsContext || undefined)
+  const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote, newsContext || undefined, marketValues, leagueStyle, sessionContext || undefined)
 
   const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
     { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },

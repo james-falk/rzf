@@ -103,6 +103,20 @@ export const SleeperConnector = {
   },
 
   /**
+   * Get season-level stats for all players for a given year and season type.
+   * Sleeper endpoint: GET /stats/nfl/{season_type}/{season}
+   * Returns a map of { sleeperId: { pts_ppr, rec_yd, rush_yd, ... } }
+   * season_type: "regular" | "pre" | "post"
+   */
+  async getSeasonStats(season: number, seasonType: 'regular' | 'pre' | 'post' = 'regular'): Promise<Record<string, Record<string, number>>> {
+    const raw = await sleeperFetch(
+      `/stats/nfl/${seasonType}/${season}`,
+      z.record(z.string(), z.record(z.string(), z.number()).catch(() => ({}))),
+    )
+    return raw as Record<string, Record<string, number>>
+  },
+
+  /**
    * Get all transactions for a league in a given week.
    * Returns all types (trade, free_agent, waiver) — filter client-side if needed.
    * Week is the NFL week number (1–18).

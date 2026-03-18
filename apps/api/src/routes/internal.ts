@@ -393,6 +393,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         IngestionJobTypes.TRADE_VALUES_REFRESH,
         IngestionJobTypes.ADP_REFRESH,
         IngestionJobTypes.DYNASTY_DADDY_REFRESH,
+        IngestionJobTypes.SEASON_STATS_REFRESH,
       ]),
     }).safeParse(req.body)
 

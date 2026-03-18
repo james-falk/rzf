@@ -11,6 +11,7 @@ import {
   TradeAnalysisInputSchema,
   LineupInputSchema,
   PlayerScoutInputSchema,
+  PlayerCompareInputSchema,
 } from '@rzf/shared/types'
 import { requireAuth } from '../middleware/auth.js'
 
@@ -51,8 +52,10 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
         AgentJobTypes.LINEUP,
         AgentJobTypes.TRADE_ANALYSIS,
         AgentJobTypes.PLAYER_SCOUT,
+        AgentJobTypes.PLAYER_COMPARE,
       ]),
       input: z.unknown(),
+      sessionId: z.string().optional(),
     })
 
     const body = bodySchema.safeParse(req.body)
@@ -60,7 +63,7 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
     }
 
-    const { agentType, input } = body.data
+    const { agentType, input, sessionId } = body.data
     const inputWithUser = { ...(input as object), userId: user.userId }
 
     // Validate agent-specific input
@@ -71,6 +74,7 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
       [AgentJobTypes.LINEUP]: LineupInputSchema,
       [AgentJobTypes.TRADE_ANALYSIS]: TradeAnalysisInputSchema,
       [AgentJobTypes.PLAYER_SCOUT]: PlayerScoutInputSchema,
+      [AgentJobTypes.PLAYER_COMPARE]: PlayerCompareInputSchema,
     } as const
 
     const schema = schemaMap[agentType]
@@ -105,6 +109,7 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
         agentType,
         status: 'queued',
         inputJson: JSON.parse(JSON.stringify(validatedInput)),
+        sessionId: sessionId ?? null,
       },
     })
 
@@ -114,6 +119,7 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
       agentRunId: agentRun.id,
       agentType,
       input: validatedInput,
+      sessionId: sessionId ?? undefined,
     })
 
     return reply.status(202).send({
@@ -191,7 +197,7 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
 
     const reportJson = run.outputJson as Record<string, unknown>
 
-    // Extract a concise player roster from the report if available (injury/scout/trade agents)
+    // Extract player names from report for context
     const playerNames: string[] = []
     if (Array.isArray(reportJson?.alerts)) {
       for (const a of reportJson.alerts as Array<{ playerName?: string }>) {
@@ -210,25 +216,112 @@ export async function agentsRoutes(app: FastifyInstance): Promise<void> {
     }
     if (typeof reportJson?.playerName === 'string') playerNames.push(reportJson.playerName)
 
+    // Detect if the question is asking about historical/seasonal stats
+    const statsKeywords = ['last year', 'previous year', 'last season', 'previous season', '2024', '2023', '2022', '2021', '2020', 'history', 'historical', 'career', 'stats', 'statistics', 'yards', 'touchdowns', 'fantasy points', 'ppg', 'per game']
+    const messageNormalized = body.data.message.toLowerCase()
+    const isStatsQuestion = statsKeywords.some((kw) => messageNormalized.includes(kw))
+
+    // If stats question, look up PlayerSeasonStats for players in the report
+    let seasonStatsContext = ''
+    if (isStatsQuestion && playerNames.length > 0) {
+      try {
+        const playerRecords = await db.player.findMany({
+          where: {
+            OR: playerNames.map((name) => {
+              const parts = name.trim().split(/\s+/)
+              const first = parts[0] ?? ''
+              const last = parts.slice(1).join(' ')
+              return { firstName: { contains: first, mode: 'insensitive' as const }, lastName: { contains: last, mode: 'insensitive' as const } }
+            }),
+          },
+          select: { sleeperId: true, firstName: true, lastName: true },
+        })
+
+        if (playerRecords.length > 0) {
+          const sleeperIds = playerRecords.map((p) => p.sleeperId)
+          const stats = await db.playerSeasonStats.findMany({
+            where: { playerId: { in: sleeperIds }, seasonType: 'regular' },
+            orderBy: [{ playerId: 'asc' }, { season: 'desc' }],
+          })
+
+          const playerNameMap = new Map(playerRecords.map((p) => [p.sleeperId, `${p.firstName} ${p.lastName}`.trim()]))
+
+          if (stats.length > 0) {
+            const byPlayer = new Map<string, typeof stats>()
+            for (const s of stats) {
+              const existing = byPlayer.get(s.playerId) ?? []
+              existing.push(s)
+              byPlayer.set(s.playerId, existing)
+            }
+
+            seasonStatsContext = '\n\n[Historical Season Statistics from database]\n'
+            for (const [pid, seasons] of byPlayer) {
+              const name = playerNameMap.get(pid) ?? pid
+              seasonStatsContext += `${name}:\n`
+              for (const s of seasons) {
+                const parts = []
+                if (s.passYds) parts.push(`${s.passYds} pass yds`)
+                if (s.passTds) parts.push(`${s.passTds} pass TD`)
+                if (s.rushYds) parts.push(`${s.rushYds} rush yds`)
+                if (s.rushTds) parts.push(`${s.rushTds} rush TD`)
+                if (s.recYds) parts.push(`${s.recYds} rec yds`)
+                if (s.recTds) parts.push(`${s.recTds} rec TD`)
+                if (s.rec) parts.push(`${s.rec} rec`)
+                if (s.targets) parts.push(`${s.targets} tgt`)
+                if (s.fantasyPtsPpr) parts.push(`${s.fantasyPtsPpr.toFixed(1)} PPR pts`)
+                if (s.gamesPlayed) parts.push(`${s.gamesPlayed} GP`)
+                seasonStatsContext += `  ${s.season}: ${parts.join(', ') || 'no data'}\n`
+              }
+            }
+          }
+        }
+      } catch { /* ignore stats lookup errors */ }
+    }
+
+    // Detect if another agent would serve this question better
+    const agentSuggestionKeywords: Record<string, string[]> = {
+      player_scout: ['scout', 'deep dive', 'outlook', 'future', 'dynasty', 'buy', 'sell', 'hold', 'target', 'avoid'],
+      trade_analysis: ['trade', 'swap', 'offer', 'exchange', 'should i trade', 'worth it'],
+      injury_watch: ['injury', 'injured', 'hurt', 'status', 'health', 'return', 'questionable'],
+      lineup: ['start', 'sit', 'lineup', 'bench', 'flex', 'who should i start', 'who do i start'],
+      waiver: ['waiver', 'add', 'drop', 'pickup', 'free agent', 'stream'],
+    }
+
+    let suggestedAgent: { agentType: string; label: string; reason: string } | null = null
+    for (const [agentType, keywords] of Object.entries(agentSuggestionKeywords)) {
+      if (agentType === run.agentType) continue
+      if (keywords.some((kw) => messageNormalized.includes(kw))) {
+        const configs = await db.agentConfig.findFirst({ where: { agentType, enabled: true }, select: { label: true } })
+        if (configs) {
+          suggestedAgent = {
+            agentType,
+            label: configs.label,
+            reason: `This looks like a question best answered by running the ${configs.label} agent.`,
+          }
+          break
+        }
+      }
+    }
+
     const rosterHint = playerNames.length > 0
       ? `\nPlayers in this report: ${playerNames.join(', ')}.`
       : ''
 
-    const systemPrompt = `You are RosterMind AI, a fantasy football assistant. The user previously received the following analysis report and is asking a follow-up question. Answer clearly and directly — if the question is about a specific player, use the data in the report. Do not say the report doesn't specify unless the player is genuinely absent.${rosterHint}
+    const systemPrompt = `You are RosterMind AI, a fantasy football assistant. The user previously received the following analysis report and is asking a follow-up question. Answer clearly and directly using the provided data. Use the historical stats section when available — those are real numbers from the database, not estimates.${rosterHint}
 
 Report context:
-${JSON.stringify(run.outputJson, null, 2).slice(0, 6000)}`
+${JSON.stringify(run.outputJson, null, 2).slice(0, 5000)}${seasonStatsContext}`
 
     const { content } = await LLMConnector.complete({
       model: 'sonnet',
       systemPrompt,
       userPrompt: body.data.message,
-      maxTokens: 500,
+      maxTokens: 600,
     })
 
     await track('agent.followup.sent', { agentRunId: id, agentType: run.agentType }, userId)
 
-    return reply.send({ reply: content })
+    return reply.send({ reply: content, suggestedAgent: suggestedAgent ?? undefined })
   })
 
   // GET /usage — current user's credit + token usage

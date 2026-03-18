@@ -14,11 +14,50 @@
     },
     "github": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
       },
       "description": "Access GitHub repo context: commits, PRs, issues. Add GITHUB_PERSONAL_ACCESS_TOKEN to your .env."
+    },
+    "render": {
+      "url": "https://mcp.render.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${RENDER_API_KEY}"
+      },
+      "description": "Manage Render services (API, Worker, Redis). Pull CPU/memory metrics, build logs, error logs, and query hosted Postgres."
+    },
+    "prisma": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "prisma",
+        "mcp"
+      ],
+      "description": "Apply schema migrations, introspect schema, push changes, and generate Prisma client via natural language in Cursor Agent mode."
+    },
+    "sentry": {
+      "url": "https://mcp.sentry.dev/mcp",
+      "description": "27 tools for error analysis, issue tracking, and performance monitoring. Ask: 'what errors hit my ingestion worker in the last 24 hours?' Auth via OAuth on first use."
+    },
+    "vercel": {
+      "url": "https://mcp.vercel.com",
+      "description": "Deployment status, build logs, and runtime function logs for the rostermind Next.js app. Auth via OAuth on first use."
+    },
+    "clerk": {
+      "url": "https://mcp.clerk.com/mcp",
+      "description": "Look up users, inspect auth sessions, and pull SDK snippets. Useful for debugging user tier/credit issues. Auth via OAuth on first use."
+    },
+    "stripe": {
+      "url": "https://mcp.stripe.com",
+      "description": "25 tools: customers, subscriptions, invoices, refunds. Phase 2 readiness. Auth via OAuth on first use."
+    },
+    "miro": {
+      "url": "https://mcp.miro.com/",
+      "description": "Create and update architecture diagrams on the RZF architecture board. Auth via OAuth on first use — works on free plan."
     }
   }
 }

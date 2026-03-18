@@ -84,7 +84,13 @@ async function processFeed(
       (item['media:content'] as CustomItem['media:content'])?.$?.url ?? null
 
     const topics = inferTopics(`${item.title} ${rawContent}`)
-    const matches = resolvePlayerMentions(rawContent, aliases)
+    // Title-first strategy: prefer accurate title matches over noisy body matches.
+    // If a full name appears in the title, tag that player. Otherwise fall back to
+    // body scan using strictMode (full names only, no last-name-only aliases).
+    const titleMatches = resolvePlayerMentions(item.title, aliases, { strictMode: true })
+    const matches = titleMatches.length > 0
+      ? titleMatches
+      : resolvePlayerMentions(rawContent, aliases, { strictMode: true })
 
     const contentItem = await db.contentItem.create({
       data: {
@@ -131,12 +137,13 @@ export interface RSSRunResult {
 
 export const RSSConnector = {
   /**
-   * Fetch all active RSS sources from the DB and process each feed.
+   * Fetch all active RSS (or Reddit) sources from the DB and process each feed.
+   * Pass platform='reddit' to process Reddit RSS sources instead.
    * Safe to call repeatedly — deduplicates by sourceUrl.
    */
-  async run(): Promise<RSSRunResult> {
+  async run(platform: 'rss' | 'reddit' = 'rss'): Promise<RSSRunResult> {
     const sources = await db.contentSource.findMany({
-      where: { platform: 'rss', isActive: true },
+      where: { platform, isActive: true },
     })
 
     if (sources.length === 0) {

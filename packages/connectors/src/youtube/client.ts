@@ -193,7 +193,11 @@ async function processChannel(
     const sourceUrl = `https://www.youtube.com/watch?v=${video.id}`
     const rawContent = `${video.snippet.title}\n\n${video.snippet.description}`
     const topics = inferTopics(rawContent)
-    const matches = resolvePlayerMentions(rawContent, aliases)
+    // Title-first: full-name match in title wins. Description allows full names only.
+    const titleMatches = resolvePlayerMentions(video.snippet.title, aliases, { strictMode: true })
+    const matches = titleMatches.length > 0
+      ? titleMatches
+      : resolvePlayerMentions(video.snippet.description ?? '', aliases, { strictMode: true })
 
     try {
       const contentItem = await db.contentItem.create({

@@ -1,0 +1,29 @@
+---
+description: Keep docs/ARCHITECTURE.md Mermaid diagrams in sync with structural changes
+globs: apps/*/src/**,packages/*/src/**,packages/db/prisma/schema.prisma
+alwaysApply: false
+---
+
+# Architecture Diagram Maintenance
+
+`docs/ARCHITECTURE.md` is the source-of-truth system diagram. Update it whenever you make structural changes.
+
+## Update triggers
+
+| Change | Diagrams to update |
+|--------|-------------------|
+| New app or package | §1 System Overview, §2 Package Graph |
+| New API route | §1 System Overview (add to API node) |
+| New agent | §5 Agent Roster |
+| New ingestion job or schedule change | §4 Ingestion Pipeline |
+| New DB model or relation | §6 DB Models |
+| New external service or connector | §1 System Overview |
+| Deployment cost or platform change | §7 Deployment table |
+
+## Rules
+
+- Update the `Last updated` date at the top of the file on every edit.
+- Do not rewrite unrelated diagrams when making a focused change.
+- Keep node labels short — one line of context max.
+- New agents go in the correct subgraph (`Live`, `Planned`) in §5.
+- New ingestion jobs must include their schedule in the node label in §4.

@@ -6,6 +6,9 @@ import { YouTubeConnector } from '@rzf/connectors/youtube'
 import { FantasyCalcConnector } from '@rzf/connectors/fantasycalc'
 import { FFCConnector } from '@rzf/connectors/ffc'
 import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
+import { FantasyProsConnector } from '@rzf/connectors/fantasypros'
+import { ESPNConnector } from '@rzf/connectors/espn'
+import { OddsConnector } from '@rzf/connectors/odds'
 import { IngestionJobTypes, generateAliases } from '@rzf/shared'
 import type { IngestionJobType } from '@rzf/shared/types'
 import { getRedisConnection } from '../redis.js'
@@ -52,6 +55,39 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
         case IngestionJobTypes.DYNASTY_DADDY_REFRESH:
           await runDynastyDaddyRefresh()
           break
+        case IngestionJobTypes.SEASON_STATS_REFRESH:
+          await runSeasonStatsRefresh()
+          break
+        case IngestionJobTypes.FP_PLAYER_ID_SYNC:
+          await runFPPlayerIdSync()
+          break
+        case IngestionJobTypes.FP_RANKINGS_REFRESH:
+          await runFPRankingsRefresh()
+          break
+        case IngestionJobTypes.FP_PROJECTIONS_REFRESH:
+          await runFPProjectionsRefresh()
+          break
+        case IngestionJobTypes.FP_NEWS_REFRESH:
+          await runFPNewsRefresh()
+          break
+        case IngestionJobTypes.FP_INJURIES_REFRESH:
+          await runFPInjuriesRefresh()
+          break
+        case IngestionJobTypes.ESPN_NEWS_REFRESH:
+          await runESPNNewsRefresh()
+          break
+        case IngestionJobTypes.ESPN_DEFENSE_REFRESH:
+          await runESPNDefenseRefresh()
+          break
+        case IngestionJobTypes.ODDS_REFRESH:
+          await runOddsRefresh()
+          break
+        case IngestionJobTypes.TWITTER_INGESTION_REFRESH:
+          await runTwitterIngestionRefresh()
+          break
+        case IngestionJobTypes.REDDIT_REFRESH:
+          await runRedditRefresh()
+          break
         default:
           throw new Error(`Unknown ingestion job type: ${type}`)
       }
@@ -94,6 +130,7 @@ async function runPlayerRefresh(): Promise<void> {
         const firstName = p.first_name ?? ''
         const lastName = p.last_name ?? ''
 
+        const playerMeta = JSON.parse(JSON.stringify(p))
         await db.player.upsert({
           where: { sleeperId: p.player_id },
           create: {
@@ -110,7 +147,7 @@ async function runPlayerRefresh(): Promise<void> {
             searchRank: p.search_rank ?? null,
             age: p.age ?? null,
             yearsExp: p.years_exp ?? null,
-            metadata: JSON.parse(JSON.stringify(p)),
+            metadata: playerMeta,
             lastRefreshedAt: new Date(),
           },
           update: {
@@ -121,10 +158,21 @@ async function runPlayerRefresh(): Promise<void> {
             depthChartPosition: p.depth_chart_position ?? null,
             depthChartOrder: p.depth_chart_order ?? null,
             searchRank: p.search_rank ?? null,
-            metadata: JSON.parse(JSON.stringify(p)),
+            metadata: playerMeta,
             lastRefreshedAt: new Date(),
           },
         })
+
+        // Seed the SportRadar external ID from Sleeper's sportsdata_id field.
+        // This is the universal bridge used by FP, ESPN, Yahoo, CBS, etc.
+        const sportsdataId = (p as unknown as Record<string, unknown>).sportsdata_id as string | undefined
+        if (sportsdataId && firstName && lastName) {
+          await db.playerExternalId.upsert({
+            where: { sleeperId_source: { sleeperId: p.player_id, source: 'sportradar' } },
+            create: { sleeperId: p.player_id, source: 'sportradar', externalId: sportsdataId, lastVerifiedAt: new Date() },
+            update: { externalId: sportsdataId, lastVerifiedAt: new Date() },
+          }).catch(() => { /* skip on unique constraint race */ })
+        }
 
         // Generate and upsert name aliases for entity resolution
         if (firstName && lastName) {
@@ -228,69 +276,11 @@ async function runTrendingRefresh(): Promise<void> {
 }
 
 // ─── RankingsRefreshJob ───────────────────────────────────────────────────────
-// Weekly: fetch FantasyPros consensus rankings CSV and store in PlayerRanking
+// Weekly: delegates to the FantasyPros rankings sync (Phase 2 — live API).
+// The previous Sleeper searchRank proxy has been superseded by FP consensus data.
 
 async function runRankingsRefresh(): Promise<void> {
-  // Phase 1: Use Sleeper's built-in search_rank as a rankings proxy
-  // Phase 2: Fetch and parse FantasyPros CSV
-  // For now, generate rankings from our cached Player.searchRank data
-
-  const nflState = await SleeperConnector.getNFLState()
-  const week = nflState.week
-  const season = parseInt(nflState.season, 10)
-
-  const players = await db.player.findMany({
-    where: {
-      searchRank: { not: null },
-      status: 'Active',
-      position: { in: [...OFFENSIVE_POSITIONS] },
-    },
-    orderBy: { searchRank: 'asc' },
-  })
-
-  // Group by position for position rankings
-  const byPosition = players.reduce<Record<string, typeof players>>((acc, p) => {
-    const pos = p.position
-    if (!acc[pos]) acc[pos] = []
-    acc[pos]!.push(p)
-    return acc
-  }, {})
-
-  const rankingData = players
-    .filter((p) => p.searchRank !== null)
-    .map((p) => {
-      const posPlayers = byPosition[p.position] ?? []
-      const rankPosition = posPlayers.findIndex((pp) => pp.sleeperId === p.sleeperId) + 1
-      return {
-        playerId: p.sleeperId,
-        source: 'fantasypros' as const,
-        rankOverall: p.searchRank!,
-        rankPosition,
-        week,
-        season,
-        fetchedAt: new Date(),
-      }
-    })
-
-  // Upsert rankings for this week
-  await Promise.all(
-    rankingData.map((r) =>
-      db.playerRanking.upsert({
-        where: {
-          playerId_source_week_season: {
-            playerId: r.playerId,
-            source: r.source,
-            week: r.week,
-            season: r.season,
-          },
-        },
-        create: r,
-        update: { rankOverall: r.rankOverall, rankPosition: r.rankPosition, fetchedAt: r.fetchedAt },
-      }),
-    ),
-  )
-
-  console.log(`[ingestion] Rankings refresh: ${rankingData.length} players ranked for week ${week}`)
+  await runFPRankingsRefresh()
 }
 
 // ─── ContentRefreshJob ────────────────────────────────────────────────────────
@@ -501,4 +491,321 @@ async function runDynastyDaddyRefresh(): Promise<void> {
   console.log(
     `[ingestion] Dynasty Daddy refresh: KTC=${valuesResult.ktcUpserted}, DP=${valuesResult.dpUpserted}, DS=${valuesResult.dsUpserted}, DD=${valuesResult.ddUpserted}, unmatched=${valuesResult.unmatched} | volume upserted=${volumeResult.upserted}`,
   )
+}
+
+// ─── SeasonStatsRefreshJob ────────────────────────────────────────────────────
+// One-time + annual: pull regular-season stats for 2020–present from Sleeper
+// and upsert into PlayerSeasonStats. Enables follow-up chat to answer accurate
+// historical performance questions without relying on LLM knowledge.
+async function runSeasonStatsRefresh(): Promise<void> {
+  const currentYear = new Date().getFullYear()
+  // We consider stats finalized once the Super Bowl is over (February).
+  // If it's before August, include the prior year as it may still be accumulating.
+  const startYear = 2020
+  const endYear = currentYear
+
+  console.log(`[ingestion] Season stats refresh — seasons ${startYear}–${endYear}`)
+
+  // Build a lookup of active player sleeper IDs from our DB
+  const activePlayers = await db.player.findMany({
+    select: { sleeperId: true },
+    where: { team: { not: null } },
+  })
+  const activeIds = new Set(activePlayers.map((p) => p.sleeperId))
+
+  let totalUpserted = 0
+  let totalSkipped = 0
+
+  for (let season = startYear; season <= endYear; season++) {
+    try {
+      console.log(`[ingestion] Fetching season stats: ${season} regular`)
+      const statsMap = await SleeperConnector.getSeasonStats(season, 'regular')
+
+      const records: Array<{
+        playerId: string
+        season: number
+        seasonType: string
+        passYds: number | null
+        passTds: number | null
+        passInt: number | null
+        passCmp: number | null
+        passAtt: number | null
+        rushYds: number | null
+        rushTds: number | null
+        rushAtt: number | null
+        recYds: number | null
+        recTds: number | null
+        rec: number | null
+        targets: number | null
+        fantasyPtsPpr: number | null
+        fantasyPtsStd: number | null
+        gamesPlayed: number | null
+      }> = []
+
+      for (const [sleeperId, raw] of Object.entries(statsMap)) {
+        if (!activeIds.has(sleeperId)) continue
+        if (!raw || typeof raw !== 'object') continue
+
+        const fantasyPtsPpr = raw['pts_ppr'] ?? raw['fantasy_pts_ppr'] ?? null
+        const fantasyPtsStd = raw['pts_std'] ?? raw['fantasy_pts_std'] ?? null
+
+        records.push({
+          playerId: sleeperId,
+          season,
+          seasonType: 'regular',
+          passYds: raw['pass_yd'] ?? raw['pass_yds'] ?? null,
+          passTds: raw['pass_td'] ?? raw['pass_tds'] ?? null,
+          passInt: raw['pass_int'] ?? null,
+          passCmp: raw['pass_cmp'] ?? null,
+          passAtt: raw['pass_att'] ?? null,
+          rushYds: raw['rush_yd'] ?? raw['rush_yds'] ?? null,
+          rushTds: raw['rush_td'] ?? raw['rush_tds'] ?? null,
+          rushAtt: raw['rush_att'] ?? null,
+          recYds: raw['rec_yd'] ?? raw['rec_yds'] ?? null,
+          recTds: raw['rec_td'] ?? raw['rec_tds'] ?? null,
+          rec: raw['rec'] ?? null,
+          targets: raw['rec_tgt'] ?? raw['targets'] ?? null,
+          fantasyPtsPpr: typeof fantasyPtsPpr === 'number' ? fantasyPtsPpr : null,
+          fantasyPtsStd: typeof fantasyPtsStd === 'number' ? fantasyPtsStd : null,
+          gamesPlayed: raw['gp'] ?? raw['games_played'] ?? null,
+        })
+      }
+
+      // Batch upsert using createMany with skipDuplicates for efficiency
+      await db.playerSeasonStats.deleteMany({ where: { season, seasonType: 'regular' } })
+      const result = await db.playerSeasonStats.createMany({
+        data: records,
+        skipDuplicates: true,
+      })
+
+      console.log(`[ingestion] Season ${season}: upserted ${result.count} records (of ${records.length} active players)`)
+      totalUpserted += result.count
+    } catch (err) {
+      console.error(`[ingestion] Season ${season} stats failed:`, err)
+      totalSkipped++
+    }
+  }
+
+  console.log(`[ingestion] Season stats refresh complete — total upserted=${totalUpserted}, seasons failed=${totalSkipped}`)
+}
+
+// ─── FantasyPros Jobs ─────────────────────────────────────────────────────────
+
+// FP_PLAYER_ID_SYNC — Weekly: map Sleeper players to FP IDs (and ESPN/Yahoo/CBS)
+// via sportsdata_player_id bridge. Seeds PlayerExternalId for all future FP calls.
+async function runFPPlayerIdSync(): Promise<void> {
+  const result = await FantasyProsConnector.syncPlayerIds()
+  console.log(
+    `[ingestion] FP player ID sync complete — synced=${result.synced} unmatched=${result.unmatched} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] FP player ID sync errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// FP_RANKINGS_REFRESH — Tuesday + Friday: sync consensus ECR rankings with tier,
+// ownership %, and per-format ranks into PlayerRanking.
+async function runFPRankingsRefresh(): Promise<void> {
+  const nflState = await SleeperConnector.getNFLState()
+  const week = nflState.week
+  const season = parseInt(nflState.season, 10)
+
+  const result = await FantasyProsConnector.syncRankings(week, season)
+  console.log(
+    `[ingestion] FP rankings refresh complete — upserted=${result.upserted} skipped=${result.skipped} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] FP rankings errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// FP_PROJECTIONS_REFRESH — Tuesday + Friday: sync weekly + ROS projected fantasy
+// points and stat lines into PlayerProjection (table was previously empty).
+async function runFPProjectionsRefresh(): Promise<void> {
+  const nflState = await SleeperConnector.getNFLState()
+  const week = nflState.week
+  const season = parseInt(nflState.season, 10)
+
+  const result = await FantasyProsConnector.syncProjections(week, season)
+  console.log(
+    `[ingestion] FP projections refresh complete — upserted=${result.upserted} skipped=${result.skipped} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] FP projections errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// FP_NEWS_REFRESH — Every 6 hours: sync latest 100 NFL news items with expert-written
+// fantasy impact blurbs into ContentItem / ContentPlayerMention as Tier 1 api content.
+async function runFPNewsRefresh(): Promise<void> {
+  const result = await FantasyProsConnector.syncNews()
+  console.log(
+    `[ingestion] FP news refresh complete — inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] FP news errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// FP_INJURIES_REFRESH — Every 12 hours: sync injury status and numeric probability
+// of playing into Player.probabilityOfPlaying for use by the Injury Watch agent.
+async function runFPInjuriesRefresh(): Promise<void> {
+  const result = await FantasyProsConnector.syncInjuries()
+  console.log(
+    `[ingestion] FP injuries refresh complete — updated=${result.updated} skipped=${result.skipped} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] FP injuries errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// ESPN_NEWS_REFRESH — Every 6 hours: ingest NFL news articles from ESPN's public
+// API and store as ContentItem rows. Uses ESPN athlete category tags for accurate
+// player tagging rather than name-based resolution.
+async function runESPNNewsRefresh(): Promise<void> {
+  const result = await ESPNConnector.ingestNews(50)
+  console.log(
+    `[ingestion] ESPN news refresh complete — inserted=${result.inserted} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] ESPN news errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// ESPN_DEFENSE_REFRESH — Weekly (Tuesday): fetch team defense stats from ESPN
+// and populate NFLTeamDefense table for lineup/waiver matchup analysis.
+async function runESPNDefenseRefresh(): Promise<void> {
+  const result = await ESPNConnector.ingestTeamDefense()
+  console.log(
+    `[ingestion] ESPN defense refresh complete — inserted=${result.inserted} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] ESPN defense errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// ODDS_REFRESH — Wednesday + Saturday: fetch NFL player prop lines from The Odds API
+// and upsert into PlayerPropLine table. Requires THE_ODDS_API_KEY env var.
+async function runOddsRefresh(): Promise<void> {
+  if (!process.env['THE_ODDS_API_KEY']) {
+    console.warn('[ingestion] ODDS_REFRESH skipped — THE_ODDS_API_KEY not configured')
+    return
+  }
+  const result = await OddsConnector.ingestProps()
+  console.log(
+    `[ingestion] Odds refresh complete — events=${result.eventsProcessed} lines=${result.linesUpserted} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] Odds errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+// TWITTER_INGESTION_REFRESH — Every 6 hours: scrape curated Twitter/X accounts
+// using TweetMonitorRule entries for read-only content ingestion.
+// The official X API (write path) is NOT used here — this uses the search endpoint.
+async function runTwitterIngestionRefresh(): Promise<void> {
+  const rules = await db.tweetMonitorRule.findMany({
+    where: { isActive: true },
+    include: { xAccount: { select: { accessToken: true, isActive: true } } },
+  })
+
+  if (rules.length === 0) {
+    console.log('[ingestion] Twitter ingestion: no active monitor rules found')
+    return
+  }
+
+  const aliases = await db.playerAlias.findMany({
+    where: { player: { status: { not: 'Inactive' } } },
+    select: { alias: true, playerId: true, aliasType: true },
+  })
+
+  // Ensure a Twitter ContentSource exists
+  let twitterSource = await db.contentSource.findFirst({
+    where: { platform: 'twitter', name: 'Twitter/X Monitor' },
+  })
+  if (!twitterSource) {
+    twitterSource = await db.contentSource.create({
+      data: {
+        name: 'Twitter/X Monitor',
+        platform: 'twitter',
+        feedUrl: 'https://twitter.com',
+        tier: 2,
+        refreshIntervalMins: 360,
+      },
+    })
+  }
+
+  const { XConnector } = await import('@rzf/connectors/twitter')
+  const { resolvePlayerMentions, extractSnippet, inferMentionContext } = await import('@rzf/shared')
+
+  let inserted = 0
+  for (const rule of rules) {
+    if (!rule.xAccount?.isActive || !rule.xAccount.accessToken) continue
+
+    try {
+      const result = await XConnector.searchTweets(rule.xAccount.accessToken, rule.query, 25)
+      if (!result.success || !result.data) continue
+
+      for (const tweet of result.data.tweets) {
+        const url = `https://twitter.com/i/web/status/${tweet.id}`
+        const existing = await db.contentItem.findUnique({ where: { sourceUrl: url } })
+        if (existing) continue
+
+        const matches = resolvePlayerMentions(tweet.text, aliases, { strictMode: true })
+        const contentItem = await db.contentItem.create({
+          data: {
+            sourceId: twitterSource.id,
+            contentType: 'social_post',
+            sourceUrl: url,
+            title: tweet.text.slice(0, 120),
+            rawContent: tweet.text,
+            authorName: tweet.authorHandle ? `@${tweet.authorHandle}` : 'Twitter',
+            publishedAt: tweet.createdAt ? new Date(tweet.createdAt) : null,
+            topics: [],
+            mediaMeta: {
+              tweetId: tweet.id,
+              likeCount: tweet.publicMetrics?.likeCount ?? 0,
+              retweetCount: tweet.publicMetrics?.retweetCount ?? 0,
+              replyCount: tweet.publicMetrics?.replyCount ?? 0,
+            },
+          },
+        })
+
+        if (matches.length > 0) {
+          await db.contentPlayerMention.createMany({
+            data: matches.map((m) => ({
+              contentId: contentItem.id,
+              playerId: m.playerId,
+              context: inferMentionContext(extractSnippet(tweet.text, m)),
+              snippet: extractSnippet(tweet.text, m, 140),
+            })),
+            skipDuplicates: true,
+          })
+        }
+        inserted++
+      }
+
+      await db.tweetMonitorRule.update({
+        where: { id: rule.id },
+        data: { lastRanAt: new Date() },
+      })
+    } catch (err) {
+      console.warn(`[ingestion] Twitter rule "${rule.query}": ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  console.log(`[ingestion] Twitter ingestion complete — inserted=${inserted} items`)
+}
+
+// REDDIT_REFRESH — Every 2 hours: process Reddit RSS sources (platform='reddit')
+// using the same RSS pipeline. Reddit's public RSS feeds need no auth.
+async function runRedditRefresh(): Promise<void> {
+  // Reddit sources use the same RSS processing pipeline but with platform='reddit'
+  const result = await RSSConnector.run('reddit')
+  console.log(
+    `[ingestion] Reddit refresh complete — inserted=${result.inserted} sources=${result.sources} errors=${result.errors.length}`,
+  )
+  if (result.errors.length > 0) {
+    console.warn('[ingestion] Reddit errors (first 5):', result.errors.slice(0, 5))
+  }
 }

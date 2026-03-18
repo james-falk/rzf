@@ -5,6 +5,9 @@
  * The agent falls back to rule-based output when no content is available.
  */
 
+import type { PlayerMarketValues } from '../multi-market-values.js'
+import { formatMarketValuesForPrompt } from '../multi-market-values.js'
+
 export interface AlertContext {
   playerId: string
   playerName: string
@@ -13,6 +16,8 @@ export interface AlertContext {
   injuryStatus: string | null
   status: string | null
   severity: 'high' | 'medium' | 'low'
+  context?: 'own_starter' | 'own_bench' | 'opponent_starter'
+  marketValues?: PlayerMarketValues | null
 }
 
 export interface NewsSnippet {
@@ -35,7 +40,7 @@ Respond with a JSON array of enriched alerts matching this shape:
   {
     "playerId": "string",
     "summary": "string — 1-2 sentences using real news context. Lead with the injury type and practice status if available.",
-    "recommendation": "string — 1-2 sentences of concrete fantasy advice (start/sit, monitor, drop, find handcuff).",
+    "recommendation": "string — 1-2 sentences of concrete fantasy advice (start/sit, monitor, drop, find handcuff). For high-severity own-roster injuries with trade values provided, note if trading the player while value is still high is worth considering.",
     "handcuffSuggestion": "string or null — name a specific backup worth adding if the player is high-risk."
   }
 ]
@@ -45,10 +50,16 @@ Rules:
 - If news context is available for a player, use it. Do not invent injury details.
 - If news is absent for a player but they are listed in the alerts, generate a generic recommendation based on their status/severity.
 - handcuffSuggestion should be null unless you are confident a specific player backs up this one.
+- For high-severity players, use the trade values (when provided) to flag if selling before value drops further is advisable.
 - Return valid JSON array only. No markdown fences.`
 }
 
-export function buildUserPrompt(alerts: AlertContext[], news: NewsSnippet[], focusNote?: string): string {
+export function buildUserPrompt(
+  alerts: AlertContext[],
+  news: NewsSnippet[],
+  focusNote?: string,
+  sessionContext?: string,
+): string {
   const newsMap = new Map<string, NewsSnippet[]>()
   for (const n of news) {
     const existing = newsMap.get(n.playerId) ?? []
@@ -56,23 +67,26 @@ export function buildUserPrompt(alerts: AlertContext[], news: NewsSnippet[], foc
     newsMap.set(n.playerId, existing)
   }
 
-  const sections: string[] = ['[Injured Starters — Enrich Summaries]']
+  const sections: string[] = ['[Injured Players — Enrich Summaries]']
 
   for (const alert of alerts) {
     const playerNews = newsMap.get(alert.playerId) ?? []
+    const contextLabel = alert.context === 'own_bench' ? ' [Bench]' : alert.context === 'opponent_starter' ? ' [Opponent]' : ' [Starter]'
     sections.push(
-      `Player: ${alert.playerName} (${alert.position}, ${alert.team ?? 'FA'})` +
+      `Player: ${alert.playerName} (${alert.position}, ${alert.team ?? 'FA'})${contextLabel}` +
       `\nSeverity: ${alert.severity}` +
       `\nStatus: ${alert.injuryStatus ?? alert.status ?? 'none listed'}`,
     )
+
+    if (alert.marketValues) {
+      sections.push(formatMarketValuesForPrompt(alert.playerName, alert.marketValues))
+    }
 
     if (playerNews.length > 0) {
       sections.push('News:')
       for (const n of playerNews) {
         const tierLabel = n.sourceTier === 1 ? 'Tier 1' : n.sourceTier === 2 ? 'Tier 2' : 'Tier 3'
-        const ageLabel = n.publishedAt
-          ? formatAgo(n.publishedAt)
-          : 'unknown time ago'
+        const ageLabel = n.publishedAt ? formatAgo(n.publishedAt) : 'unknown time ago'
         sections.push(`  [${n.sourceName} | ${tierLabel} | ${ageLabel}]: "${n.title}"`)
         if (n.snippet !== n.title && n.snippet.length > 0) {
           sections.push(`  ${n.snippet}`)
@@ -82,6 +96,11 @@ export function buildUserPrompt(alerts: AlertContext[], news: NewsSnippet[], foc
       sections.push('News: none available — use status field only.')
     }
 
+    sections.push('')
+  }
+
+  if (sessionContext) {
+    sections.push(sessionContext)
     sections.push('')
   }
 

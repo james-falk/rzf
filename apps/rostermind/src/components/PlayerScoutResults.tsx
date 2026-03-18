@@ -44,44 +44,82 @@ export function PlayerScoutResults({
           </div>
         </div>
 
-        {/* Value stats */}
+        {/* Value stats — rankings preferred over raw values */}
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {output.rankOverall != null && (
+          {output.dynastyPositionRank != null ? (
+            <div className="rounded-lg bg-zinc-800 p-3 text-center">
+              <p className="text-xs text-zinc-400">Dynasty Rank</p>
+              <p className="text-xl font-bold text-white">{output.position}#{output.dynastyPositionRank}</p>
+              <p className="text-[10px] text-zinc-600">via FantasyCalc</p>
+            </div>
+          ) : output.dynasty1qbValue != null ? (
+            <div className="rounded-lg bg-zinc-800 p-3 text-center">
+              <p className="text-xs text-zinc-400">Dynasty Value</p>
+              <p className="text-xl font-bold text-white">{output.dynasty1qbValue.toLocaleString()}</p>
+              <p className="text-[10px] text-zinc-600">via FantasyCalc</p>
+            </div>
+          ) : null}
+          {output.dynastyRank != null && (
+            <div className="rounded-lg bg-zinc-800 p-3 text-center">
+              <p className="text-xs text-zinc-400">Overall Dynasty</p>
+              <p className="text-xl font-bold text-white">#{output.dynastyRank}</p>
+              <p className="text-[10px] text-zinc-600">via FantasyCalc</p>
+            </div>
+          )}
+          {output.rankPosition != null ? (
+            <div className="rounded-lg bg-zinc-800 p-3 text-center">
+              <p className="text-xs text-zinc-400">Redraft Rank</p>
+              <p className="text-xl font-bold text-white">{output.position}#{output.rankPosition}</p>
+              <p className="text-[10px] text-zinc-600">via FantasyPros</p>
+            </div>
+          ) : output.rankOverall != null ? (
             <div className="rounded-lg bg-zinc-800 p-3 text-center">
               <p className="text-xs text-zinc-400">Overall Rank</p>
               <p className="text-xl font-bold text-white">#{output.rankOverall}</p>
+              <p className="text-[10px] text-zinc-600">via FantasyPros</p>
             </div>
-          )}
-          {output.rankPosition != null && (
-            <div className="rounded-lg bg-zinc-800 p-3 text-center">
-              <p className="text-xs text-zinc-400">Position Rank</p>
-              <p className="text-xl font-bold text-white">#{output.rankPosition}</p>
-            </div>
-          )}
-          {output.dynasty1qbValue != null && (
-            <div className="rounded-lg bg-zinc-800 p-3 text-center">
-              <p className="text-xs text-zinc-400">Dynasty Value</p>
-              <p className="text-xl font-bold text-white">{output.dynasty1qbValue}</p>
-            </div>
-          )}
-          {output.redraftValue != null && (
+          ) : null}
+          {output.redraftValue != null && output.rankPosition == null && (
             <div className="rounded-lg bg-zinc-800 p-3 text-center">
               <p className="text-xs text-zinc-400">Redraft Value</p>
-              <p className="text-xl font-bold text-white">{output.redraftValue}</p>
+              <p className="text-xl font-bold text-white">{output.redraftValue.toLocaleString()}</p>
+              <p className="text-[10px] text-zinc-600">via FantasyCalc</p>
+            </div>
+          )}
+          {output.recentTradesCount > 0 && (
+            <div className="rounded-lg bg-zinc-800 p-3 text-center">
+              <p className="text-xs text-zinc-400">Community Trades</p>
+              <p className="text-xl font-bold text-white">{output.recentTradesCount}</p>
+              <p className="text-[10px] text-zinc-600">recent (Dynasty Daddy)</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Recent news */}
+      {/* Recent news — structured items when available, summary fallback */}
       <div className="rounded-xl border border-white/10 bg-zinc-900 p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-zinc-400">Recent News</h3>
-          {output.recentTradesCount > 0 && (
-            <p className="text-xs text-zinc-500">{output.recentTradesCount} recent trades in the community</p>
-          )}
-        </div>
-        <p className="mt-2 text-sm leading-relaxed text-zinc-200">{output.recentNewsSummary}</p>
+        <h3 className="mb-3 text-sm font-semibold text-zinc-400">Recent News</h3>
+        {output.newsItems && output.newsItems.length > 0 ? (
+          <div className="space-y-2">
+            {output.newsItems.map((item, i) => (
+              <div key={i} className="rounded-lg border border-white/5 bg-zinc-800/60 px-3 py-2">
+                {item.url ? (
+                  <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-white hover:text-indigo-300 transition">
+                    {item.title}
+                  </a>
+                ) : (
+                  <p className="text-sm font-medium text-white">{item.title}</p>
+                )}
+                <div className="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-500">
+                  <span>{item.sourceName}</span>
+                  {item.publishedAt && <span>{item.publishedAt}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm leading-relaxed text-zinc-200">{output.recentNewsSummary}</p>
+        )}
       </div>
 
       {/* Summary */}

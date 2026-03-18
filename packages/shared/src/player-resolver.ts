@@ -109,11 +109,26 @@ export interface PlayerMatch {
   endIndex: number
 }
 
+export interface ResolveOptions {
+  /**
+   * When true, only match `full_name` and `first_last_initial` alias types.
+   * Skips `last_name` and `abbreviation` to prevent false positives in
+   * body text where common last names appear in unrelated context.
+   *
+   * Use strictMode=true for body text; leave false (default) for short
+   * title-only strings where false positives are less likely.
+   */
+  strictMode?: boolean
+}
+
+const STRICT_ALIAS_TYPES = new Set(['full_name', 'first_last_initial', 'nickname'])
+
 /**
  * Scan text for player name mentions and return matched player IDs.
  *
  * @param text - raw article/tweet/transcript text
  * @param aliases - flattened alias lookup from the DB (PlayerAlias rows)
+ * @param options - optional config (strictMode: skip last_name/abbreviation aliases)
  * @returns deduplicated list of matched player IDs with snippet positions
  *
  * Notes:
@@ -121,19 +136,26 @@ export interface PlayerMatch {
  * - Case-insensitive matching
  * - Each player ID is returned at most once (first match position)
  */
-export function resolvePlayerMentions(text: string, aliases: AliasLookup[]): PlayerMatch[] {
+export function resolvePlayerMentions(text: string, aliases: AliasLookup[], options: ResolveOptions = {}): PlayerMatch[] {
   if (!text || !aliases.length) return []
 
+  const { strictMode = false } = options
   const lower = text.toLowerCase()
 
+  // Filter aliases by type when strictMode is on
+  const eligible = strictMode
+    ? aliases.filter((a) => STRICT_ALIAS_TYPES.has(a.aliasType))
+    : aliases
+
   // Sort aliases by length descending so longer matches win
-  const sorted = [...aliases].sort((a, b) => b.alias.length - a.alias.length)
+  const sorted = [...eligible].sort((a, b) => b.alias.length - a.alias.length)
 
   const matched = new Map<string, PlayerMatch>()
 
   for (const { alias, playerId } of sorted) {
-    // Skip short aliases to reduce false positives (raised from 4 to 6)
-    if (alias.length < 6) continue
+    // Minimum length: 6 chars in default mode, 8 in strict mode (avoids "Ed Reed", etc.)
+    const minLen = strictMode ? 8 : 6
+    if (alias.length < minLen) continue
 
     // Already matched this player
     if (matched.has(playerId)) continue

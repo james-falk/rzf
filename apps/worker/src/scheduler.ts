@@ -85,7 +85,93 @@ export async function scheduleIngestionJobs(): Promise<void> {
     { name: 'dynasty-daddy-refresh', data: { type: IngestionJobTypes.DYNASTY_DADDY_REFRESH } },
   )
 
+  // ── FantasyPros API Jobs ────────────────────────────────────────────────────
+
+  // Weekly on Tuesday at 10am UTC — sync FP/ESPN/Yahoo/CBS player ID mappings
+  // Runs after player-refresh (6am) so SportRadar IDs are fresh in the DB
+  await queue.upsertJobScheduler(
+    'fp-player-id-sync-weekly',
+    { pattern: '0 10 * * 2' },
+    { name: 'fp-player-id-sync', data: { type: IngestionJobTypes.FP_PLAYER_ID_SYNC } },
+  )
+
+  // Tuesday + Friday at 2pm UTC (9am ET) — consensus ECR rankings with tier,
+  // ownership %, and per-format ranks into PlayerRanking
+  await queue.upsertJobScheduler(
+    'fp-rankings-refresh',
+    { pattern: '0 14 * * 2,5' },
+    { name: 'fp-rankings-refresh', data: { type: IngestionJobTypes.FP_RANKINGS_REFRESH } },
+  )
+
+  // Tuesday + Friday at 3pm UTC (10am ET) — weekly + ROS projected points
+  // and stat lines into PlayerProjection
+  await queue.upsertJobScheduler(
+    'fp-projections-refresh',
+    { pattern: '0 15 * * 2,5' },
+    { name: 'fp-projections-refresh', data: { type: IngestionJobTypes.FP_PROJECTIONS_REFRESH } },
+  )
+
+  // Every 6 hours — latest 100 NFL news items with expert fantasy impact blurbs
+  // into ContentItem / ContentPlayerMention as Tier 1 api content
+  await queue.upsertJobScheduler(
+    'fp-news-refresh-6h',
+    { pattern: '0 */6 * * *' },
+    { name: 'fp-news-refresh', data: { type: IngestionJobTypes.FP_NEWS_REFRESH } },
+  )
+
+  // Every 12 hours — injury status + numeric probability of playing
+  // into Player.probabilityOfPlaying for the Injury Watch agent
+  await queue.upsertJobScheduler(
+    'fp-injuries-refresh-12h',
+    { pattern: '0 */12 * * *' },
+    { name: 'fp-injuries-refresh', data: { type: IngestionJobTypes.FP_INJURIES_REFRESH } },
+  )
+
+  // ── ESPN Jobs ───────────────────────────────────────────────────────────────
+
+  // Every 6 hours — ESPN NFL news articles (player-tagged via ESPN categories)
+  await queue.upsertJobScheduler(
+    'espn-news-refresh-6h',
+    { pattern: '30 */6 * * *' }, // offset 30min to avoid collision with FP news
+    { name: 'espn-news-refresh', data: { type: IngestionJobTypes.ESPN_NEWS_REFRESH } },
+  )
+
+  // Weekly on Tuesday at 5pm UTC — ESPN team defense stats
+  await queue.upsertJobScheduler(
+    'espn-defense-refresh-weekly',
+    { pattern: '0 17 * * 2' },
+    { name: 'espn-defense-refresh', data: { type: IngestionJobTypes.ESPN_DEFENSE_REFRESH } },
+  )
+
+  // ── The Odds API ────────────────────────────────────────────────────────────
+
+  // Wednesday at 8pm UTC (3pm ET) + Saturday at 4pm UTC (11am ET)
+  // Lines firm midweek; Saturday refresh catches late-week line movement
+  await queue.upsertJobScheduler(
+    'odds-refresh-wed-sat',
+    { pattern: '0 20 * * 3,6' },
+    { name: 'odds-refresh', data: { type: IngestionJobTypes.ODDS_REFRESH } },
+  )
+
+  // ── Reddit ──────────────────────────────────────────────────────────────────
+
+  // Every 2 hours — Reddit subreddit RSS ingestion
+  await queue.upsertJobScheduler(
+    'reddit-refresh-2h',
+    { pattern: '30 */2 * * *' }, // offset 30min from youtube
+    { name: 'reddit-refresh', data: { type: IngestionJobTypes.REDDIT_REFRESH } },
+  )
+
+  // ── Twitter/X Ingestion (read-only, separate from write path) ───────────────
+
+  // Every 6 hours — scrape curated accounts via TweetMonitorRule entries
+  await queue.upsertJobScheduler(
+    'twitter-ingestion-6h',
+    { pattern: '0 */6 * * *' },
+    { name: 'twitter-ingestion', data: { type: IngestionJobTypes.TWITTER_INGESTION_REFRESH } },
+  )
+
   console.log(
-    '[scheduler] Ingestion jobs scheduled: player-daily, injury-30min, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly',
+    '[scheduler] Ingestion jobs scheduled: player-daily, injury-30min, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly, fp-player-id-sync-weekly, fp-rankings-2x-week, fp-projections-2x-week, fp-news-6h, fp-injuries-12h, espn-news-6h, espn-defense-weekly, odds-wed-sat, reddit-2h, twitter-ingestion-6h',
   )
 }

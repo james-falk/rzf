@@ -17,6 +17,7 @@ export async function playersRoutes(app: FastifyInstance): Promise<void> {
 
     const players = await db.player.findMany({
       where: {
+        team: { not: null },
         OR: [
           { firstName: { contains: query, mode: 'insensitive' } },
           { lastName: { contains: query, mode: 'insensitive' } },

@@ -58,6 +58,7 @@ export interface ManagerIntentOutput {
   redirectUrl?: string
   extractedPlayers?: Array<{ name: string; playerId?: string; confidence: number }>
   needsClarification?: boolean
+  extractedFocusNote?: string | null
 }
 
 export const TeamEvalOutputSchema = z.object({
@@ -153,11 +154,13 @@ export const TradePlayerBreakdownSchema = z.object({
 
 // Tolerant version: if the LLM returns a string item instead of an object
 // (e.g. due to token truncation), coerce it into a minimal valid breakdown.
+// playerName is intentionally left blank so the UI doesn't render the full
+// analysis sentence twice (once bold as name, once as the analysis text).
 const TradePlayerBreakdownTolerantSchema = z.union([
   TradePlayerBreakdownSchema,
   z.string().transform((s) => ({
     playerId: '',
-    playerName: s,
+    playerName: '',
     position: '',
     team: null,
     tradeValue: null,
@@ -173,6 +176,11 @@ export const TradeAnalysisOutputSchema = z.object({
   givingAnalysis: z.array(TradePlayerBreakdownTolerantSchema),
   receivingAnalysis: z.array(TradePlayerBreakdownTolerantSchema),
   keyInsights: z.array(z.string()),
+  recentTrades: z.array(z.object({
+    sideA: z.array(z.string()),
+    sideB: z.array(z.string()),
+    date: z.string(),
+  })).optional(),
   tokensUsed: z.number(),
   confidenceScore: z.number().int().min(0).max(100).optional(),
   sourcesUsed: z.unknown().optional(),
@@ -237,10 +245,18 @@ export const PlayerScoutOutputSchema = z.object({
   injuryStatus: z.string().nullable(),
   rankOverall: z.number().nullable(),
   rankPosition: z.number().nullable(),
+  dynastyRank: z.number().nullable().optional(),
+  dynastyPositionRank: z.number().nullable().optional(),
   dynasty1qbValue: z.number().nullable(),
   redraftValue: z.number().nullable(),
   trend: z.enum(['rising', 'falling', 'stable', 'unknown']),
   recentNewsSummary: z.string(),
+  newsItems: z.array(z.object({
+    title: z.string(),
+    url: z.string().nullable().optional(),
+    sourceName: z.string(),
+    publishedAt: z.string().nullable().optional(),
+  })).optional(),
   recentTradesCount: z.number().int(),
   summary: z.string(),
   keyInsights: z.array(z.string()),
@@ -261,6 +277,8 @@ export interface AgentRuntimeConfig {
   allowedPlatforms?: string[]
   recencyWindowHours?: number
   maxContentItems?: number
+  // Cross-agent session context — set by the worker from AgentJobData.sessionId
+  sessionId?: string
 }
 
 // ─── Agent Job Payloads (BullMQ queue data) ───────────────────────────────────
@@ -272,14 +290,58 @@ export const AgentJobTypes = {
   LINEUP: 'lineup',
   TRADE_ANALYSIS: 'trade_analysis',
   PLAYER_SCOUT: 'player_scout',
+  PLAYER_COMPARE: 'player_compare',
 } as const
 
 export type AgentJobType = (typeof AgentJobTypes)[keyof typeof AgentJobTypes]
 
+// ─── Player Compare Agent ─────────────────────────────────────────────────────
+
+export const PlayerCompareInputSchema = z.object({
+  userId: z.string(),
+  playerIds: z.array(z.string()).min(2).max(4),
+  focusNote: z.string().max(300).optional(),
+})
+
+export type PlayerCompareInput = z.infer<typeof PlayerCompareInputSchema>
+
+export const PlayerComparePlayerSchema = z.object({
+  playerId: z.string(),
+  playerName: z.string(),
+  position: z.string(),
+  team: z.string().nullable(),
+  dynastyValue: z.number().nullable(),
+  dynastyRank: z.number().nullable(),
+  dynastyPositionRank: z.number().nullable(),
+  redraftValue: z.number().nullable(),
+  trend: z.enum(['rising', 'falling', 'stable', 'unknown']),
+  injuryStatus: z.string().nullable(),
+  summary: z.string(),
+  pros: z.array(z.string()),
+  cons: z.array(z.string()),
+})
+
+export const PlayerCompareOutputSchema = z.object({
+  winnerId: z.string().nullable(),
+  winnerName: z.string().nullable(),
+  winMargin: z.enum(['clear', 'slight', 'even']),
+  verdict: z.string(),
+  players: z.array(PlayerComparePlayerSchema),
+  keyInsights: z.array(z.string()),
+  recommendation: z.string(),
+  tokensUsed: z.number(),
+  confidenceScore: z.number().int().min(0).max(100).optional(),
+  sourcesUsed: z.unknown().optional(),
+})
+
+export type PlayerCompareOutput = z.infer<typeof PlayerCompareOutputSchema>
+
 export interface AgentJobData {
   agentRunId: string
   agentType: AgentJobType
-  input: TeamEvalInput | InjuryWatchInput | WaiverInput | TradeAnalysisInput | LineupInput | PlayerScoutInput
+  input: TeamEvalInput | InjuryWatchInput | WaiverInput | TradeAnalysisInput | LineupInput | PlayerScoutInput | PlayerCompareInput
+  /** Groups runs made within the same user session for cross-agent context injection */
+  sessionId?: string
 }
 
 // ─── Ingestion Job Payloads ───────────────────────────────────────────────────
@@ -296,6 +358,22 @@ export const IngestionJobTypes = {
   TRADE_VALUES_REFRESH: 'trade_values_refresh',
   ADP_REFRESH: 'adp_refresh',
   DYNASTY_DADDY_REFRESH: 'dynasty_daddy_refresh',
+  SEASON_STATS_REFRESH: 'season_stats_refresh',
+  // FantasyPros API ingestion jobs
+  FP_PLAYER_ID_SYNC: 'fp_player_id_sync',
+  FP_RANKINGS_REFRESH: 'fp_rankings_refresh',
+  FP_PROJECTIONS_REFRESH: 'fp_projections_refresh',
+  FP_NEWS_REFRESH: 'fp_news_refresh',
+  FP_INJURIES_REFRESH: 'fp_injuries_refresh',
+  // ESPN ingestion jobs
+  ESPN_NEWS_REFRESH: 'espn_news_refresh',
+  ESPN_DEFENSE_REFRESH: 'espn_defense_refresh',
+  // The Odds API ingestion
+  ODDS_REFRESH: 'odds_refresh',
+  // Twitter/X read ingestion (separate from write-only official API)
+  TWITTER_INGESTION_REFRESH: 'twitter_ingestion_refresh',
+  // Reddit content ingestion (via RSS feeds)
+  REDDIT_REFRESH: 'reddit_refresh',
 } as const
 
 export type IngestionJobType = (typeof IngestionJobTypes)[keyof typeof IngestionJobTypes]

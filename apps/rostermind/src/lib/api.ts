@@ -65,6 +65,18 @@ export const api = {
     return apiFetch<{ leagues: unknown[] }>(`/sleeper/leagues${qs}`, { token })
   },
 
+  async getRoster(token: string, leagueId: string) {
+    return apiFetch<{
+      players: Array<{
+        player_id: string
+        full_name: string
+        position: string
+        team: string | null
+        injuryStatus: string | null
+      }>
+    }>(`/sleeper/roster?leagueId=${encodeURIComponent(leagueId)}`, { token })
+  },
+
   async runTeamEval(token: string, leagueId: string, focusNote?: string) {
     return apiFetch<{ agentRunId: string; status: string; deduplicated?: boolean }>('/agents/run', {
       method: 'POST',
@@ -87,6 +99,7 @@ export const api = {
       availableAgents: Array<{ type: string; label: string; description: string; available: boolean; requiredParams: string[] }>
       extractedPlayers?: Array<{ name: string; playerId?: string; confidence: number }>
       needsClarification?: boolean
+      extractedFocusNote?: string | null
     }>('/agents/intent', {
       method: 'POST',
       token,
@@ -124,11 +137,11 @@ export const api = {
     )
   },
 
-  async runAgent(token: string, agentType: string, input: Record<string, unknown>) {
+  async runAgent(token: string, agentType: string, input: Record<string, unknown>, sessionId?: string | null) {
     return apiFetch<{ agentRunId: string; status: string; deduplicated?: boolean }>('/agents/run', {
       method: 'POST',
       token,
-      body: JSON.stringify({ agentType, input }),
+      body: JSON.stringify({ agentType, input, ...(sessionId ? { sessionId } : {}) }),
     })
   },
 
@@ -147,7 +160,10 @@ export const api = {
   },
 
   async followUpAgentRun(token: string, runId: string, message: string) {
-    return apiFetch<{ reply: string }>(`/agents/${runId}/followup`, {
+    return apiFetch<{
+      reply: string
+      suggestedAgent?: { agentType: string; label: string; reason: string }
+    }>(`/agents/${runId}/followup`, {
       method: 'POST',
       token,
       body: JSON.stringify({ message }),

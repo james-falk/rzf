@@ -121,6 +121,24 @@ export function TradeAnalysisResults({
         </div>
       )}
 
+      {/* Recent community trade examples */}
+      {output.recentTrades && output.recentTrades.length > 0 && (
+        <div className="rounded-xl border border-white/10 bg-zinc-900 p-5">
+          <h3 className="mb-1 text-base font-semibold text-white">Recent Community Trades</h3>
+          <p className="mb-3 text-xs text-zinc-500">Via Dynasty Daddy — real trades involving these players</p>
+          <div className="space-y-2">
+            {output.recentTrades.map((t, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2.5 text-xs">
+                <span className="font-medium text-indigo-300">{t.sideA.join(', ')}</span>
+                <span className="shrink-0 text-zinc-500">↔</span>
+                <span className="font-medium text-emerald-300">{t.sideB.join(', ')}</span>
+                {t.date && <span className="ml-auto shrink-0 text-zinc-600">{t.date}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Rating */}
       {onRate && (
         <div className="flex flex-wrap items-center justify-end gap-3 text-sm text-zinc-400">

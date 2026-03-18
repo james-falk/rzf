@@ -4,10 +4,17 @@ import { useState } from 'react'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
+interface SuggestedAgent {
+  agentType: string
+  label: string
+  reason: string
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  suggestedAgent?: SuggestedAgent
 }
 
 let _seq = 0
@@ -16,9 +23,11 @@ const fid = () => `f${++_seq}`
 export function FollowUpThread({
   runId,
   getToken,
+  onSuggestAgent,
 }: {
   runId: string
   getToken: () => Promise<string | null>
+  onSuggestAgent?: (agentType: string) => void
 }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -34,8 +43,8 @@ export function FollowUpThread({
     try {
       const token = await getToken()
       if (!token) throw new Error('Not authenticated')
-      const { reply } = await api.followUpAgentRun(token, runId, msg)
-      setMessages((prev) => [...prev, { id: fid(), role: 'assistant', content: reply }])
+      const { reply, suggestedAgent } = await api.followUpAgentRun(token, runId, msg)
+      setMessages((prev) => [...prev, { id: fid(), role: 'assistant', content: reply, suggestedAgent }])
     } catch {
       setMessages((prev) => [...prev, { id: fid(), role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }])
     } finally {
@@ -59,13 +68,26 @@ export function FollowUpThread({
                   <span className="text-[9px] font-bold text-indigo-400">R</span>
                 </div>
               )}
-              <div className={cn(
-                'max-w-[85%] rounded-xl px-3 py-2 text-sm',
-                msg.role === 'user'
-                  ? 'rounded-tr-sm bg-zinc-800 text-white ring-1 ring-white/10'
-                  : 'rounded-tl-sm border border-white/10 text-zinc-200',
-              )}>
-                {msg.content}
+              <div className="max-w-[85%] space-y-2">
+                <div className={cn(
+                  'rounded-xl px-3 py-2 text-sm',
+                  msg.role === 'user'
+                    ? 'rounded-tr-sm bg-zinc-800 text-white ring-1 ring-white/10'
+                    : 'rounded-tl-sm border border-white/10 text-zinc-200',
+                )}>
+                  {msg.content}
+                </div>
+                {msg.suggestedAgent && onSuggestAgent && (
+                  <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-3 py-2">
+                    <p className="mb-1.5 text-[11px] text-zinc-400">{msg.suggestedAgent.reason}</p>
+                    <button
+                      onClick={() => onSuggestAgent(msg.suggestedAgent!.agentType)}
+                      className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500"
+                    >
+                      Run {msg.suggestedAgent.label} →
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}

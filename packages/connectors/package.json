@@ -12,7 +12,12 @@
     "./fantasycalc": "./dist/fantasycalc/index.js",
     "./ffc": "./dist/ffc/index.js",
     "./dynastydaddy": "./dist/dynastydaddy/index.js",
-    "./twitter": "./dist/twitter/index.js"
+    "./twitter": "./dist/twitter/index.js",
+    "./fantasypros": "./dist/fantasypros/index.js",
+    "./espn": "./dist/espn/index.js",
+    "./odds": "./dist/odds/index.js",
+    "./platform": "./dist/platform/index.js",
+    "./reddit": "./dist/reddit/index.js"
   },
   "scripts": {
     "build": "tsc --build",

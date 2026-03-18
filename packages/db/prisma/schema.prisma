@@ -125,6 +125,8 @@ model User {
 
   // Relations
   sleeperProfile  SleeperProfile?
+  yahooProfile    YahooProfile?
+  espnProfile     ESPNProfile?
   preferences     UserPreferences?
   agentRuns       AgentRun[]
   tokenBudget     TokenBudget[]
@@ -214,6 +216,9 @@ model AgentRun {
   /// JSON breakdown of sources and content items injected for this run
   sourcesUsed     Json?
 
+  /// Groups runs made within the same user session for cross-agent context injection
+  sessionId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -221,6 +226,7 @@ model AgentRun {
   @@index([agentType])
   @@index([status])
   @@index([createdAt])
+  @@index([sessionId])
   @@map("agent_runs")
 }
 
@@ -298,6 +304,9 @@ model Player {
   age      Int?
   yearsExp Int?
 
+  /// FantasyPros numeric probability of playing this week (0.0–1.0). Updated by fp_injuries_refresh.
+  probabilityOfPlaying Float?
+
   /// Full raw Sleeper player object — preserved for future use
   metadata Json @default("{}")
 
@@ -311,12 +320,40 @@ model Player {
   contentMentions ContentPlayerMention[]
   tradeValues     PlayerTradeValue[]
   tradeVolume     PlayerTradeVolume?
+  seasonStats     PlayerSeasonStats[]
+  externalIds     PlayerExternalId[]
+  propLines       PlayerPropLine[]
 
   @@index([position])
   @@index([team])
   @@index([injuryStatus])
   @@index([lastName])
   @@map("players")
+}
+
+/// Cross-source player ID mappings. Bridges our Sleeper-keyed Player records
+/// to any number of third-party ID systems without polluting the Player table.
+/// Add a row per source; never add source-specific columns to Player.
+/// Known sources: "sportradar" | "fantasypros" | "espn" | "yahoo" | "cbs" | "mfl"
+model PlayerExternalId {
+  id        String @id @default(cuid())
+
+  sleeperId String
+  player    Player @relation(fields: [sleeperId], references: [sleeperId], onDelete: Cascade)
+
+  /// Source identifier — e.g. "fantasypros", "sportradar", "espn", "yahoo", "cbs"
+  source String
+
+  /// The player's ID in that source's system (always stored as String)
+  externalId String
+
+  /// When this mapping was last confirmed valid by a sync job
+  lastVerifiedAt DateTime @default(now())
+
+  @@unique([sleeperId, source])
+  @@unique([source, externalId])
+  @@index([source])
+  @@map("player_external_ids")
 }
 
 /// All known name variants for a player used during content entity resolution.
@@ -351,6 +388,23 @@ model PlayerRanking {
   rankOverall  Int
   rankPosition Int
 
+  /// FP-native fields — populated by fp_rankings_refresh job
+  /// FantasyPros tier grouping (1 = elite, 2 = solid, 3 = streamable, etc.)
+  tier         Int?
+  /// Formatted positional rank string e.g. "RB12"
+  posRank      String?
+  /// Per-format ECR ranks (overall rank varies by scoring)
+  rankPpr      Int?
+  rankHalfPpr  Int?
+  rankStd      Int?
+  /// Min and max rank across all experts — measures consensus tightness
+  rankMin      Int?
+  rankMax      Int?
+  /// Standard deviation of expert ranks — high value = polarizing player
+  rankStdDev   Float?
+  /// Percentage of leagues the player is owned in (0–100)
+  ownershipPct Float?
+
   week   Int
   season Int
 
@@ -373,6 +427,9 @@ model PlayerProjection {
   week    Int
   season  Int
 
+  /// Whether this is a rest-of-season projection (true) or single-week (false)
+  isRos   Boolean @default(false)
+
   passYds    Float?
   passTd     Float?
   rushYds    Float?
@@ -381,12 +438,16 @@ model PlayerProjection {
   recTd      Float?
   receptions Float?
 
-  /// Total projected fantasy points
-  fpts Float
+  /// Projected fantasy points — STD scoring (base field)
+  fpts     Float
+  /// Projected fantasy points — PPR scoring
+  fptsPpr  Float?
+  /// Projected fantasy points — Half PPR scoring
+  fptsHalf Float?
 
   fetchedAt DateTime @default(now())
 
-  @@unique([playerId, source, week, season])
+  @@unique([playerId, source, week, season, isRos])
   @@index([source, week, season])
   @@map("player_projections")
 }
@@ -642,6 +703,121 @@ model PlayerTradeVolume {
   fetchedAt DateTime @default(now())
 
   @@map("player_trade_volume")
+}
+
+/// Historical season statistics for NFL players, sourced from Sleeper's stats endpoint.
+/// One row per player per season per season type (regular, pre, post).
+/// Used by the follow-up chat to answer historical performance questions accurately.
+model PlayerSeasonStats {
+  id         String @id @default(cuid())
+
+  playerId   String
+  player     Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
+
+  /// NFL season year (e.g. 2023)
+  season     Int
+  /// "regular", "pre", or "post"
+  seasonType String @default("regular")
+
+  /// Core passing stats
+  passYds    Float?
+  passTds    Int?
+  passInt    Int?
+  passCmp    Float?
+  passAtt    Int?
+
+  /// Core rushing stats
+  rushYds    Float?
+  rushTds    Int?
+  rushAtt    Int?
+
+  /// Core receiving stats
+  recYds     Float?
+  recTds     Int?
+  rec        Float?
+  targets    Int?
+
+  /// Fantasy scoring
+  fantasyPtsPpr  Float?
+  fantasyPtsStd  Float?
+
+  /// Games played
+  gamesPlayed Int?
+
+  fetchedAt  DateTime @default(now())
+
+  @@unique([playerId, season, seasonType])
+  @@index([playerId])
+  @@index([season])
+  @@map("player_season_stats")
+}
+
+/// NFL player prop betting lines from The Odds API.
+/// Updated Wed + Sat when lines firm. Used by Lineup, Waiver, Player Scout agents.
+model PlayerPropLine {
+  id        String @id @default(cuid())
+
+  sleeperId String
+  player    Player @relation(fields: [sleeperId], references: [sleeperId], onDelete: Cascade)
+
+  /// Market key e.g. "player_rush_yds", "player_rec_yds", "player_pass_yds", "player_anytime_td"
+  market    String
+  /// Sportsbook key e.g. "draftkings", "fanduel", "betmgm"
+  bookmaker String
+
+  /// Over/under line (yards, etc.) — null for TD scorer markets
+  line      Float?
+  /// American odds for the over (e.g. -110) or anytime TD scorer
+  overOdds  Int?
+  /// American odds for the under (e.g. -110)
+  underOdds Int?
+
+  fetchedAt DateTime @default(now())
+
+  @@unique([sleeperId, market, bookmaker])
+  @@index([sleeperId])
+  @@index([market])
+  @@map("player_prop_lines")
+}
+
+/// Linked Yahoo Fantasy account for a user.
+/// OAuth tokens refreshed automatically. Stores the active season's league IDs.
+model YahooProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  yahooUserId  String
+  displayName  String
+  /// Serialized OAuth2 token (access_token, refresh_token, expiry)
+  tokenJson    Json   @default("{}")
+  /// Snapshot of the user's Yahoo league IDs for the active season
+  leagues      Json   @default("[]")
+
+  updatedAt DateTime @updatedAt
+
+  @@map("yahoo_profiles")
+}
+
+/// Linked ESPN Fantasy account for a user.
+/// Uses cookie-based auth (espn_s2 + SWID). No OAuth — user provides cookies.
+model ESPNProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  espnUserId   String
+  displayName  String
+  /// Encrypted espn_s2 cookie value
+  espnS2       String @db.Text
+  /// ESPN SWID cookie value (public UUID)
+  swid         String
+  /// Snapshot of the user's ESPN league IDs for the active season
+  leagues      Json   @default("[]")
+
+  updatedAt DateTime @updatedAt
+
+  @@map("espn_profiles")
 }
 
 /// Per-agent runtime configuration. System prompt and model tier are editable
@@ -921,4 +1097,70 @@ model PendingReply {
 
   @@index([xAccountId, status])
   @@map("pending_replies")
+}
+
+// ─── Reddit Engine ────────────────────────────────────────────────────────────
+
+/// A Reddit account used by the Reddit Engine for read monitoring + manual posts.
+/// Read-first: ingestion runs automatically. Posting requires manual approval.
+model RedditAccount {
+  id          String  @id @default(cuid())
+  username    String
+  label       String  @default("rzf")
+  isActive    Boolean @default(true)
+
+  /// Encrypted OAuth2 access token
+  accessToken  String @db.Text
+  refreshToken String? @db.Text
+  tokenExpiry  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  monitorRules  RedditMonitorRule[]
+  pendingPosts  RedditPendingPost[]
+
+  @@map("reddit_accounts")
+}
+
+/// A subreddit/search rule monitored by the Reddit Engine for content ingestion.
+model RedditMonitorRule {
+  id            String        @id @default(cuid())
+  accountId     String
+  account       RedditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// Subreddit name without r/ prefix, e.g. "fantasyfootball"
+  subreddit     String
+  /// Optional flair or search query filter
+  filter        String?
+  isActive      Boolean       @default(true)
+  lastRunAt     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@map("reddit_monitor_rules")
+}
+
+/// A post queued for manual approval before the Reddit Engine submits it.
+model RedditPendingPost {
+  id        String        @id @default(cuid())
+  accountId String
+  account   RedditAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  subreddit String
+  title     String
+  body      String  @db.Text
+  postType  String  @default("text")
+
+  /// "pending" | "approved" | "posted" | "rejected"
+  status    String   @default("pending")
+  postedUrl String?
+  errorMsg  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([accountId, status])
+  @@map("reddit_pending_posts")
 }

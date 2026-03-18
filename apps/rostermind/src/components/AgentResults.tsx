@@ -7,6 +7,7 @@ import type {
   LineupOutput,
   TradeAnalysisOutput,
   PlayerScoutOutput,
+  PlayerCompareOutput,
 } from '@rzf/shared/types'
 import { TeamEvalResults } from './TeamEvalResults'
 import { InjuryWatchResults } from './InjuryWatchResults'
@@ -14,6 +15,7 @@ import { WaiverResults } from './WaiverResults'
 import { LineupResults } from './LineupResults'
 import { TradeAnalysisResults } from './TradeAnalysisResults'
 import { PlayerScoutResults } from './PlayerScoutResults'
+import { PlayerCompareResults } from './PlayerCompareResults'
 
 export interface AgentRunResult {
   id: string
@@ -64,6 +66,7 @@ export const AGENT_LABELS: Record<string, string> = {
   lineup: 'Lineup Optimizer',
   trade_analysis: 'Trade Analysis',
   player_scout: 'Player Scouting Report',
+  player_compare: 'Player Comparison',
 }
 
 export function AgentResults({
@@ -119,6 +122,13 @@ export function AgentResults({
             return (
               <PlayerScoutResults
                 result={result as AgentRunResult & { output: PlayerScoutOutput }}
+                onRate={onRate}
+              />
+            )
+          case 'player_compare':
+            return (
+              <PlayerCompareResults
+                result={result as AgentRunResult & { output: PlayerCompareOutput }}
                 onRate={onRate}
               />
             )

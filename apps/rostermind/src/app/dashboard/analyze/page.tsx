@@ -31,6 +31,7 @@ type ChatMessage =
   | { id: string; role: 'assistant'; type: 'league-select'; leagues: League[]; agentType: string }
   | { id: string; role: 'assistant'; type: 'trade-select' }
   | { id: string; role: 'assistant'; type: 'scout-select' }
+  | { id: string; role: 'assistant'; type: 'compare-select' }
   | { id: string; role: 'assistant'; type: 'loading'; agentType: string }
   | { id: string; role: 'assistant'; type: 'result'; result: AgentRunResult; runId: string }
   | { id: string; role: 'assistant'; type: 'error'; content: string }
@@ -39,12 +40,13 @@ type ChatMessage =
   | { id: string; role: 'user'; type: 'user'; content: string }
 
 const QUICK_ACTIONS = [
-  { type: 'team_eval',      label: 'Team Analysis', icon: '📊', desc: 'Full roster grade & insights' },
-  { type: 'injury_watch',   label: 'Injury Report', icon: '🏥', desc: 'Injury risk scan for your starters' },
-  { type: 'waiver',         label: 'Waiver Wire',   icon: '🔄', desc: 'Best adds & drops this week' },
-  { type: 'lineup',         label: 'Start / Sit',   icon: '📋', desc: 'Optimized lineup decisions' },
-  { type: 'trade_analysis', label: 'Trade Advice',  icon: '💱', desc: 'Accept or reject trade offers' },
-  { type: 'player_scout',   label: 'Player Scout',  icon: '🔍', desc: 'Deep-dive on any player' },
+  { type: 'team_eval',      label: 'Team Analysis',    icon: '📊', desc: 'Full roster grade & insights' },
+  { type: 'injury_watch',   label: 'Injury Report',    icon: '🏥', desc: 'Injury risk scan for your starters' },
+  { type: 'waiver',         label: 'Waiver Wire',      icon: '🔄', desc: 'Best adds & drops this week' },
+  { type: 'lineup',         label: 'Start / Sit',      icon: '📋', desc: 'Optimized lineup decisions' },
+  { type: 'trade_analysis', label: 'Trade Advice',     icon: '💱', desc: 'Accept or reject trade offers' },
+  { type: 'player_scout',   label: 'Player Scout',     icon: '🔍', desc: 'Deep-dive on any player' },
+  { type: 'player_compare', label: 'Player Comparison',icon: '⚖️', desc: 'Side-by-side comparison of 2–3 players' },
 ]
 
 const POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K']
@@ -87,6 +89,12 @@ const AGENT_LOADING_MESSAGES: Record<string, string[]> = {
     'Checking trade value data...',
     'Building your scouting report...',
   ],
+  player_compare: [
+    'Fetching trade values from all markets...',
+    'Pulling news and context for each player...',
+    'Analyzing trends and usage...',
+    'Building side-by-side comparison...',
+  ],
 }
 
 const DEFAULT_LOADING_MESSAGES = ['Processing your request...', 'Running AI analysis...', 'Almost done...']
@@ -103,6 +111,7 @@ function getContextQuestion(agentType: string): string {
     case 'lineup':         return 'Any start/sit decisions you\'re on the fence about?'
     case 'trade_analysis': return 'Any context on this trade? (e.g., dynasty vs redraft, win-now mode)'
     case 'player_scout':   return "What's your main focus? (e.g., 'Should I start him?', 'What's his dynasty value?')"
+    case 'player_compare': return 'Any specific angle to focus on? (e.g., dynasty value, redraft, start/sit decision)'
     default:               return 'Any specific focus for this analysis? (optional)'
   }
 }
@@ -115,6 +124,7 @@ function getAgentIntro(agentType: string): string {
     case 'lineup':         return "Lineup optimizer — I'll set the best possible lineup for this week based on matchups and injuries."
     case 'trade_analysis': return "Trade advisor — build the trade below and I'll give you an accept, decline, or counter verdict."
     case 'player_scout':   return "Player scout — search for any player and I'll give you a deep-dive scouting report."
+    case 'player_compare': return "Player comparison — search and select 2–3 players and I'll give you a full side-by-side breakdown."
     default:               return "Which league should I analyze?"
   }
 }
@@ -132,7 +142,7 @@ export default function AnalyzePage() {
   const [selectedLeague, setSelectedLeague] = useState('')
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
   const [textInput, setTextInput] = useState('')
-  const [phase, setPhase] = useState<'idle' | 'context-prompting' | 'league-select' | 'trade-select' | 'scout-select' | 'running'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'context-prompting' | 'league-select' | 'trade-select' | 'scout-select' | 'compare-select' | 'running'>('idle')
   const [pendingAgentType, setPendingAgentType] = useState('team_eval')
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
   const [runId, setRunId] = useState<string | null>(null)
@@ -147,6 +157,12 @@ export default function AnalyzePage() {
   const [receivingPlayers, setReceivingPlayers] = useState<PlayerSearch[]>([])
   const [tradeLeague, setTradeLeague] = useState('')
   const [tradeActiveSelector, setTradeActiveSelector] = useState<'giving' | 'receiving' | null>(null)
+  const [myRoster, setMyRoster] = useState<PlayerSearch[]>([])
+  const [rosterLoading, setRosterLoading] = useState(false)
+  const [playerPickMode, setPlayerPickMode] = useState<'search' | 'myteam'>('search')
+
+  // Compare state
+  const [comparePlayers, setComparePlayers] = useState<PlayerSearch[]>([])
 
   // Scout state
   const [scoutPlayer, setScoutPlayer] = useState<PlayerSearch | null>(null)
@@ -271,6 +287,20 @@ export default function AnalyzePage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
   }, [runId, phase, getToken, push])
 
+  // Fetch the user's own roster when trade league changes
+  useEffect(() => {
+    if (!tradeLeague) { setMyRoster([]); return }
+    setRosterLoading(true)
+    getToken().then(async (token) => {
+      if (!token) return
+      try {
+        const data = await api.getRoster(token, tradeLeague)
+        setMyRoster(data.players)
+      } catch { setMyRoster([]) }
+      finally { setRosterLoading(false) }
+    })
+  }, [tradeLeague, getToken])
+
   // Shared player search debounce (used for trade + scout)
   useEffect(() => {
     const q = tradeActiveSelector ? searchQuery : scoutQuery
@@ -299,7 +329,7 @@ export default function AnalyzePage() {
     try {
       const token = await getToken()
       if (!token) throw new Error('Not authenticated')
-      const { agentRunId } = await api.runAgent(token, agentType, input)
+      const { agentRunId } = await api.runAgent(token, agentType, input, sessionId)
       setRunId(agentRunId)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start analysis.'
@@ -307,7 +337,7 @@ export default function AnalyzePage() {
       setMessages((prev) => prev.filter((m) => m.type !== 'loading'))
       push({ id: mid(), role: 'assistant', type: 'error', content: msg })
     }
-  }, [getToken, push])
+  }, [getToken, push, sessionId, credits])
 
   const handleQuickAction = useCallback(async (action: typeof QUICK_ACTIONS[number]) => {
     if (phase === 'running') return
@@ -325,6 +355,11 @@ export default function AnalyzePage() {
     if (action.type === 'player_scout') {
       setScoutPlayer(null)
       setScoutQuery('')
+      setSearchResults([])
+    }
+    if (action.type === 'player_compare') {
+      setComparePlayers([])
+      setSearchQuery('')
       setSearchResults([])
     }
 
@@ -369,6 +404,16 @@ export default function AnalyzePage() {
     })
   }, [scoutPlayer, focusNote, push, startRunning])
 
+  const handleCompareRun = useCallback(async () => {
+    if (comparePlayers.length < 2) return
+    const names = comparePlayers.map((p) => p.full_name).join(' vs ')
+    push({ id: mid(), role: 'user', type: 'user', content: `Compare ${names}${focusNote.trim() ? ` — ${focusNote.trim()}` : ''}` })
+    await startRunning('player_compare', {
+      playerIds: comparePlayers.map((p) => p.player_id),
+      ...(focusNote.trim() ? { focusNote: focusNote.trim() } : {}),
+    })
+  }, [comparePlayers, focusNote, push, startRunning])
+
   const handleTextSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     const msg = textInput.trim()
@@ -391,6 +436,9 @@ export default function AnalyzePage() {
         } else if (pendingAgentType === 'player_scout') {
           setPhase('scout-select')
           push({ id: mid(), role: 'assistant', type: 'scout-select' })
+        } else if (pendingAgentType === 'player_compare') {
+          setPhase('compare-select')
+          push({ id: mid(), role: 'assistant', type: 'compare-select' })
         } else {
           setPhase('league-select')
           push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: pendingAgentType })
@@ -462,26 +510,43 @@ export default function AnalyzePage() {
           setReceivingPlayers([])
           push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro('trade_analysis') })
           push({ id: mid(), role: 'assistant', type: 'trade-select' })
+        } else if (intent.agentType === 'player_compare') {
+          // Multi-player comparison — auto-run when all player IDs are gathered
+          const playerIds = intent.gatheredParams['playerIds']?.split(',').filter(Boolean) ?? []
+          if (playerIds.length >= 2) {
+            push({ id: mid(), role: 'assistant', type: 'text', content: `Comparing ${intent.extractedPlayers?.map((p) => p.name).join(' vs ') ?? 'the selected players'}...` })
+            await startRunning('player_compare', {
+              playerIds,
+              ...(intent.extractedFocusNote ? { focusNote: intent.extractedFocusNote } : {}),
+            })
+          } else {
+            push({ id: mid(), role: 'assistant', type: 'text', content: "I'd love to compare players for you! Please name 2–4 players you'd like to compare." })
+          }
         } else if (intent.agentType === 'player_scout') {
-          setPhase('scout-select')
-          setPendingAgentType('player_scout')
           setScoutPlayer(null)
           setScoutQuery('')
-          // Pre-populate if high-confidence player was extracted
           const highConfPlayer = intent.extractedPlayers?.find((p) => p.confidence >= 0.8 && p.playerId)
           if (highConfPlayer) {
-            setScoutPlayer({ player_id: highConfPlayer.playerId!, full_name: highConfPlayer.name, position: '', team: null })
-            setScoutQuery(highConfPlayer.name)
+            // Auto-run if we have a high-confidence player match
+            const focusNote = intent.extractedFocusNote ?? undefined
+            push({ id: mid(), role: 'assistant', type: 'text', content: `Scouting ${highConfPlayer.name}${focusNote ? ` with focus on ${focusNote}` : ''}...` })
+            await startRunning('player_scout', {
+              playerId: highConfPlayer.playerId!,
+              ...(focusNote ? { focusNote } : {}),
+            })
+          } else {
+            setPendingAgentType('player_scout')
+            setPhase('scout-select')
+            push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro('player_scout') })
+            push({ id: mid(), role: 'assistant', type: 'scout-select' })
           }
-          push({ id: mid(), role: 'assistant', type: 'text', content: getAgentIntro('player_scout') })
-          push({ id: mid(), role: 'assistant', type: 'scout-select' })
         } else if (intent.missingParams.includes('leagueId')) {
           setPendingAgentType(intent.agentType)
           setPhase('league-select')
           push({ id: mid(), role: 'assistant', type: 'text', content: intent.clarifyingQuestion ?? 'Which league should I analyze?' })
           push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: intent.agentType })
         } else if (intent.readyToRun && intent.gatheredParams['leagueId']) {
-          await startRunning(intent.agentType, { leagueId: intent.gatheredParams['leagueId'] })
+          await startRunning(intent.agentType, { leagueId: intent.gatheredParams['leagueId'], ...(intent.extractedFocusNote ? { focusNote: intent.extractedFocusNote } : {}) })
         }
       } catch {
         push({ id: mid(), role: 'assistant', type: 'error', content: 'Something went wrong. Please try again.' })
@@ -532,6 +597,7 @@ export default function AnalyzePage() {
     setScoutPlayer(null)
     setScoutQuery('')
     setScoutShowResults(false)
+    setComparePlayers([])
     setSearchQuery('')
     setSearchResults([])
   }, [])
@@ -627,6 +693,10 @@ export default function AnalyzePage() {
               searchResults={searchResults}
               searching={searching}
               posFilter={posFilter}
+              myRoster={myRoster}
+              rosterLoading={rosterLoading}
+              playerPickMode={playerPickMode}
+              onPlayerPickModeChange={setPlayerPickMode}
               onTradeLeagueChange={setTradeLeague}
               onTradeActiveSelectorChange={(s) => { setTradeActiveSelector(s); setSearchQuery(''); setSearchResults([]) }}
               onTradeSearchChange={setSearchQuery}
@@ -661,6 +731,17 @@ export default function AnalyzePage() {
               onScoutClearPlayer={() => { setScoutPlayer(null); setScoutQuery('') }}
               onScoutPosFilterChange={setPosFilter}
               onScoutRun={handleScoutRun}
+              // Compare props
+              comparePlayers={comparePlayers}
+              onCompareAddPlayer={(p) => {
+                if (comparePlayers.length < 3 && !comparePlayers.find((c) => c.player_id === p.player_id)) {
+                  setComparePlayers((prev) => [...prev, p])
+                }
+                setSearchQuery('')
+                setSearchResults([])
+              }}
+              onCompareRemovePlayer={(id) => setComparePlayers((prev) => prev.filter((p) => p.player_id !== id))}
+              onCompareRun={handleCompareRun}
             />
           ))}
           <div ref={bottomRef} />
@@ -674,7 +755,7 @@ export default function AnalyzePage() {
             <input
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder={phase === 'context-prompting' ? 'Type your focus, or press Enter to skip…' : 'Ask me about your team...'}
+              placeholder={phase === 'context-prompting' ? 'Type your focus, or press Enter to skip…' : phase === 'compare-select' ? 'Search for a player to add to comparison…' : 'Ask me about your team...'}
               className="flex-1 rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none transition focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
             />
             <button
@@ -709,12 +790,14 @@ function MessageBubble({
   msg, leagues, selectedLeague, selectedYear, onLeagueChange, onYearChange, onRun, credits, onRate, onQuickAction,
   loadingMsg, phase, getToken,
   givingPlayers, receivingPlayers, tradeLeague, tradeLeagues, tradeActiveSelector,
+  myRoster, rosterLoading, playerPickMode, onPlayerPickModeChange,
   searchQuery, searchResults, searching, posFilter,
   onTradeLeagueChange, onTradeActiveSelectorChange, onTradeSearchChange, onPosFilterChange,
   onTradeAddPlayer, onTradeRemovePlayer, onTradeRun,
   scoutPlayer, scoutQuery, scoutShowResults, scoutSearchResults, scoutSearching, scoutPosFilter,
   onScoutQueryChange, onScoutFocus, onScoutSelectPlayer, onScoutClearPlayer,
   onScoutPosFilterChange, onScoutRun,
+  comparePlayers, onCompareAddPlayer, onCompareRemovePlayer, onCompareRun,
 }: {
   msg: ChatMessage
   leagues: League[]
@@ -734,6 +817,10 @@ function MessageBubble({
   tradeLeague: string
   tradeLeagues: League[]
   tradeActiveSelector: 'giving' | 'receiving' | null
+  myRoster: PlayerSearch[]
+  rosterLoading: boolean
+  playerPickMode: 'search' | 'myteam'
+  onPlayerPickModeChange: (mode: 'search' | 'myteam') => void
   searchQuery: string
   searchResults: PlayerSearch[]
   searching: boolean
@@ -757,6 +844,10 @@ function MessageBubble({
   onScoutClearPlayer: () => void
   onScoutPosFilterChange: (p: string) => void
   onScoutRun: () => void
+  comparePlayers: PlayerSearch[]
+  onCompareAddPlayer: (p: PlayerSearch) => void
+  onCompareRemovePlayer: (id: string) => void
+  onCompareRun: () => void
 }) {
   const isUser = msg.role === 'user'
 
@@ -978,41 +1069,93 @@ function MessageBubble({
                   </p>
                   <button onClick={() => onTradeActiveSelectorChange(null)} className="text-xs text-zinc-500 hover:text-white">Cancel</button>
                 </div>
-                <div className="flex gap-2">
+
+                {/* My Team / Search toggle */}
+                {tradeLeague && (
+                  <div className="mb-2 flex rounded-lg border border-white/10 bg-zinc-900 p-0.5">
+                    <button
+                      onClick={() => onPlayerPickModeChange('search')}
+                      className={cn('flex-1 rounded-md py-1 text-xs font-medium transition', playerPickMode === 'search' ? 'bg-indigo-600 text-white' : 'text-zinc-400 hover:text-white')}
+                    >
+                      Search
+                    </button>
+                    <button
+                      onClick={() => onPlayerPickModeChange('myteam')}
+                      className={cn('flex-1 rounded-md py-1 text-xs font-medium transition', playerPickMode === 'myteam' ? 'bg-indigo-600 text-white' : 'text-zinc-400 hover:text-white')}
+                    >
+                      My Team
+                    </button>
+                  </div>
+                )}
+
+                {/* Position filter (shared) */}
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {POSITIONS.map((pos) => (
+                    <button
+                      key={pos}
+                      onClick={() => onPosFilterChange(pos)}
+                      className={cn('rounded px-2 py-1 text-xs font-medium transition', posFilter === pos ? 'bg-indigo-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white')}
+                    >
+                      {pos}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Search input (search mode only) */}
+                {playerPickMode === 'search' && (
                   <input
                     autoFocus
                     value={searchQuery}
                     onChange={(e) => onTradeSearchChange(e.target.value)}
-                    placeholder="Search player..."
-                    className="flex-1 rounded-lg border border-white/10 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50"
+                    placeholder="Search player name..."
+                    className="mb-2 w-full rounded-lg border border-white/10 bg-zinc-900 px-3 py-1.5 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50"
                   />
-                  <div className="flex flex-wrap gap-1">
-                    {POSITIONS.map((pos) => (
-                      <button
-                        key={pos}
-                        onClick={() => onPosFilterChange(pos)}
-                        className={cn('rounded px-2 py-1.5 text-xs font-medium transition min-h-[32px]', posFilter === pos ? 'bg-indigo-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white')}
-                      >
-                        {pos}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-2 max-h-36 overflow-y-auto space-y-0.5">
-                  {searching && <p className="px-2 py-2 text-xs text-zinc-500">Searching...</p>}
-                  {!searching && searchResults.map((p) => (
-                    <button
-                      key={p.player_id}
-                      onClick={() => onTradeAddPlayer(p, tradeActiveSelector)}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-white/5"
-                    >
-                      <span className="w-7 text-[10px] font-bold text-zinc-500">{p.position}</span>
-                      <span className="text-xs text-white">{p.full_name}</span>
-                      {p.team && <span className="text-[10px] text-zinc-500">{p.team}</span>}
-                    </button>
-                  ))}
-                  {!searching && searchQuery.length >= 2 && searchResults.length === 0 && (
-                    <p className="px-2 py-2 text-xs text-zinc-500">No players found</p>
+                )}
+
+                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                  {/* Search mode results */}
+                  {playerPickMode === 'search' && (
+                    <>
+                      {searching && <p className="px-2 py-2 text-xs text-zinc-500">Searching...</p>}
+                      {!searching && searchResults.map((p) => (
+                        <button
+                          key={p.player_id}
+                          onClick={() => onTradeAddPlayer(p, tradeActiveSelector)}
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-white/5"
+                        >
+                          <span className="w-7 text-[10px] font-bold text-zinc-500">{p.position}</span>
+                          <span className="text-xs text-white">{p.full_name}</span>
+                          {p.team && <span className="text-[10px] text-zinc-500">{p.team}</span>}
+                        </button>
+                      ))}
+                      {!searching && searchQuery.length >= 2 && searchResults.length === 0 && (
+                        <p className="px-2 py-2 text-xs text-zinc-500">No players found</p>
+                      )}
+                    </>
+                  )}
+
+                  {/* My Team mode results */}
+                  {playerPickMode === 'myteam' && (
+                    <>
+                      {rosterLoading && <p className="px-2 py-2 text-xs text-zinc-500">Loading your roster...</p>}
+                      {!rosterLoading && myRoster
+                        .filter((p) => posFilter === 'All' || p.position === posFilter)
+                        .map((p) => (
+                          <button
+                            key={p.player_id}
+                            onClick={() => onTradeAddPlayer(p, tradeActiveSelector)}
+                            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-white/5"
+                          >
+                            <span className="w-7 text-[10px] font-bold text-zinc-500">{p.position}</span>
+                            <span className="text-xs text-white">{p.full_name}</span>
+                            {p.team && <span className="text-[10px] text-zinc-500">{p.team}</span>}
+                            {p.injuryStatus && <span className="text-[10px] text-yellow-500">{p.injuryStatus}</span>}
+                          </button>
+                        ))}
+                      {!rosterLoading && myRoster.filter((p) => posFilter === 'All' || p.position === posFilter).length === 0 && (
+                        <p className="px-2 py-2 text-xs text-zinc-500">No players found on your roster</p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -1105,6 +1248,79 @@ function MessageBubble({
           </div>
         )}
 
+        {/* Compare select */}
+        {msg.role === 'assistant' && msg.type === 'compare-select' && (
+          <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-zinc-900 p-4 space-y-4">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-zinc-400">Select players to compare (2–3)</label>
+              {comparePlayers.length > 0 && (
+                <div className="flex gap-2 flex-wrap mb-2">
+                  {comparePlayers.map((p) => (
+                    <div key={p.player_id} className="flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-1.5 text-sm">
+                      <span className="text-xs font-bold text-emerald-400">{p.position}</span>
+                      <span className="text-white">{p.full_name}</span>
+                      {p.team && <span className="text-xs text-zinc-400">{p.team}</span>}
+                      <button onClick={() => onCompareRemovePlayer(p.player_id)} className="ml-1 text-zinc-500 hover:text-indigo-400 text-xs">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {comparePlayers.length < 3 && (
+                <div className="relative">
+                  <div className="flex gap-2">
+                    <input
+                      value={searchQuery}
+                      onChange={(e) => onTradeSearchChange(e.target.value)}
+                      placeholder="Search player name..."
+                      className="flex-1 rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50"
+                    />
+                    <div className="flex flex-wrap gap-1">
+                      {POSITIONS.map((pos) => (
+                        <button
+                          key={pos}
+                          onClick={() => onPosFilterChange(pos)}
+                          className={cn('rounded px-2 py-1.5 text-xs font-medium transition min-h-[32px]', posFilter === pos ? 'bg-indigo-600 text-white' : 'bg-zinc-700 text-zinc-400 hover:text-white')}
+                        >
+                          {pos}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {searching && <p className="mt-1 text-xs text-zinc-500">Searching...</p>}
+                  {searchResults.length > 0 && (
+                    <div className="absolute z-10 mt-1 w-full rounded-lg border border-white/10 bg-zinc-900 shadow-xl">
+                      <div className="max-h-48 overflow-y-auto py-1">
+                        {searchResults.map((p) => (
+                          <button
+                            key={p.player_id}
+                            onClick={() => onCompareAddPlayer(p)}
+                            disabled={!!comparePlayers.find((c) => c.player_id === p.player_id)}
+                            className="flex w-full items-center gap-3 px-4 py-2 text-left hover:bg-white/5 disabled:opacity-40"
+                          >
+                            <span className="w-8 text-xs font-bold text-zinc-500">{p.position}</span>
+                            <span className="flex-1 text-sm text-white">{p.full_name}</span>
+                            {p.team && <span className="text-xs text-zinc-500">{p.team}</span>}
+                            {p.injuryStatus && <span className="text-xs text-yellow-500">⚠</span>}
+                            {comparePlayers.find((c) => c.player_id === p.player_id) && <span className="text-xs text-emerald-500">Added</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button
+              onClick={onCompareRun}
+              disabled={comparePlayers.length < 2 || phase === 'running' || credits === 0}
+              className="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {credits === 0 ? 'No Credits Remaining' : comparePlayers.length >= 2 ? `Compare ${comparePlayers.map((p) => p.full_name).join(' vs ')} — uses 1 credit →` : `Select ${2 - comparePlayers.length} more player${2 - comparePlayers.length > 1 ? 's' : ''} to continue`}
+            </button>
+          </div>
+        )}
+
         {/* Loading */}
         {msg.role === 'assistant' && msg.type === 'loading' && (
           <div className="rounded-2xl rounded-tl-sm border border-white/10 bg-zinc-900 px-4 py-4">
@@ -1124,7 +1340,14 @@ function MessageBubble({
         {msg.role === 'assistant' && msg.type === 'result' && msg.result.output != null && (
           <>
             <AgentResults result={msg.result} onRate={(r) => onRate(msg.runId, r)} />
-            <FollowUpThread runId={msg.runId} getToken={getToken} />
+            <FollowUpThread
+              runId={msg.runId}
+              getToken={getToken}
+              onSuggestAgent={(agentType) => {
+                const action = QUICK_ACTIONS.find((a) => a.type === agentType)
+                if (action) onQuickAction(action)
+              }}
+            />
           </>
         )}
       </div>

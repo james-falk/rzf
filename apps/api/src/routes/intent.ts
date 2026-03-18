@@ -49,6 +49,20 @@ const AGENT_REGISTRY: AgentMeta[] = [
     available: true,
     requiredParams: ['playerId'],
   },
+  {
+    type: 'player_compare',
+    label: 'Player Comparison',
+    description: 'Side-by-side comparison of 2–4 players with a clear winner and reasoning',
+    available: true,
+    requiredParams: ['playerIds'],
+  },
+]
+
+// Meta-keywords: user is asking what the assistant can do — show all agent chips
+const META_KEYWORDS = [
+  'what can you do', 'what are my options', 'show agents', 'agent options',
+  'new agent', 'run an agent', 'what agents', 'options', 'help', 'menu',
+  'what do you do', 'capabilities', 'features', 'show me what',
 ]
 
 const AGENT_KEYWORDS: Record<string, string[]> = {
@@ -58,6 +72,7 @@ const AGENT_KEYWORDS: Record<string, string[]> = {
   lineup: ['start', 'sit', 'lineup', 'bench', 'flex', 'who should i start', 'starter', 'optimize'],
   trade_analysis: ['trade', 'swap', 'offer', 'exchange', 'worth', 'value', 'should i trade'],
   player_scout: ['scout', 'player', 'scouting', 'report', 'outlook', 'buy', 'sell', 'target', 'deep dive'],
+  player_compare: ['compare', 'vs', 'versus', 'better', 'who should i pick up', 'who is better', 'comparison', 'head to head', 'side by side'],
 }
 
 function keywordClassify(message: string, registry: AgentMeta[]): { agent: AgentMeta | null; score: number } {
@@ -80,12 +95,13 @@ function keywordClassify(message: string, registry: AgentMeta[]): { agent: Agent
 interface LLMIntentResult {
   agentType: string | null
   extractedPlayerNames: string[]
+  focusNote: string | null
   confidence: number
 }
 
 async function llmClassifyIntent(message: string, registry: AgentMeta[]): Promise<LLMIntentResult> {
   const agentList = registry.map((a) => `${a.type}: ${a.description}`).join('\n')
-  const systemPrompt = `You are a fantasy football assistant intent classifier. Given a user message, determine which agent to run and extract any player names mentioned.
+  const systemPrompt = `You are a fantasy football assistant intent classifier. Given a user message, determine which agent to run, extract any player names mentioned, and extract any specific focus or context the user wants the report to address.
 
 Available agents:
 ${agentList}
@@ -94,6 +110,7 @@ Respond with JSON only:
 {
   "agentType": "one of the agent type strings above, or null if unclear",
   "extractedPlayerNames": ["array of player names mentioned in the message"],
+  "focusNote": "any specific focus, perspective, or context mentioned (e.g. 'dynasty perspective', '3-year outlook', 'PPR leagues') or null",
   "confidence": 0.0-1.0
 }`
   const userPrompt = `User message: "${message}"`
@@ -105,7 +122,7 @@ Respond with JSON only:
     )
     return data
   } catch {
-    return { agentType: null, extractedPlayerNames: [], confidence: 0 }
+    return { agentType: null, extractedPlayerNames: [], focusNote: null, confidence: 0 }
   }
 }
 
@@ -172,71 +189,100 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
     const { message, context } = body.data
     const liveRegistry = await getLiveRegistry()
 
+    // ── Stage 0: meta-intent fast-path ────────────────────────────────────────
+    // If the user is asking what the assistant can do, return null agent + chips.
+    const lower0 = message.toLowerCase()
+    if (META_KEYWORDS.some((kw) => lower0.includes(kw))) {
+      return reply.send({
+        agentType: null,
+        agentMeta: null,
+        gatheredParams: {},
+        missingParams: [],
+        clarifyingQuestion: "Here's what I can do for you — pick an option to get started:",
+        readyToRun: false,
+        availableAgents: liveRegistry,
+        extractedPlayers: [],
+        needsClarification: false,
+      } satisfies ManagerIntentOutput)
+    }
+
     // ── Stage 1: keyword fast-path ─────────────────────────────────────────────
     const { agent: keywordAgent, score: keywordScore } = keywordClassify(message, liveRegistry)
 
-    // ── Stage 2: LLM fallback for ambiguous messages ───────────────────────────
+    // ── Stage 2: LLM fallback for ambiguous or player-heavy messages ───────────
     let agent: AgentMeta | null = keywordAgent
     let extractedPlayers: Array<{ name: string; playerId?: string; confidence: number }> = []
     let needsClarification = false
+    let extractedFocusNote: string | null = null
 
-    if (keywordScore === 0) {
-      const llmResult = await llmClassifyIntent(message, liveRegistry)
-      if (llmResult.agentType) {
-        agent = liveRegistry.find((a) => a.type === llmResult.agentType) ?? null
-      }
+    // Always run LLM to extract players + focusNote, even if keyword matched
+    const llmResult = await llmClassifyIntent(message, liveRegistry)
+    extractedFocusNote = llmResult.focusNote ?? null
 
-      // Resolve extracted player names against the DB
-      if (llmResult.extractedPlayerNames.length > 0) {
-        const resolved = await Promise.all(
-          llmResult.extractedPlayerNames.slice(0, 3).map(async (name) => {
-            const match = await fuzzyResolvePlayer(name)
-            return match
-              ? { name, playerId: match.playerId, confidence: match.confidence }
-              : { name, confidence: 0 }
-          }),
-        )
-        extractedPlayers = resolved
+    if (keywordScore === 0 && llmResult.agentType) {
+      agent = liveRegistry.find((a) => a.type === llmResult.agentType) ?? null
+    }
 
-        // If any player was extracted with low confidence, flag for clarification
-        const lowConfidence = resolved.some((p) => p.confidence > 0 && p.confidence < 0.8)
-        if (lowConfidence) needsClarification = true
+    // Resolve extracted player names against the DB
+    if (llmResult.extractedPlayerNames.length > 0) {
+      const resolved = await Promise.all(
+        llmResult.extractedPlayerNames.slice(0, 4).map(async (name) => {
+          const match = await fuzzyResolvePlayer(name)
+          return match
+            ? { name, playerId: match.playerId, confidence: match.confidence }
+            : { name, confidence: 0 }
+        }),
+      )
+      extractedPlayers = resolved
+
+      // If any player was extracted with low confidence, flag for clarification
+      const lowConfidence = resolved.some((p) => p.confidence > 0 && p.confidence < 0.8)
+      if (lowConfidence) needsClarification = true
+    }
+
+    // ── Stage 3: Multi-player routing ─────────────────────────────────────────
+    // If 2+ players were confidently resolved, route to player_compare
+    const resolvedWithId = extractedPlayers.filter((p) => p.playerId && p.confidence >= 0.6)
+    if (resolvedWithId.length >= 2) {
+      const compareAgent = liveRegistry.find((a) => a.type === 'player_compare')
+      if (compareAgent) {
+        agent = compareAgent
+        needsClarification = false
       }
     }
 
-    // Default fallback for completely unrecognized input
+    // Unrecognized input — return null agent so the frontend shows all agent chips
     if (!agent) {
-      if (message.trim().length > 0) {
-        agent = liveRegistry.find((a) => a.type === 'team_eval') ?? null
-      }
-      if (!agent) {
-        return reply.send({
-          agentType: null,
-          agentMeta: null,
-          gatheredParams: {},
-          missingParams: [],
-          clarifyingQuestion: "I didn't quite catch that. Try asking about your team, waiver wire, or a trade.",
-          readyToRun: false,
-          availableAgents: liveRegistry,
-          extractedPlayers: [],
-          needsClarification: false,
-        } satisfies ManagerIntentOutput)
-      }
+      return reply.send({
+        agentType: null,
+        agentMeta: null,
+        gatheredParams: {},
+        missingParams: [],
+        clarifyingQuestion: "I'm not sure what you're looking for. Here's what I can help with:",
+        readyToRun: false,
+        availableAgents: liveRegistry,
+        extractedPlayers: [],
+        needsClarification: false,
+        extractedFocusNote,
+      } satisfies ManagerIntentOutput)
     }
 
     // Gather what we already have from context
     const gatheredParams: Record<string, string> = {}
     if (context?.leagueId) gatheredParams['leagueId'] = context.leagueId
 
-    // Pre-populate player IDs for trade/scout from resolved players
-    if (extractedPlayers.length > 0 && extractedPlayers[0]?.playerId) {
+    // Pre-populate player IDs for scout/compare from resolved players
+    if (agent.type === 'player_compare' && resolvedWithId.length >= 2) {
+      gatheredParams['playerIds'] = resolvedWithId.map((p) => p.playerId!).join(',')
+    } else if (extractedPlayers.length > 0 && extractedPlayers[0]?.playerId) {
       gatheredParams['playerId'] = extractedPlayers[0].playerId
     }
 
     const missingParams = agent.requiredParams.filter((p) => !gatheredParams[p])
 
-    const needsDedicatedPage = agent.type === 'trade_analysis' || agent.type === 'player_scout'
-    const dedicatedPageUrl = agent.type === 'trade_analysis' ? '/dashboard/trade' : '/dashboard/scout'
+    // player_compare and player_scout can auto-run when players are already resolved
+    const needsDedicatedPage = agent.type === 'trade_analysis'
+    const dedicatedPageUrl = agent.type === 'trade_analysis' ? '/dashboard/trade' : null
 
     // Clarifying question: player disambiguation takes priority
     const disambigPlayer = extractedPlayers.find((p) => p.confidence > 0 && p.confidence < 0.8)
@@ -248,17 +294,20 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
           ? 'Which league should I analyze?'
           : null
 
+    const readyToRun = missingParams.length === 0 && !needsDedicatedPage && !needsClarification
+
     return reply.send({
       agentType: agent.type,
       agentMeta: agent,
       gatheredParams,
       missingParams,
       clarifyingQuestion,
-      readyToRun: missingParams.length === 0 && !needsDedicatedPage && !needsClarification,
+      readyToRun,
       availableAgents: liveRegistry,
-      ...(needsDedicatedPage ? { redirectUrl: dedicatedPageUrl } : {}),
+      ...(needsDedicatedPage && dedicatedPageUrl ? { redirectUrl: dedicatedPageUrl } : {}),
       extractedPlayers,
       needsClarification,
+      extractedFocusNote,
     } satisfies ManagerIntentOutput)
   })
 

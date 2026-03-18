@@ -124,9 +124,8 @@ Deep per-player evaluation on demand.
 - **Output**: `{ trend, recentNewsSummary, summary, keyInsights[], ...player fields, tokensUsed }`
 - **Key data**: `PlayerTradeValue`, `PlayerRanking`, `ContentPlayerMention`, Dynasty Daddy trade volume
 
-### Planned (Phase 4+)
-- **NewsDigestAgent**: Personalized weekly digest — requires ContentItem pipeline to be fully populated
-- **BrowseAgents**: Requires OpenClaw/Orgo integration (Phase 5)
+### Future Agent Work
+- See `docs/PLAN.md` for planned agent roadmap items and sequencing.
 
 ---
 

@@ -74,4 +74,51 @@ export async function sleeperRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ leagues: profile.leagues })
   })
+
+  // GET /sleeper/roster?leagueId= — get the current user's roster players for a league
+  app.get('/sleeper/roster', { preHandler: requireAuth }, async (req, reply) => {
+    const { leagueId } = req.query as { leagueId?: string }
+    if (!leagueId) {
+      return reply.status(400).send({ error: 'leagueId is required' })
+    }
+
+    const profile = await db.sleeperProfile.findUnique({
+      where: { userId: req.authUser!.userId },
+    })
+    if (!profile) {
+      return reply.status(404).send({ error: 'No Sleeper account connected' })
+    }
+
+    try {
+      const roster = await SleeperConnector.getUserRoster(leagueId, profile.sleeperId)
+      if (!roster || !roster.players?.length) {
+        return reply.send({ players: [] })
+      }
+
+      const players = await db.player.findMany({
+        where: { sleeperId: { in: roster.players }, team: { not: null } },
+        select: {
+          sleeperId: true,
+          firstName: true,
+          lastName: true,
+          position: true,
+          team: true,
+          injuryStatus: true,
+        },
+        orderBy: [{ position: 'asc' }, { lastName: 'asc' }],
+      })
+
+      return reply.send({
+        players: players.map((p) => ({
+          player_id: p.sleeperId,
+          full_name: `${p.firstName} ${p.lastName}`.trim(),
+          position: p.position ?? '',
+          team: p.team,
+          injuryStatus: p.injuryStatus,
+        })),
+      })
+    } catch {
+      return reply.status(502).send({ error: 'Failed to fetch roster from Sleeper' })
+    }
+  })
 }

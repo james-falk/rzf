@@ -1,4 +1,6 @@
-import type { SleeperLeague, SleeperPlayer } from '@rzf/connectors/sleeper'
+import type { SleeperLeague } from '@rzf/connectors/sleeper'
+import type { MultiMarketMap } from '../multi-market-values.js'
+import { formatMarketValuesForPrompt } from '../multi-market-values.js'
 
 interface EnrichedPlayer {
   sleeperId: string
@@ -30,7 +32,8 @@ The JSON must match this exact structure:
 
 Grading scale: A+ (elite), A (strong), B+ (above avg), B (avg), C+ (below avg), C (weak), D (poor)
 Be specific — name players and explain why.
-Focus on what's actionable for this week and the rest of the season.`
+When trade values are provided (KTC, FantasyCalc, Dynasty Process, Dynasty Superflex), use them to assess dynasty vs redraft value accurately — each source may disagree, treat disagreement as signal.
+Grade players based on the league type in the user context: dynasty leagues should weight long-term value; redraft leagues should weight this-season production.`
 }
 
 export function buildUserPrompt(
@@ -40,6 +43,9 @@ export function buildUserPrompt(
   trendingAdds: string[],
   focusNote?: string,
   newsContext?: string,
+  marketValues?: MultiMarketMap,
+  leagueStyle?: 'dynasty' | 'redraft',
+  sessionContext?: string,
 ): string {
   const scoringType = league.scoring_settings['rec'] === 1
     ? 'PPR'
@@ -49,12 +55,13 @@ export function buildUserPrompt(
 
   const leagueTypeNum = Number(league.settings['type'] ?? 0)
   const leagueType = leagueTypeNum === 2 ? 'Dynasty' : leagueTypeNum === 1 ? 'Keeper' : 'Redraft'
+  const style = leagueStyle ?? (leagueTypeNum === 2 ? 'dynasty' : 'redraft')
 
   const formatPlayer = (p: EnrichedPlayer): string => {
     const parts = [`${p.name} (${p.position}${p.team ? ` - ${p.team}` : ''})`]
     if (p.injuryStatus) parts.push(`⚠ ${p.injuryStatus}`)
     if (p.depthChartOrder && p.depthChartOrder > 1) parts.push(`Depth: ${p.depthChartOrder}`)
-    if (p.rankPosition) parts.push(`Pos rank: #${p.rankPosition}`)
+    if (p.rankPosition) parts.push(`FP rank: #${p.rankPosition}`)
     return parts.join(' | ')
   }
 
@@ -66,7 +73,15 @@ export function buildUserPrompt(
   }, {})
 
   const rosterSections = Object.entries(startersByPos)
-    .map(([pos, players]) => `${pos}:\n${players.map((p) => `  - ${formatPlayer(p)}`).join('\n')}`)
+    .map(([pos, players]) => {
+      const lines = players.map((p) => {
+        const main = `  - ${formatPlayer(p)}`
+        const vals = marketValues?.get(p.sleeperId)
+        if (!vals) return main
+        return `${main}\n${formatMarketValuesForPrompt(p.name, vals, style)}`
+      })
+      return `${pos}:\n${lines.join('\n')}`
+    })
     .join('\n')
 
   const benchSection = bench.length > 0
@@ -77,13 +92,18 @@ export function buildUserPrompt(
     ? `\nHOT WAIVER ADDS THIS WEEK: ${trendingAdds.join(', ')}`
     : ''
 
+  const gradingNote = style === 'dynasty'
+    ? '\nGRADING CONTEXT: This is a dynasty league — weight long-term value and youth over short-term production.'
+    : '\nGRADING CONTEXT: This is a redraft league — weight current-season production and schedule over dynasty value.'
+
   const focusSection = focusNote ? `\nUSER FOCUS: ${focusNote}` : ''
+  const sessionPart = sessionContext ? `\n\n${sessionContext}` : ''
   const newsPart = newsContext ? `\n\n${newsContext}` : ''
 
-  return `League: ${league.name} | Type: ${leagueType} | Format: ${scoringType} | Roster: ${league.roster_positions.join(', ')}
+  return `League: ${league.name} | Type: ${leagueType} | Format: ${scoringType} | Roster: ${league.roster_positions.join(', ')}${gradingNote}
 
 STARTING LINEUP:
-${rosterSections}${benchSection}${trendingSection}${focusSection}${newsPart}
+${rosterSections}${benchSection}${trendingSection}${focusSection}${sessionPart}${newsPart}
 
 Evaluate this roster and respond with the JSON analysis.`
 }
