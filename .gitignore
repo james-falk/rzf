@@ -45,3 +45,7 @@ coverage/
 # Misc
 *.pem
 .vercel
+
+# Telegram agent — personal memory file, never commit
+tools/telegram-agent/memory/agent-memory.md
+tools/telegram-agent/logs/

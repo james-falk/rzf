@@ -3,7 +3,18 @@ import { z } from 'zod'
 import { db } from '@rzf/db'
 import { requireAuth, requireAdmin, requireAdminSecret } from '../middleware/auth.js'
 import { getAgentQueue, getIngestionQueue } from '../lib/queue.js'
-import { AgentJobTypes, IngestionJobTypes, InjuryWatchInputSchema, TeamEvalInputSchema } from '@rzf/shared/types'
+import {
+  AgentJobTypes,
+  IngestionJobTypes,
+  InjuryWatchInputSchema,
+  TeamEvalInputSchema,
+  WaiverInputSchema,
+  LineupInputSchema,
+  TradeAnalysisInputSchema,
+  PlayerScoutInputSchema,
+  PlayerCompareInputSchema,
+} from '@rzf/shared/types'
+import { runContextRevisionJob, reviseAgentContext } from '@rzf/agents/context-revision'
 
 // Default system prompts per agent — source of truth for the reset endpoint.
 // Must stay in sync with packages/agents/src/*/prompt.ts hardcoded defaults.
@@ -330,13 +341,23 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
 
     return reply.send({ items, total, rostermindCount, directoryCount, page: query.page, pages: Math.ceil(total / query.limit) })
   })
-  // Bypasses credit check — for admin use only
+  // Bypasses credit check — for admin/Telegram agent use only
   app.post('/internal/agents/run', { preHandler: adminGuard }, async (req, reply) => {
-    const body = z.object({
-      userId: z.string(),
-      agentType: z.enum([AgentJobTypes.TEAM_EVAL, AgentJobTypes.INJURY_WATCH]),
-      input: z.unknown(),
-    }).safeParse(req.body)
+    const body = z
+      .object({
+        userId: z.string(),
+        agentType: z.enum([
+          AgentJobTypes.TEAM_EVAL,
+          AgentJobTypes.INJURY_WATCH,
+          AgentJobTypes.WAIVER,
+          AgentJobTypes.LINEUP,
+          AgentJobTypes.TRADE_ANALYSIS,
+          AgentJobTypes.PLAYER_SCOUT,
+          AgentJobTypes.PLAYER_COMPARE,
+        ]),
+        input: z.unknown(),
+      })
+      .safeParse(req.body)
 
     if (!body.success) {
       return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
@@ -347,34 +368,56 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const user = await db.user.findUnique({ where: { id: userId } })
     if (!user) return reply.status(404).send({ error: 'User not found' })
 
-    let validatedInput: ReturnType<typeof TeamEvalInputSchema.parse> | ReturnType<typeof InjuryWatchInputSchema.parse>
-    switch (agentType) {
-      case AgentJobTypes.TEAM_EVAL: {
-        const result = TeamEvalInputSchema.safeParse({ ...input as object, userId })
-        if (!result.success) {
-          return reply.status(400).send({ error: 'Invalid input', details: result.error.flatten() })
-        }
-        validatedInput = result.data
-        break
-      }
-      case AgentJobTypes.INJURY_WATCH: {
-        const result = InjuryWatchInputSchema.safeParse({ ...input as object, userId })
-        if (!result.success) {
-          return reply.status(400).send({ error: 'Invalid input', details: result.error.flatten() })
-        }
-        validatedInput = result.data
-        break
-      }
+    const schemaMap = {
+      [AgentJobTypes.TEAM_EVAL]: TeamEvalInputSchema,
+      [AgentJobTypes.INJURY_WATCH]: InjuryWatchInputSchema,
+      [AgentJobTypes.WAIVER]: WaiverInputSchema,
+      [AgentJobTypes.LINEUP]: LineupInputSchema,
+      [AgentJobTypes.TRADE_ANALYSIS]: TradeAnalysisInputSchema,
+      [AgentJobTypes.PLAYER_SCOUT]: PlayerScoutInputSchema,
+      [AgentJobTypes.PLAYER_COMPARE]: PlayerCompareInputSchema,
+    } as const
+
+    const schema = schemaMap[agentType]
+    const parsed = schema.safeParse({ ...(input as object), userId })
+    if (!parsed.success) {
+      return reply
+        .status(400)
+        .send({ error: `Invalid ${agentType} input`, details: parsed.error.flatten() })
     }
 
     const agentRun = await db.agentRun.create({
-      data: { userId, agentType, status: 'queued', inputJson: JSON.parse(JSON.stringify(validatedInput!)) },
+      data: {
+        userId,
+        agentType,
+        status: 'queued',
+        inputJson: JSON.parse(JSON.stringify(parsed.data)),
+      },
     })
 
     const queue = getAgentQueue()
-    await queue.add(agentType, { agentRunId: agentRun.id, agentType, input: validatedInput! })
+    await queue.add(agentType, { agentRunId: agentRun.id, agentType, input: parsed.data })
 
     return reply.status(202).send({ agentRunId: agentRun.id, status: 'queued' })
+  })
+
+  // GET /internal/agents/:id — poll agent run result (used by Telegram daemon)
+  app.get('/internal/agents/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+
+    const run = await db.agentRun.findUnique({ where: { id } })
+    if (!run) return reply.status(404).send({ error: 'Agent run not found' })
+
+    return reply.send({
+      id: run.id,
+      agentType: run.agentType,
+      status: run.status,
+      output: run.outputJson,
+      errorMessage: run.errorMessage,
+      tokensUsed: run.tokensUsed,
+      durationMs: run.durationMs,
+      createdAt: run.createdAt,
+    })
   })
 
   // POST /internal/ingestion/trigger — manually kick off an ingestion job
@@ -1096,6 +1139,45 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const { logoUrl } = req.body as { logoUrl: string | null }
     const source = await db.contentSource.update({ where: { id }, data: { avatarUrl: logoUrl } })
     return reply.send({ source })
+  })
+
+  // POST /internal/context-revision — trigger context revision for all agents or a specific one
+  app.post('/internal/context-revision', { preHandler: adminGuard }, async (req, reply) => {
+    const bodySchema = z.object({
+      agentType: z.string().optional(), // if omitted, runs for all agents
+    })
+    const body = bodySchema.safeParse(req.body)
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid request' })
+    }
+
+    try {
+      let results
+      if (body.data.agentType) {
+        const agentContextPaths: Record<string, string> = {
+          player_scout: '../../../packages/agents/src/player-scout/CONTEXT.md',
+          trade_analysis: '../../../packages/agents/src/trade-analysis/CONTEXT.md',
+          team_eval: '../../../packages/agents/src/team-eval/CONTEXT.md',
+          player_compare: '../../../packages/agents/src/player-compare/CONTEXT.md',
+          waiver: '../../../packages/agents/src/waiver/CONTEXT.md',
+          lineup: '../../../packages/agents/src/lineup/CONTEXT.md',
+          injury_watch: '../../../packages/agents/src/injury-watch/CONTEXT.md',
+        }
+        const contextPath = agentContextPaths[body.data.agentType]
+        if (!contextPath) {
+          return reply.status(400).send({ error: `Unknown agent type: ${body.data.agentType}` })
+        }
+        const result = await reviseAgentContext(body.data.agentType, contextPath)
+        results = [result]
+      } else {
+        results = await runContextRevisionJob()
+      }
+      return reply.send({ results })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      app.log.error({ err }, '[context-revision] Job failed')
+      return reply.status(500).send({ error: 'Context revision failed', message: msg })
+    }
   })
 
   // GET /internal/queue — BullMQ queue stats

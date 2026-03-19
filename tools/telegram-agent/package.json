@@ -1,0 +1,30 @@
+{
+  "name": "telegram-agent",
+  "version": "1.0.0",
+  "description": "Always-on Telegram bot daemon for remote Cursor/agent access",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node --import tsx/esm src/index.ts",
+    "dev": "node --import tsx/esm --watch src/index.ts",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop telegram-agent",
+    "pm2:restart": "pm2 restart telegram-agent",
+    "pm2:logs": "pm2 logs telegram-agent",
+    "pm2:save": "pm2 save && pm2 startup"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "dotenv": "^16.4.7",
+    "grammy": "^1.34.0",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

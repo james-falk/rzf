@@ -1,0 +1,69 @@
+---
+description: Context and constraints for working on or with the Telegram agent daemon
+globs: tools/telegram-agent/**
+alwaysApply: false
+---
+
+# Telegram Agent Daemon
+
+The daemon lives in `tools/telegram-agent/` and runs 24/7 on the local PC via PM2. It is a **standalone Node.js package** — it is NOT part of the pnpm workspace or turborepo. Do not add it to `pnpm-workspace.yaml`.
+
+## File layout
+
+| File | Role |
+|------|------|
+| `src/index.ts` | Bot init, whitelist guard, start long-polling |
+| `src/router.ts` | Routes messages: memory → fantasy → devops → code |
+| `src/memory.ts` | Read/write `memory/agent-memory.md`, inject into Claude calls |
+| `src/approval.ts` | Inline keyboard approval gate, git commit+push on approve |
+| `src/handlers/fantasy.ts` | Slash commands that call `/internal/agents/run` on Render |
+| `src/handlers/devops.ts` | Render/GitHub API calls for /status /logs /deploy /prs |
+| `src/handlers/code.ts` | Free-form coding tasks via Claude Sonnet + local filesystem |
+
+## Memory file
+
+`tools/telegram-agent/memory/agent-memory.md` is **user-owned personal data**.
+- It is gitignored — **never commit it, never overwrite it in code edits**
+- When editing the daemon source, do not touch or reference specific content in this file
+- It is read and updated at runtime only
+
+## API changes
+
+Fantasy commands use `POST /internal/agents/run` + `GET /internal/agents/:id` in `apps/api/src/routes/internal.ts`.
+- Both endpoints use `adminGuard` (accepts `x-admin-secret` header)
+- All 7 agent types are supported by the POST endpoint
+- Do not change the auth model on these routes
+
+## Coding constraints
+
+- The daemon uses ESM (`"type": "module"`) with `tsx` as the runtime
+- Use `fileURLToPath(import.meta.url)` + `dirname()` for `__dirname` equivalents (Node 20 compatible)
+- All env vars are loaded from the workspace root `.env` at startup
+- `WORKSPACE_PATH` env var or auto-detected path (two dirs above `src/`) is the git repo root for file reads/writes
+- Do not hardcode any league IDs, user IDs, or personal preferences — those live in `agent-memory.md`
+
+## Response style rules
+
+When the daemon replies on Telegram:
+- Keep responses short and mobile-friendly (aim for < 800 chars per message)
+- Use `*bold*` sparingly, no nested markdown
+- Split messages > 4000 chars into multiple sends (Telegram limit)
+- Never auto-commit or auto-push — always go through the approval gate
+
+## Approval gate contract
+
+`sendForApproval()` in `src/approval.ts` stores pending changes keyed by `chatId`.
+- Only one pending approval per chat at a time
+- `handleCallbackQuery` handles `approve` / `discard` callback data
+- On approve: writes files → `git add .` → `git commit` → `git push`
+- On discard: clears pending state, no file writes
+
+## PM2 management
+
+```bash
+cd tools/telegram-agent
+npm run pm2:start      # start daemon
+npm run pm2:restart    # restart after code changes
+npm run pm2:logs       # stream logs
+npm run pm2:save       # persist + register Windows startup
+```

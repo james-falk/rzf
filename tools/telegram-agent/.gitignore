@@ -1,0 +1,6 @@
+node_modules/
+dist/
+logs/
+# Memory file is personal user data — never commit it
+memory/agent-memory.md
+*.log
