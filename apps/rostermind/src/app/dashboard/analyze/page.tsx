@@ -319,9 +319,9 @@ export default function AnalyzePage() {
     })
   }, [tradeLeague, getToken])
 
-  // Shared player search debounce (used for trade + scout)
+  // Shared player search debounce (used for trade + compare + scout)
   useEffect(() => {
-    const q = tradeActiveSelector ? searchQuery : scoutQuery
+    const q = (tradeActiveSelector || phase === 'compare-select') ? searchQuery : scoutQuery
     if (!q.trim() || q.length < 2) { setSearchResults([]); return }
     const t = setTimeout(async () => {
       setSearching(true)
@@ -334,7 +334,7 @@ export default function AnalyzePage() {
       finally { setSearching(false) }
     }, 300)
     return () => clearTimeout(t)
-  }, [searchQuery, scoutQuery, posFilter, tradeActiveSelector, getToken])
+  }, [searchQuery, scoutQuery, posFilter, tradeActiveSelector, phase, getToken])
 
   const startRunning = useCallback(async (agentType: string, input: Record<string, unknown>) => {
     if (credits !== null && credits <= 0) {
