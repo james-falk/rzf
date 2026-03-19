@@ -128,6 +128,27 @@ function getAgentIntro(agentType: string): string {
   }
 }
 
+const CONTEXT_ACK: Record<string, string> = {
+  team_eval:      "Got it — I'll factor that into your team evaluation.",
+  injury_watch:   "Noted — I'll flag that specifically in the injury report.",
+  waiver:         "Understood — I'll prioritize that in the waiver recommendations.",
+  lineup:         "Good to know — I'll focus on that in the lineup breakdown.",
+  trade_analysis: "Got it — I'll keep that context in mind for the trade analysis.",
+  player_scout:   "Perfect — I'll focus the scouting report around that.",
+  player_compare: "Got it — I'll weight that angle in the comparison.",
+}
+
+const MANAGER_PATTERNS = [
+  'what can you do', 'what do you do', 'how do you work', 'what are you', 'who are you',
+  'help me', 'where do i start', 'what should i do', 'how can you help', 'what do you offer',
+  'what features', 'what can you help', 'tell me about yourself',
+]
+function isManagerQuery(msg: string): boolean {
+  const lower = msg.toLowerCase().trim()
+  if (lower.length < 3) return false
+  return MANAGER_PATTERNS.some((p) => lower.includes(p))
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function AnalyzePage() {
@@ -211,7 +232,7 @@ export default function AnalyzePage() {
   useEffect(() => {
     const init = async () => {
       await delay(300)
-      push({ id: mid(), role: 'assistant', type: 'text', content: "Hey! I'm RosterMind AI. What would you like to know about your fantasy teams?" })
+      push({ id: mid(), role: 'assistant', type: 'text', content: "Hey! I'm RosterMind — your AI fantasy football manager. I can run trade analysis, set your lineup, find waiver wire pickups, scout players, monitor injuries, and do a full team evaluation. What are you working on?" })
       await delay(700)
       push({ id: mid(), role: 'assistant', type: 'chips' })
     }
@@ -443,13 +464,18 @@ export default function AnalyzePage() {
 
     // ── Context-prompting phase: capture focusNote then show selector ──────────
     if (phase === 'context-prompting') {
-      // Empty = skip
-      push({ id: mid(), role: 'user', type: 'user', content: msg })
       setFocusNote(msg)
-      const token = await getToken()
-      if (token) {
-        const sid = await ensureSession(token)
-        persistMessage(token, sid, 'user', 'user', msg)
+      if (msg) {
+        push({ id: mid(), role: 'user', type: 'user', content: msg })
+        const token = await getToken()
+        if (token) {
+          const sid = await ensureSession(token)
+          persistMessage(token, sid, 'user', 'user', msg)
+        }
+        const ack = CONTEXT_ACK[pendingAgentType] ?? 'Got it — I\'ll factor that in.'
+        await showTypingThen(() => {
+          push({ id: mid(), role: 'assistant', type: 'text', content: ack })
+        }, 500)
       }
       await showTypingThen(() => {
         if (pendingAgentType === 'trade_analysis') {
@@ -465,7 +491,7 @@ export default function AnalyzePage() {
           setPhase('league-select')
           push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: pendingAgentType })
         }
-      }, 600)
+      }, msg ? 400 : 600)
       return
     }
 
@@ -475,6 +501,15 @@ export default function AnalyzePage() {
     if (token) {
       const sid = await ensureSession(token)
       persistMessage(token, sid, 'user', 'user', msg)
+    }
+
+    // ── Manager query: conversational/meta questions ───────────────────────────
+    if (isManagerQuery(msg)) {
+      await showTypingThen(() => {
+        push({ id: mid(), role: 'assistant', type: 'text', content: "I can help with trade analysis, lineup decisions, waiver wire pickups, player scouting, injury monitoring, and full team evaluations. Pick one of the options below, or just describe what you're trying to figure out and I'll route you to the right tool." })
+        push({ id: mid(), role: 'assistant', type: 'chips' })
+      }, 800)
+      return
     }
 
     await showTypingThen(async () => {
@@ -632,7 +667,7 @@ export default function AnalyzePage() {
   }, [])
 
   return (
-    <div className="flex h-dvh flex-col bg-zinc-950">
+    <div className="flex flex-1 min-h-0 flex-col bg-zinc-950">
       {/* Header */}
       <div className="relative border-b border-white/10 px-6 py-4 overflow-hidden">
         <div className="pointer-events-none absolute -top-6 left-1/2 h-24 w-64 -translate-x-1/2 rounded-full bg-indigo-500/10 blur-2xl" />
