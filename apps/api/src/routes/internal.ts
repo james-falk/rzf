@@ -14,8 +14,6 @@ import {
   PlayerScoutInputSchema,
   PlayerCompareInputSchema,
 } from '@rzf/shared/types'
-import { runContextRevisionJob, reviseAgentContext } from '@rzf/agents/context-revision'
-
 // Default system prompts per agent — source of truth for the reset endpoint.
 // Must stay in sync with packages/agents/src/*/prompt.ts hardcoded defaults.
 const DEFAULT_AGENT_PROMPT_OVERRIDES: Record<string, { systemPrompt: string; modelTier: string }> = {
@@ -1139,45 +1137,6 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const { logoUrl } = req.body as { logoUrl: string | null }
     const source = await db.contentSource.update({ where: { id }, data: { avatarUrl: logoUrl } })
     return reply.send({ source })
-  })
-
-  // POST /internal/context-revision — trigger context revision for all agents or a specific one
-  app.post('/internal/context-revision', { preHandler: adminGuard }, async (req, reply) => {
-    const bodySchema = z.object({
-      agentType: z.string().optional(), // if omitted, runs for all agents
-    })
-    const body = bodySchema.safeParse(req.body)
-    if (!body.success) {
-      return reply.status(400).send({ error: 'Invalid request' })
-    }
-
-    try {
-      let results
-      if (body.data.agentType) {
-        const agentContextPaths: Record<string, string> = {
-          player_scout: '../../../packages/agents/src/player-scout/CONTEXT.md',
-          trade_analysis: '../../../packages/agents/src/trade-analysis/CONTEXT.md',
-          team_eval: '../../../packages/agents/src/team-eval/CONTEXT.md',
-          player_compare: '../../../packages/agents/src/player-compare/CONTEXT.md',
-          waiver: '../../../packages/agents/src/waiver/CONTEXT.md',
-          lineup: '../../../packages/agents/src/lineup/CONTEXT.md',
-          injury_watch: '../../../packages/agents/src/injury-watch/CONTEXT.md',
-        }
-        const contextPath = agentContextPaths[body.data.agentType]
-        if (!contextPath) {
-          return reply.status(400).send({ error: `Unknown agent type: ${body.data.agentType}` })
-        }
-        const result = await reviseAgentContext(body.data.agentType, contextPath)
-        results = [result]
-      } else {
-        results = await runContextRevisionJob()
-      }
-      return reply.send({ results })
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      app.log.error({ err }, '[context-revision] Job failed')
-      return reply.status(500).send({ error: 'Context revision failed', message: msg })
-    }
   })
 
   // GET /internal/queue — BullMQ queue stats
