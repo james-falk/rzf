@@ -24,10 +24,10 @@
     "@rzf/connectors": "workspace:*",
     "@rzf/db": "workspace:*",
     "@rzf/shared": "workspace:*",
+    "@types/node": "^22",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@types/node": "^22",
     "typescript": "^5.7.3"
   }
 }
