@@ -341,13 +341,13 @@ importers:
       '@rzf/shared':
         specifier: workspace:*
         version: link:../shared
+      '@types/node':
+        specifier: ^22
+        version: 22.19.15
       zod:
         specifier: ^3.24.1
         version: 3.25.76
     devDependencies:
-      '@types/node':
-        specifier: ^22
-        version: 22.19.15
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
