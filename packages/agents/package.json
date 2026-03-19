@@ -10,10 +10,14 @@
     "./waiver": "./dist/waiver/index.js",
     "./trade-analysis": "./dist/trade-analysis/index.js",
     "./lineup": "./dist/lineup/index.js",
-    "./player-scout": "./dist/player-scout/index.js"
+    "./player-scout": "./dist/player-scout/index.js",
+    "./player-compare": "./dist/player-compare/index.js",
+    "./chat": "./dist/chat/index.js",
+    "./loop-engine": "./dist/loop-engine.js",
+    "./context-revision": "./dist/context-revision/job.js"
   },
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --build && node scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

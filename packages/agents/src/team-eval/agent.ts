@@ -1,36 +1,36 @@
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
-import { LLMConnector } from '@rzf/connectors/llm'
 import { buildUserContext } from '@rzf/shared'
 import { TeamEvalOutputSchema } from '@rzf/shared/types'
 import type { TeamEvalInput, TeamEvalOutput, AgentRuntimeConfig } from '@rzf/shared/types'
-import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 import { injectContent, formatContentByPlayer } from '../content-injector.js'
-import { getMultiMarketValues } from '../multi-market-values.js'
+import { getMultiMarketValues, formatMarketValuesForPrompt } from '../multi-market-values.js'
 import { buildSessionContext } from '../session-context.js'
+import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
 
-// Tier 1, all platforms: broad roster report benefits from quality sources.
-// Tightened from Tier 1+2 — Tier 1 beat reporters are sufficient for team eval.
+const agentContext = loadAgentContext(import.meta.url)
+
 const DEFAULTS = {
-  recencyWindowHours: 168, // 7 days
+  recencyWindowHours: 168,
   maxContentItems: 15,
   allowedTiers: [1],
   allowedPlatforms: ['rss', 'youtube'],
 }
 
-export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRuntimeConfig): Promise<TeamEvalOutput> {
+export async function runTeamEvalAgent(
+  input: TeamEvalInput,
+  config?: AgentRuntimeConfig,
+): Promise<TeamEvalOutput> {
   const { userId, leagueId, focusNote } = input
-  console.log(`[team-eval] Starting — userId=${userId} leagueId=${leagueId} focusNote=${focusNote ?? 'none'}`)
+  console.log(
+    `[team-eval] Starting — userId=${userId} leagueId=${leagueId} focusNote=${focusNote ?? 'none'}`,
+  )
 
-  // ── 1. Resolve Sleeper user ID from linked profile ─────────────────────────
   const sleeperProfile = await db.sleeperProfile.findUnique({ where: { userId } })
   if (!sleeperProfile) {
     throw new Error('No Sleeper account connected. Visit /account/sleeper to link your account.')
   }
-  const sleeperUserId = sleeperProfile.sleeperId
-  console.log(`[team-eval] Sleeper profile found — sleeperId=${sleeperUserId}`)
 
-  // ── 2. Load user preferences for personalized context ──────────────────────
   const userPrefs = await db.userPreferences.findUnique({ where: { userId } })
   const userContext = buildUserContext(
     userPrefs
@@ -44,116 +44,180 @@ export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRunti
         }
       : null,
   )
+  const leagueStyle =
+    (userPrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft'
 
-  // ── 2. Live fetch: user's roster + league settings ─────────────────────────
-  console.log(`[team-eval] Fetching league + roster from Sleeper...`)
+  // Fetch base data needed by all tools
   const [league, userRoster, nflState] = await Promise.all([
     SleeperConnector.getLeague(leagueId),
-    SleeperConnector.getUserRoster(leagueId, sleeperUserId),
+    SleeperConnector.getUserRoster(leagueId, sleeperProfile.sleeperId),
     SleeperConnector.getNFLState(),
   ])
-
-  if (!userRoster) {
-    throw new Error(`No roster found for user ${sleeperUserId} in league ${leagueId}`)
-  }
+  if (!userRoster) throw new Error(`No roster found for user in league ${leagueId}`)
 
   const starterIds = new Set(userRoster.starters ?? [])
-  const allPlayerIds = userRoster.players ?? []
-  console.log(`[team-eval] Roster loaded — league="${league.name}" season=${nflState.season} week=${nflState.week} players=${allPlayerIds.length} starters=${starterIds.size}`)
-
-  // ── 3. DB lookup: enrich players with cached Player data ──────────────────
-  console.log(`[team-eval] Enriching ${allPlayerIds.length} players from DB...`)
-  const playerRecords = await db.player.findMany({
-    where: { sleeperId: { in: allPlayerIds } },
-  })
-  console.log(`[team-eval] DB enrichment — found ${playerRecords.length}/${allPlayerIds.length} players in cache`)
-
-  const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
-
-  // ── 4. DB lookup: current week rankings ───────────────────────────────────
+  const allPlayerIds = (userRoster.players ?? []).filter(
+    (id) => id !== 'DEF' && !id.match(/^[A-Z]{2,3}$/),
+  )
   const currentWeek = nflState.week
   const currentSeason = parseInt(nflState.season, 10)
 
-  const rankings = await db.playerRanking.findMany({
-    where: {
-      playerId: { in: allPlayerIds },
-      source: 'fantasypros',
-      week: currentWeek,
-      season: currentSeason,
+  const tools = {
+    roster: async (): Promise<string> => {
+      const [playerRecords, rankings] = await Promise.all([
+        db.player.findMany({ where: { sleeperId: { in: allPlayerIds } } }),
+        db.playerRanking.findMany({
+          where: {
+            playerId: { in: allPlayerIds },
+            source: 'fantasypros',
+            week: currentWeek,
+            season: currentSeason,
+          },
+        }),
+      ])
+
+      const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
+      const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
+
+      const scoringType =
+        league.scoring_settings['rec'] === 1
+          ? 'PPR'
+          : league.scoring_settings['rec'] === 0.5
+            ? 'Half-PPR'
+            : 'Standard'
+      const leagueTypeNum = Number(league.settings['type'] ?? 0)
+      const leagueType =
+        leagueTypeNum === 2 ? 'Dynasty' : leagueTypeNum === 1 ? 'Keeper' : 'Redraft'
+
+      const formatPlayer = (id: string): string => {
+        const p = playerMap.get(id)
+        const r = rankMap.get(id)
+        const name = p ? `${p.firstName} ${p.lastName}`.trim() : id
+        const parts = [`${name} (${p?.position ?? '?'}, ${p?.team ?? 'FA'})`]
+        if (p?.injuryStatus) parts.push(`⚠ ${p.injuryStatus}`)
+        if (r?.rankPosition) parts.push(`FP: ${p?.position}${r.rankPosition}`)
+        return parts.join(' | ')
+      }
+
+      const starters = allPlayerIds.filter((id) => starterIds.has(id))
+      const bench = allPlayerIds.filter((id) => !starterIds.has(id))
+
+      return [
+        `League: ${league.name} | ${leagueType} | ${scoringType} | Slots: ${league.roster_positions.join(', ')}`,
+        `\nSTARTERS:\n${starters.map(formatPlayer).join('\n')}`,
+        bench.length > 0 ? `\nBENCH:\n${bench.map(formatPlayer).join('\n')}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
     },
-  })
 
-  const rankingMap = new Map(rankings.map((r) => [r.playerId, r]))
+    market_values: async (): Promise<string> => {
+      const starterPlayerIds = allPlayerIds.filter((id) => starterIds.has(id))
+      const playerRecords = await db.player.findMany({
+        where: { sleeperId: { in: starterPlayerIds } },
+      })
+      const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
+      const marketValues = await getMultiMarketValues(starterPlayerIds)
 
-  // ── 5. DB lookup: trending adds + multi-market values + session context ─────
-  const starterPlayerIds = allPlayerIds.filter((id) => starterIds.has(id) && id !== 'DEF' && !id.match(/^[A-Z]{2,3}$/))
+      const lines = ['[Trade Values — Starters]']
+      for (const id of starterPlayerIds) {
+        const p = playerMap.get(id)
+        const vals = marketValues.get(id)
+        if (!p || !vals) continue
+        const name = `${p.firstName} ${p.lastName}`.trim()
+        lines.push(formatMarketValuesForPrompt(name, vals, leagueStyle))
+      }
+      return lines.join('\n')
+    },
 
-  const [trending, marketValues, sessionContext] = await Promise.all([
-    db.trendingPlayer.findMany({
-      where: { type: 'add' },
-      orderBy: { fetchedAt: 'desc' },
-      take: 10,
-      include: { player: true },
-    }),
-    getMultiMarketValues(starterPlayerIds),
-    buildSessionContext(userId, config?.sessionId),
-  ])
+    recent_news: async (): Promise<string> => {
+      const starterPlayerIds = allPlayerIds.filter((id) => starterIds.has(id))
+      const injection = await injectContent(starterPlayerIds, {
+        agentType: 'team_eval',
+        recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+        maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+        allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+        allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+      })
 
-  const trendingAddNames = trending.map(
-    (t) => `${t.player.firstName} ${t.player.lastName}`.trim(),
-  )
+      const playerRecords = await db.player.findMany({
+        where: { sleeperId: { in: starterPlayerIds } },
+        select: { sleeperId: true, firstName: true, lastName: true },
+      })
+      const playerNameMap = new Map(
+        playerRecords.map((p) => [p.sleeperId, `${p.firstName} ${p.lastName}`.trim()]),
+      )
+      return formatContentByPlayer(injection.items, playerNameMap) || 'No recent news.'
+    },
 
-  // ── 6. Build enriched player list ─────────────────────────────────────────
-  interface EnrichedPlayer {
-    sleeperId: string
-    name: string
-    position: string
-    team: string | null
-    injuryStatus: string | null
-    depthChartOrder: number | null
-    searchRank: number | null
-    rankPosition: number | null
-    isStarter: boolean
+    waiver_trending: async (): Promise<string> => {
+      const trending = await db.trendingPlayer.findMany({
+        where: { type: 'add' },
+        orderBy: { fetchedAt: 'desc' },
+        take: 10,
+        include: { player: true },
+      })
+      if (trending.length === 0) return 'No trending waiver adds.'
+      return (
+        'Hot waiver adds this week: ' +
+        trending.map((t) => `${t.player.firstName} ${t.player.lastName}`.trim()).join(', ')
+      )
+    },
+
+    session_history: async (): Promise<string> => {
+      const ctx = await buildSessionContext(userId, config?.sessionId)
+      return ctx || 'No prior session context.'
+    },
   }
 
-  const enrichedPlayers: EnrichedPlayer[] = allPlayerIds
-    .filter((id) => id !== 'DEF' && !id.match(/^[A-Z]{2,3}$/)) // filter team defense slots
-    .map((id) => {
-      const dbPlayer = playerMap.get(id)
-      const ranking = rankingMap.get(id)
-      return {
-        sleeperId: id,
-        name: dbPlayer ? `${dbPlayer.firstName} ${dbPlayer.lastName}`.trim() : id,
-        position: dbPlayer?.position ?? 'UNKNOWN',
-        team: dbPlayer?.team ?? null,
-        injuryStatus: dbPlayer?.injuryStatus ?? null,
-        depthChartOrder: dbPlayer?.depthChartOrder ?? null,
-        searchRank: dbPlayer?.searchRank ?? null,
-        rankPosition: ranking?.rankPosition ?? null,
-        isStarter: starterIds.has(id),
-      }
-    })
+  const extraParts: string[] = []
+  if (userContext) extraParts.push(userContext)
+  const gradingNote =
+    leagueStyle === 'dynasty'
+      ? 'GRADING CONTEXT: Dynasty league — weight long-term value and youth over short-term production.'
+      : 'GRADING CONTEXT: Redraft league — weight current-season production and schedule over dynasty value.'
+  extraParts.push(gradingNote)
+  if (focusNote?.trim()) extraParts.push(`USER FOCUS: ${focusNote.trim()}`)
 
-  const starters = enrichedPlayers.filter((p) => p.isStarter)
-  const bench = enrichedPlayers.filter((p) => !p.isStarter)
+  const outputSchema = TeamEvalOutputSchema.omit({
+    contentLinks: true,
+    tokensUsed: true,
+    confidenceScore: true,
+    sourcesUsed: true,
+  })
 
-  // ── 7. Content injection ───────────────────────────────────────────────────
-  const injectionPlayerIds = starters.map((p) => p.sleeperId)
-  const injection = await injectContent(injectionPlayerIds, {
+  const { output: llmOutput, metadata } = await runAgentLoop({
+    context: agentContext,
+    tools,
+    initialTools: ['roster', 'market_values', 'recent_news'],
+    outputValidator: (raw) => outputSchema.parse(raw),
+    extraContext: extraParts.join('\n\n'),
+    model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
+    maxOutputTokens: 1200,
+  })
+
+  console.log(
+    `[team-eval] Complete — tokens=${metadata.tokensUsed} iters=${metadata.iterations} grade=${llmOutput.overallGrade}`,
+  )
+
+  // Build content links for the UI
+  const starterPlayerIds = allPlayerIds.filter((id) => starterIds.has(id))
+  const injection = await injectContent(starterPlayerIds, {
     agentType: 'team_eval',
     recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
-    maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+    maxItemsTotal: 6,
     allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
     allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
   })
 
-  // Build player name map for formatting
-  const playerNameMap = new Map<string, string>()
-  for (const p of starters) playerNameMap.set(p.sleeperId, p.name)
+  const playerRecords = await db.player.findMany({
+    where: { sleeperId: { in: starterPlayerIds } },
+    select: { sleeperId: true, firstName: true, lastName: true },
+  })
+  const playerNameMap = new Map(
+    playerRecords.map((p) => [p.sleeperId, `${p.firstName} ${p.lastName}`.trim()]),
+  )
 
-  const newsContext = formatContentByPlayer(injection.items, playerNameMap)
-
-  // Build contentLinks from injection items for the result display
   const seen = new Set<string>()
   const contentLinks: TeamEvalOutput['contentLinks'] = []
   for (const item of injection.items) {
@@ -170,27 +234,10 @@ export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRunti
     seen.add(item.sourceUrl)
   }
 
-  // ── 8. LLM call ────────────────────────────────────────────────────────────
-  const leagueStyle = (userPrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft'
-  console.log(`[team-eval] Calling LLM — starters=${starters.length} bench=${bench.length} news=${injection.items.length} confidence=${injection.confidenceScore}`)
-  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(league, starters, bench, trendingAddNames, focusNote, newsContext || undefined, marketValues, leagueStyle, sessionContext || undefined)
-
-  const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
-    (raw) => {
-      const parsed = TeamEvalOutputSchema.omit({ contentLinks: true, tokensUsed: true, confidenceScore: true, sourcesUsed: true }).parse(raw)
-      return parsed
-    },
-  )
-
-  console.log(`[team-eval] LLM complete — tokens=${tokensUsed} grade=${llmOutput.overallGrade}`)
-
-  // ── 9. Assemble final output ───────────────────────────────────────────────
   return {
     ...llmOutput,
     contentLinks,
-    tokensUsed,
+    tokensUsed: metadata.tokensUsed,
     confidenceScore: injection.confidenceScore,
     sourcesUsed: injection.sourcesUsed,
   }

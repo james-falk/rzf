@@ -88,6 +88,22 @@ export const api = {
     })
   },
 
+  async chatMessage(
+    token: string,
+    message: string,
+    leagueId?: string,
+    sessionId?: string,
+  ) {
+    return apiFetch<
+      | { type: 'answer'; reply: string; followUpSuggestions?: string[] }
+      | { type: 'route'; route: string; reason: string; reply: string; extractedParams?: Record<string, string> }
+    >('/agents/chat', {
+      method: 'POST',
+      token,
+      body: JSON.stringify({ message, leagueId, sessionId }),
+    })
+  },
+
   async callIntent(token: string, message: string, context?: { leagueId?: string }) {
     return apiFetch<{
       agentType: string | null

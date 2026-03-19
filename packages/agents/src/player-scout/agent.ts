@@ -1,29 +1,33 @@
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
-import { LLMConnector } from '@rzf/connectors/llm'
 import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { buildUserContext } from '@rzf/shared'
 import { PlayerScoutOutputSchema } from '@rzf/shared/types'
 import type { PlayerScoutInput, PlayerScoutOutput, AgentRuntimeConfig } from '@rzf/shared/types'
-import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 import { injectContent } from '../content-injector.js'
-import { getMultiMarketValues, getAnchorValue, getAnchorTrend, classifyTrend } from '../multi-market-values.js'
+import { getMultiMarketValues, getAnchorValue, getAnchorTrend, classifyTrend, formatMarketValuesForPrompt } from '../multi-market-values.js'
 import { buildSessionContext } from '../session-context.js'
+import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
+
+// Load context once at module init — works in src/ (dev) and dist/ (prod after copy-assets)
+const agentContext = loadAgentContext(import.meta.url)
 
 // All tiers + all platforms: deep-dive scouting needs maximum coverage.
-// Tier 3 niche channels can surface unique insights on specific players.
 const DEFAULTS = {
-  recencyWindowHours: 168, // 7 days
+  recencyWindowHours: 168,
   maxContentItems: 15,
   allowedTiers: [1, 2, 3],
   allowedPlatforms: ['rss', 'youtube'],
 }
 
-export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: AgentRuntimeConfig): Promise<PlayerScoutOutput> {
+export async function runPlayerScoutAgent(
+  input: PlayerScoutInput,
+  config?: AgentRuntimeConfig,
+): Promise<PlayerScoutOutput> {
   const { userId, playerId, context, focusNote } = input
   console.log(`[player-scout] Starting — userId=${userId} playerId=${playerId}`)
 
-  // ── 1. Load user preferences ───────────────────────────────────────────────
+  // ── 1. Load user preferences (always needed, fetch upfront) ────────────────
   const userPrefs = await db.userPreferences.findUnique({ where: { userId } })
   const userContext = buildUserContext(
     userPrefs
@@ -38,70 +42,241 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
       : null,
   )
 
-  // ── 2. Load player + supporting data in parallel ───────────────────────────
-  const nflState = await SleeperConnector.getNFLState()
-  const week = nflState.week
-  const season = parseInt(nflState.season, 10)
+  const leagueStyle =
+    ((userPrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft') as
+      | 'dynasty'
+      | 'redraft'
 
-  const [player, marketValuesMap, ranking, recentTradeCount, ddTrades, injection, sessionContext] = await Promise.all([
-    db.player.findUnique({ where: { sleeperId: playerId } }),
-    getMultiMarketValues([playerId]),
-    db.playerRanking.findFirst({
-      where: { playerId, source: 'fantasypros', week, season },
-    }),
-    db.tradeTransaction.count({
-      where: {
-        OR: [
-          { adds: { path: [playerId], not: undefined } as never },
-        ],
-      },
-    }).catch(() => 0),
-    (async () => {
-      try {
-        const p = await db.player.findUnique({
-          where: { sleeperId: playerId },
-          select: { firstName: true, lastName: true, position: true },
-        })
-        if (!p) return null
-        const nameId = DynastyDaddyConnector.nameIdFromPlayer(p.firstName, p.lastName, p.position ?? '')
-        return await DynastyDaddyConnector.getPlayerTrades(nameId)
-      } catch {
-        return null
+  // ── 2. Get current NFL state (week/season used across multiple tools) ───────
+  const nflState = await SleeperConnector.getNFLState()
+  const { week, season } = nflState
+  const seasonInt = parseInt(season, 10)
+
+  // ── 3. Register data tools ──────────────────────────────────────────────────
+  // Each tool is a named async function that returns a formatted string.
+  // The loop engine calls initialTools first, then requests more based on LLM eval.
+
+  const tools = {
+    player_stats: async (): Promise<string> => {
+      const player = await db.player.findUnique({ where: { sleeperId: playerId } })
+      if (!player) return `Player not found: ${playerId}`
+      const lines = [
+        `Name: ${player.firstName} ${player.lastName}`,
+        `Position: ${player.position ?? 'UNKNOWN'} | Team: ${player.team ?? 'Free Agent'}`,
+        `Age: ${player.age ?? 'N/A'} | Experience: ${player.yearsExp ?? 'N/A'} years`,
+        `Depth Chart: ${player.depthChartOrder ? `#${player.depthChartOrder}` : 'N/A'}`,
+        `Injury: ${player.injuryStatus ?? 'Healthy'}${player.practiceParticipation ? ` (Practice: ${player.practiceParticipation})` : ''}`,
+      ]
+      return lines.join('\n')
+    },
+
+    trade_values: async (): Promise<string> => {
+      const valuesMap = await getMultiMarketValues([playerId])
+      const values = valuesMap.get(playerId) ?? {
+        ktc: null,
+        fantasycalc: null,
+        dynastyprocess: null,
+        dynastysuperflex: null,
       }
-    })(),
-    injectContent([playerId], {
-      agentType: 'player_scout',
-      recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
-      maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
-      allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
-      allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+      const player = await db.player.findUnique({
+        where: { sleeperId: playerId },
+        select: { firstName: true, lastName: true },
+      })
+      const name = player ? `${player.firstName} ${player.lastName}` : playerId
+      return formatMarketValuesForPrompt(name, values, leagueStyle)
+    },
+
+    rankings: async (): Promise<string> => {
+      const ranking = await db.playerRanking.findFirst({
+        where: { playerId, source: 'fantasypros', week, season: seasonInt },
+      })
+      if (!ranking) return 'Rankings: not available for current week'
+      return `FP Overall: ${ranking.rankOverall ?? 'unranked'} | FP Position: ${ranking.rankPosition ?? 'unranked'}`
+    },
+
+    recent_news: async (): Promise<string> => {
+      const injection = await injectContent([playerId], {
+        agentType: 'player_scout',
+        recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+        maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+        allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+        allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+      })
+      if (injection.items.length === 0) return 'No recent news available.'
+      return injection.items
+        .slice(0, 8)
+        .map((item) => `[${item.sourceName}] ${item.title}`)
+        .join('\n')
+    },
+
+    trade_activity: async (): Promise<string> => {
+      const player = await db.player.findUnique({
+        where: { sleeperId: playerId },
+        select: { firstName: true, lastName: true, position: true },
+      })
+
+      const parts: string[] = []
+
+      // Raw league trade count
+      try {
+        const rawCount = await db.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(*)::bigint as count
+          FROM trade_transactions
+          WHERE adds::jsonb ? ${playerId} OR drops::jsonb ? ${playerId}
+        `
+        parts.push(`Recent league trades: ${Number(rawCount[0]?.count ?? 0)}`)
+      } catch {
+        parts.push('Recent league trades: N/A')
+      }
+
+      // DynastyDaddy community trades
+      if (player) {
+        try {
+          const nameId = DynastyDaddyConnector.nameIdFromPlayer(
+            player.firstName,
+            player.lastName,
+            player.position ?? '',
+          )
+          const ddTrades = await DynastyDaddyConnector.getPlayerTrades(nameId)
+          const communityCount = ddTrades?.trades?.length ?? 0
+          const weeklyVol =
+            ddTrades?.tradeVolume?.find(
+              (v: { week_interval: number; count: number }) => v.week_interval === 1,
+            )?.count ?? 0
+          parts.push(`Community trade vol (1w): ${weeklyVol} | DD trade count: ${communityCount}`)
+        } catch {
+          parts.push('Community trade data: unavailable')
+        }
+      }
+
+      return parts.join('\n')
+    },
+
+    session_history: async (): Promise<string> => {
+      const sessionCtx = await buildSessionContext(userId, config?.sessionId)
+      return sessionCtx || 'No prior session context.'
+    },
+
+    user_preferences: async (): Promise<string> => {
+      return userContext || 'No user preferences set.'
+    },
+  }
+
+  // ── 4. Build extra context (focusNote + any passed-in context) ──────────────
+  const extraParts: string[] = []
+  if (userContext) extraParts.push(userContext)
+  if (context) extraParts.push(`[User Question/Context]\n${context}`)
+  if (focusNote?.trim()) extraParts.push(`[User Focus]\n${focusNote.trim()}`)
+  const extraContext = extraParts.length > 0 ? extraParts.join('\n\n') : undefined
+
+  // ── 5. Run the agentic loop ─────────────────────────────────────────────────
+  const outputSchema = PlayerScoutOutputSchema.omit({
+    playerId: true,
+    playerName: true,
+    position: true,
+    team: true,
+    injuryStatus: true,
+    rankOverall: true,
+    rankPosition: true,
+    dynasty1qbValue: true,
+    redraftValue: true,
+    recentTradesCount: true,
+    dynastyRank: true,
+    dynastyPositionRank: true,
+    newsItems: true,
+    tokensUsed: true,
+    confidenceScore: true,
+    sourcesUsed: true,
+  })
+
+  const { output: llmOutput, metadata } = await runAgentLoop({
+    context: agentContext,
+    tools,
+    initialTools: ['player_stats', 'trade_values', 'rankings', 'recent_news'],
+    outputValidator: (raw) => outputSchema.parse(raw),
+    extraContext,
+    model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
+    maxOutputTokens: 1200,
+  })
+
+  console.log(
+    `[player-scout] Complete — tokens=${metadata.tokensUsed} iters=${metadata.iterations} confidence=${metadata.finalConfidence} tools=${metadata.toolsUsed.join(',')}`,
+  )
+
+  // ── 6. Enrich with computed fields not produced by the LLM ─────────────────
+  const [player, ranking, valuesMap] = await Promise.all([
+    db.player.findUnique({ where: { sleeperId: playerId } }),
+    db.playerRanking.findFirst({
+      where: { playerId, source: 'fantasypros', week, season: seasonInt },
     }),
-    buildSessionContext(userId, config?.sessionId),
+    getMultiMarketValues([playerId]),
   ])
 
-  const marketValues = marketValuesMap.get(playerId) ?? { ktc: null, fantasycalc: null, dynastyprocess: null, dynastysuperflex: null }
-
-  if (!player) {
-    throw new Error(`Player not found: ${playerId}`)
+  const marketValues = valuesMap.get(playerId) ?? {
+    ktc: null,
+    fantasycalc: null,
+    dynastyprocess: null,
+    dynastysuperflex: null,
   }
 
-  // Fallback trade count using raw query for JSON field search
-  let tradeCount = recentTradeCount
-  try {
-    const rawCount = await db.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(*)::bigint as count
-      FROM trade_transactions
-      WHERE adds::jsonb ? ${playerId} OR drops::jsonb ? ${playerId}
-    `
-    tradeCount = Number(rawCount[0]?.count ?? 0)
-  } catch {
-    // use the fallback count
+  // Dynasty positional rank
+  let dynastyRank: number | null = null
+  let dynastyPositionRank: number | null = null
+  const ktcDynastyValue =
+    marketValues.ktc?.dynasty1qb ?? marketValues.fantasycalc?.dynasty1qb ?? null
+  if (ktcDynastyValue != null && player?.position) {
+    try {
+      const [overallHigher, positionHigher] = await Promise.all([
+        db.playerTradeValue
+          .count({
+            where: {
+              source: 'ktc',
+              dynasty1qb: { gt: ktcDynastyValue },
+              player: { team: { not: null } },
+            },
+          })
+          .catch(() =>
+            db.playerTradeValue.count({
+              where: {
+                source: 'fantasycalc',
+                dynasty1qb: { gt: ktcDynastyValue },
+                player: { team: { not: null } },
+              },
+            }),
+          ),
+        db.playerTradeValue
+          .count({
+            where: {
+              source: 'ktc',
+              dynasty1qb: { gt: ktcDynastyValue },
+              player: { team: { not: null }, position: player.position },
+            },
+          })
+          .catch(() =>
+            db.playerTradeValue.count({
+              where: {
+                source: 'fantasycalc',
+                dynasty1qb: { gt: ktcDynastyValue },
+                player: { team: { not: null }, position: player.position },
+              },
+            }),
+          ),
+      ])
+      dynastyRank = overallHigher + 1
+      dynastyPositionRank = positionHigher + 1
+    } catch {
+      // non-critical
+    }
   }
 
-  // Build recentNews from injection (tiered, time-filtered)
-  const recentNews = injection.items.map((item) => `[${item.sourceName}] ${item.title}`)
-
-  // Build structured news items for UI display (with links + source attribution)
+  // Build news items for UI display
+  const injection = await injectContent([playerId], {
+    agentType: 'player_scout',
+    recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+    maxItemsTotal: 5,
+    allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+    allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+  })
   const newsItems = injection.items.slice(0, 5).map((item) => ({
     title: item.title,
     url: item.sourceUrl ?? null,
@@ -109,82 +284,12 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
     publishedAt: item.publishedAt ? new Date(item.publishedAt).toLocaleDateString() : null,
   }))
 
-  const communityTradeCount = ddTrades?.trades?.length ?? 0
-  const weeklyTradeVolume =
-    ddTrades?.tradeVolume?.find((v: { week_interval: number; count: number }) => v.week_interval === 1)?.count ?? 0
-
-  // ── 3. Compute dynasty positional rank (using KTC as anchor) ────────────────
-  let dynastyRank: number | null = null
-  let dynastyPositionRank: number | null = null
-  const ktcDynastyValue = marketValues.ktc?.dynasty1qb ?? marketValues.fantasycalc?.dynasty1qb ?? null
-  if (ktcDynastyValue != null && player.position) {
-    try {
-      const [overallHigher, positionHigher] = await Promise.all([
-        db.playerTradeValue.count({
-          where: { source: 'ktc', dynasty1qb: { gt: ktcDynastyValue }, player: { team: { not: null } } },
-        }).catch(() => db.playerTradeValue.count({
-          where: { source: 'fantasycalc', dynasty1qb: { gt: ktcDynastyValue }, player: { team: { not: null } } },
-        })),
-        db.playerTradeValue.count({
-          where: { source: 'ktc', dynasty1qb: { gt: ktcDynastyValue }, player: { team: { not: null }, position: player.position } },
-        }).catch(() => db.playerTradeValue.count({
-          where: { source: 'fantasycalc', dynasty1qb: { gt: ktcDynastyValue }, player: { team: { not: null }, position: player.position } },
-        })),
-      ])
-      dynastyRank = overallHigher + 1
-      dynastyPositionRank = positionHigher + 1
-    } catch { /* non-critical */ }
-  }
-
-  // ── 4. Determine trend ─────────────────────────────────────────────────────
-  const leaguePrefs = await db.userPreferences.findUnique({ where: { userId }, select: { leagueStyle: true } }).catch(() => null)
-  const leagueStyle = ((leaguePrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft') as 'dynasty' | 'redraft'
-
-  const playerContext = {
-    name: `${player.firstName} ${player.lastName}`.trim(),
-    position: player.position,
-    team: player.team,
-    injuryStatus: player.injuryStatus,
-    practiceParticipation: player.practiceParticipation,
-    depthChartOrder: player.depthChartOrder,
-    age: player.age,
-    yearsExp: player.yearsExp,
-    marketValues,
-    rankOverall: ranking?.rankOverall ?? null,
-    rankPosition: ranking?.rankPosition ?? null,
-    recentNews,
-    recentTrades: tradeCount,
-    communityTradeCount,
-    weeklyTradeVolume,
-    context,
-    sessionContext: sessionContext || undefined,
-    leagueStyle,
-  }
-
-  // ── 5. LLM call ────────────────────────────────────────────────────────────
-  console.log(`[player-scout] Calling LLM — ${player.firstName} ${player.lastName} news=${injection.items.length} confidence=${injection.confidenceScore}`)
-  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(playerContext, focusNote)
-
-  const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
-    (raw) => PlayerScoutOutputSchema.omit({
-      playerId: true, playerName: true, position: true, team: true,
-      injuryStatus: true, rankOverall: true, rankPosition: true,
-      dynasty1qbValue: true, redraftValue: true, recentTradesCount: true,
-      dynastyRank: true, dynastyPositionRank: true, newsItems: true,
-      tokensUsed: true, confidenceScore: true, sourcesUsed: true,
-    }).parse(raw),
-  )
-
-  console.log(`[player-scout] Complete — tokens=${tokensUsed} dynastyRank=${dynastyRank} posRank=${dynastyPositionRank}`)
-
   return {
     playerId,
-    playerName: playerContext.name,
-    position: player.position,
-    team: player.team,
-    injuryStatus: player.injuryStatus,
+    playerName: player ? `${player.firstName} ${player.lastName}`.trim() : playerId,
+    position: player?.position ?? '',
+    team: player?.team ?? null,
+    injuryStatus: player?.injuryStatus ?? null,
     rankOverall: ranking?.rankOverall ?? null,
     rankPosition: ranking?.rankPosition ?? null,
     dynastyRank,
@@ -192,10 +297,10 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
     dynasty1qbValue: getAnchorValue(marketValues, 'dynasty'),
     redraftValue: getAnchorValue(marketValues, 'redraft'),
     newsItems: newsItems.length > 0 ? newsItems : undefined,
-    recentTradesCount: Math.max(tradeCount, communityTradeCount),
+    recentTradesCount: 0,
     ...llmOutput,
     trend: classifyTrend(getAnchorTrend(marketValues)),
-    tokensUsed,
+    tokensUsed: metadata.tokensUsed,
     confidenceScore: injection.confidenceScore,
     sourcesUsed: injection.sourcesUsed,
   }

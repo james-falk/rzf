@@ -7,11 +7,11 @@ import { requireAuth } from '../middleware/auth.js'
 export async function sessionsRoutes(app: FastifyInstance): Promise<void> {
   // POST /sessions — lazily create a new chat session
   app.post('/sessions', { preHandler: requireAuth }, async (req, reply) => {
-    const user = (req as { user?: { id: string } }).user
+    const user = req.authUser
     if (!user) return reply.status(401).send({ error: 'Unauthorized' })
 
     const session = await db.chatSession.create({
-      data: { userId: user.id },
+      data: { userId: user.userId },
     })
 
     return reply.status(201).send({ sessionId: session.id })
@@ -19,7 +19,7 @@ export async function sessionsRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /sessions/:id/messages — append a message to a session (fire-and-forget friendly)
   app.post('/sessions/:id/messages', { preHandler: requireAuth }, async (req, reply) => {
-    const user = (req as { user?: { id: string } }).user
+    const user = req.authUser
     if (!user) return reply.status(401).send({ error: 'Unauthorized' })
 
     const { id: sessionId } = req.params as { id: string }
@@ -33,7 +33,7 @@ export async function sessionsRoutes(app: FastifyInstance): Promise<void> {
     const body = bodySchema.safeParse(req.body)
     if (!body.success) return reply.status(400).send({ error: 'Invalid request' })
 
-    const session = await db.chatSession.findFirst({ where: { id: sessionId, userId: user.id } })
+    const session = await db.chatSession.findFirst({ where: { id: sessionId, userId: user.userId } })
     if (!session) return reply.status(404).send({ error: 'Session not found' })
 
     const message = await db.chatMessage.create({
@@ -51,11 +51,11 @@ export async function sessionsRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /sessions — list sessions for the current user (most recent first)
   app.get('/sessions', { preHandler: requireAuth }, async (req, reply) => {
-    const user = (req as { user?: { id: string } }).user
+    const user = req.authUser
     if (!user) return reply.status(401).send({ error: 'Unauthorized' })
 
     const sessions = await db.chatSession.findMany({
-      where: { userId: user.id },
+      where: { userId: user.userId },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: {
@@ -71,13 +71,13 @@ export async function sessionsRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /sessions/:id/summary — generate an LLM summary of the session
   app.post('/sessions/:id/summary', { preHandler: requireAuth }, async (req, reply) => {
-    const user = (req as { user?: { id: string } }).user
+    const user = req.authUser
     if (!user) return reply.status(401).send({ error: 'Unauthorized' })
 
     const { id: sessionId } = req.params as { id: string }
 
     const session = await db.chatSession.findFirst({
-      where: { id: sessionId, userId: user.id },
+      where: { id: sessionId, userId: user.userId },
       include: {
         messages: {
           orderBy: { createdAt: 'asc' },

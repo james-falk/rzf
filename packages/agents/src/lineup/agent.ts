@@ -1,15 +1,14 @@
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
-import { LLMConnector } from '@rzf/connectors/llm'
 import { buildUserContext } from '@rzf/shared'
 import { LineupOutputSchema } from '@rzf/shared/types'
 import type { LineupInput, LineupOutput, AgentRuntimeConfig } from '@rzf/shared/types'
-import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
 import { injectContent, formatContentByPlayer } from '../content-injector.js'
 import { buildSessionContext } from '../session-context.js'
+import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
 
-// Tier 1 RSS + YouTube: start/sit needs current injury + matchup context.
-// YouTube tier 1 included for weekly preview and start/sit shows.
+const agentContext = loadAgentContext(import.meta.url)
+
 const DEFAULTS = {
   recencyWindowHours: 48,
   maxContentItems: 10,
@@ -17,15 +16,22 @@ const DEFAULTS = {
   allowedPlatforms: ['rss', 'youtube'],
 }
 
-export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeConfig): Promise<LineupOutput> {
+function toSeverityTag(injuryStatus: string | null): boolean {
+  if (!injuryStatus) return false
+  const s = injuryStatus.toLowerCase()
+  return s.includes('out') || s.includes('ir') || s.includes('doubtful') || s.includes('questionable')
+}
+
+export async function runLineupAgent(
+  input: LineupInput,
+  config?: AgentRuntimeConfig,
+): Promise<LineupOutput> {
   const { userId, leagueId, week: requestedWeek, focusNote } = input
   console.log(`[lineup] Starting — userId=${userId} leagueId=${leagueId}`)
 
-  // ── 1. Resolve Sleeper profile ─────────────────────────────────────────────
   const sleeperProfile = await db.sleeperProfile.findUnique({ where: { userId } })
   if (!sleeperProfile) throw new Error('No Sleeper account connected.')
 
-  // ── 2. Load user preferences ───────────────────────────────────────────────
   const userPrefs = await db.userPreferences.findUnique({ where: { userId } })
   const userContext = buildUserContext(
     userPrefs
@@ -40,125 +46,161 @@ export async function runLineupAgent(input: LineupInput, config?: AgentRuntimeCo
       : null,
   )
 
-  // ── 3. Fetch league + roster + NFL state ───────────────────────────────────
   const [league, userRoster, nflState] = await Promise.all([
     SleeperConnector.getLeague(leagueId),
     SleeperConnector.getUserRoster(leagueId, sleeperProfile.sleeperId),
     SleeperConnector.getNFLState(),
   ])
-
   if (!userRoster) throw new Error(`No roster found in league ${leagueId}`)
 
   const week = requestedWeek ?? nflState.week
   const season = parseInt(nflState.season, 10)
   const starterIds = new Set(userRoster.starters ?? [])
-  const allPlayerIds = (userRoster.players ?? []).filter((id) => id !== 'DEF' && !id.match(/^[A-Z]{2,3}$/))
+  const allPlayerIds = (userRoster.players ?? []).filter(
+    (id) => id !== 'DEF' && !id.match(/^[A-Z]{2,3}$/),
+  )
 
-  // ── 4. Enrich with DB data ─────────────────────────────────────────────────
-  const [playerRecords, rankings, defenseData, projections, sessionContext] = await Promise.all([
-    db.player.findMany({ where: { sleeperId: { in: allPlayerIds } } }),
-    db.playerRanking.findMany({
-      where: { playerId: { in: allPlayerIds }, source: 'fantasypros', week, season },
-    }),
-    db.nFLTeamDefense.findMany({ where: { week, season } }),
-    db.playerProjection.findMany({
-      where: { playerId: { in: allPlayerIds }, week, season, isRos: false },
-      orderBy: { fetchedAt: 'desc' },
-    }),
-    buildSessionContext(userId, config?.sessionId),
-  ])
+  const tools = {
+    roster: async (): Promise<string> => {
+      const [playerRecords, rankings, defenseData, projections] = await Promise.all([
+        db.player.findMany({ where: { sleeperId: { in: allPlayerIds } } }),
+        db.playerRanking.findMany({
+          where: { playerId: { in: allPlayerIds }, source: 'fantasypros', week, season },
+        }),
+        db.nFLTeamDefense.findMany({ where: { week, season } }),
+        db.playerProjection.findMany({
+          where: { playerId: { in: allPlayerIds }, week, season, isRos: false },
+          orderBy: { fetchedAt: 'desc' },
+        }),
+      ])
 
-  const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
-  const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
-  const defenseMap = new Map(defenseData.map((d) => [d.team, d]))
-  // Prefer FantasyPros projections, fall back to ESPN
-  const projMap = new Map<string, (typeof projections)[number]>()
-  for (const proj of projections) {
-    const existing = projMap.get(proj.playerId)
-    if (!existing || (proj.source === 'fantasypros' && existing.source !== 'fantasypros')) {
-      projMap.set(proj.playerId, proj)
-    }
+      const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
+      const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
+      const defenseMap = new Map(defenseData.map((d) => [d.team, d]))
+      const projMap = new Map<string, (typeof projections)[number]>()
+      for (const proj of projections) {
+        const existing = projMap.get(proj.playerId)
+        if (!existing || (proj.source === 'fantasypros' && existing.source !== 'fantasypros')) {
+          projMap.set(proj.playerId, proj)
+        }
+      }
+
+      const scoringType =
+        league.scoring_settings['rec'] === 1
+          ? 'PPR'
+          : league.scoring_settings['rec'] === 0.5
+            ? 'Half-PPR'
+            : 'Standard'
+      const leagueTypeNum = Number(league.settings['type'] ?? 0)
+      const leagueType =
+        leagueTypeNum === 2 ? 'Dynasty' : leagueTypeNum === 1 ? 'Keeper' : 'Redraft'
+
+      const formatSlot = (id: string, isStarter: boolean): string => {
+        const p = playerMap.get(id)
+        const r = rankMap.get(id)
+        const proj = projMap.get(id)
+        const pos = p?.position ?? 'UNKNOWN'
+        const team = p?.team ?? null
+        const defRank = team ? defenseMap.get(team) : null
+        const defRankVsPos =
+          pos === 'QB'
+            ? defRank?.rankVsQB
+            : pos === 'RB'
+              ? defRank?.rankVsRB
+              : pos === 'WR'
+                ? defRank?.rankVsWR
+                : pos === 'TE'
+                  ? defRank?.rankVsTE
+                  : null
+        const name = p ? `${p.firstName} ${p.lastName}`.trim() : id
+        const projectedPoints = proj?.fptsPpr ?? proj?.fpts ?? null
+        const isLocked =
+          !toSeverityTag(p?.injuryStatus ?? null) &&
+          (projectedPoints != null && projectedPoints >= 15
+            ? true
+            : (r?.rankPosition ?? 99) <= 5)
+        const tag = isLocked ? '[LOCKED]' : '[DECISION]'
+        const parts = [`${name} (${pos}, ${team ?? 'FA'}) ${tag}`]
+        if (r?.rankPosition) parts.push(`FP rank: ${pos}${r.rankPosition}`)
+        if (projectedPoints != null) parts.push(`Proj: ${projectedPoints.toFixed(1)}pts`)
+        if (p?.injuryStatus) parts.push(`⚠️ ${p.injuryStatus}`)
+        if (defRankVsPos) parts.push(`Opp def vs ${pos}: ${defRankVsPos}/32`)
+        return `${isStarter ? 'STARTER' : 'BENCH'}: ${parts.join(' | ')}`
+      }
+
+      const lines = [
+        `[League: ${league.name} | ${leagueType} | ${scoringType} | Week ${week}]`,
+        `[Roster Slots: ${league.roster_positions.join(', ')}]`,
+        '',
+      ]
+      for (const id of allPlayerIds) {
+        lines.push(formatSlot(id, starterIds.has(id)))
+      }
+      return lines.join('\n')
+    },
+
+    recent_news: async (): Promise<string> => {
+      const injection = await injectContent(allPlayerIds, {
+        agentType: 'lineup',
+        recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
+        maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+        allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
+        allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
+      })
+
+      const playerRecords = await db.player.findMany({
+        where: { sleeperId: { in: allPlayerIds } },
+        select: { sleeperId: true, firstName: true, lastName: true },
+      })
+      const playerNameMap = new Map(
+        playerRecords.map((p) => [p.sleeperId, `${p.firstName} ${p.lastName}`.trim()]),
+      )
+      return formatContentByPlayer(injection.items, playerNameMap) || 'No recent news.'
+    },
+
+    session_history: async (): Promise<string> => {
+      const ctx = await buildSessionContext(userId, config?.sessionId)
+      return ctx || 'No prior session context.'
+    },
   }
 
-  // Build opponent lookup from metadata (simplified — use team field for now)
-  const buildSlot = (id: string) => {
-    const p = playerMap.get(id)
-    const rank = rankMap.get(id)
-    const proj = projMap.get(id)
-    const pos = p?.position ?? 'UNKNOWN'
-    const team = p?.team ?? null
-    const defRank = team ? defenseMap.get(team) : null
-    const defRankVsPos =
-      pos === 'QB' ? defRank?.rankVsQB
-      : pos === 'RB' ? defRank?.rankVsRB
-      : pos === 'WR' ? defRank?.rankVsWR
-      : pos === 'TE' ? defRank?.rankVsTE
-      : null
+  const extraParts: string[] = []
+  if (userContext) extraParts.push(userContext)
+  if (focusNote?.trim()) extraParts.push(`USER FOCUS: ${focusNote.trim()}`)
+  extraParts.push('Optimize the starting lineup. Focus your analysis on DECISION players.')
 
-    return {
-      playerId: id,
-      name: p ? `${p.firstName} ${p.lastName}`.trim() : id,
-      position: pos,
-      team,
-      isStarter: starterIds.has(id),
-      injuryStatus: p?.injuryStatus ?? null,
-      depthChartOrder: p?.depthChartOrder ?? null,
-      rankOverall: rank?.rankOverall ?? null,
-      rankPosition: rank?.rankPosition ?? null,
-      defenseRankVsPosition: defRankVsPos ?? null,
-      projectedPoints: proj?.fptsPpr ?? proj?.fpts ?? null,
-      opponent: null, // Future: pull from schedule API
-    }
-  }
+  const outputSchema = LineupOutputSchema.omit({
+    tokensUsed: true,
+    confidenceScore: true,
+    sourcesUsed: true,
+  })
 
-  const starters = allPlayerIds.filter((id) => starterIds.has(id)).map(buildSlot)
-  const bench = allPlayerIds.filter((id) => !starterIds.has(id)).map(buildSlot)
+  const { output: llmOutput, metadata } = await runAgentLoop({
+    context: agentContext,
+    tools,
+    initialTools: ['roster', 'recent_news'],
+    outputValidator: (raw) => outputSchema.parse(raw),
+    extraContext: extraParts.join('\n\n'),
+    model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
+    maxOutputTokens: 1500,
+  })
 
-  // Classify players as locked (clear starters) vs decision (competing for flex/uncertain)
-  // A player is "locked" if they have rank position <= 5 for their position OR projected > 15pts
-  const isLocked = (slot: ReturnType<typeof buildSlot>): boolean => {
-    if (slot.injuryStatus && ['Out', 'IR', 'Doubtful'].includes(slot.injuryStatus)) return false
-    if (slot.projectedPoints != null && slot.projectedPoints >= 15) return true
-    if (slot.rankPosition != null && slot.rankPosition <= 5) return true
-    return false
-  }
+  console.log(
+    `[lineup] Complete — tokens=${metadata.tokensUsed} iters=${metadata.iterations}`,
+  )
 
-  // ── 5. Content injection ───────────────────────────────────────────────────
   const injection = await injectContent(allPlayerIds, {
     agentType: 'lineup',
     recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
-    maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,
+    maxItemsTotal: 5,
     allowedTiers: config?.allowedSourceTiers ?? DEFAULTS.allowedTiers,
     allowedPlatforms: config?.allowedPlatforms ?? DEFAULTS.allowedPlatforms,
   })
 
-  // Build player name map for formatting
-  const playerNameMap = new Map<string, string>()
-  for (const id of allPlayerIds) {
-    const p = playerMap.get(id)
-    if (p) playerNameMap.set(id, `${p.firstName} ${p.lastName}`.trim())
+  return {
+    ...llmOutput,
+    tokensUsed: metadata.tokensUsed,
+    confidenceScore: injection.confidenceScore,
+    sourcesUsed: injection.sourcesUsed,
   }
-  const newsContext = formatContentByPlayer(injection.items, playerNameMap)
-
-  // ── 6. LLM call ────────────────────────────────────────────────────────────
-  console.log(`[lineup] Calling LLM — week=${week} starters=${starters.length} bench=${bench.length} news=${injection.items.length}`)
-  const systemPrompt = buildSystemPrompt(userContext, config?.systemPromptOverride)
-  const userPrompt = buildUserPrompt(
-    { name: league.name, roster_positions: league.roster_positions, scoring_settings: league.scoring_settings, settings: league.settings },
-    starters.map((s) => ({ ...s, isLocked: isLocked(s) })),
-    bench.map((s) => ({ ...s, isLocked: isLocked(s) })),
-    week,
-    newsContext || undefined,
-    focusNote,
-    sessionContext || undefined,
-  )
-
-  const { data: llmOutput, tokensUsed } = await LLMConnector.completeJSON(
-    { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
-    (raw) => LineupOutputSchema.omit({ tokensUsed: true, confidenceScore: true, sourcesUsed: true }).parse(raw),
-  )
-
-  console.log(`[lineup] Complete — tokens=${tokensUsed} confidence=${injection.confidenceScore}`)
-
-  return { ...llmOutput, tokensUsed, confidenceScore: injection.confidenceScore, sourcesUsed: injection.sourcesUsed }
 }

@@ -1,14 +1,14 @@
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
-import { LLMConnector } from '@rzf/connectors/llm'
 import type { InjuryWatchInput, InjuryWatchOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { injectContent, type InjectedContent } from '../content-injector.js'
-import { buildSystemPrompt, buildUserPrompt } from './prompt.js'
-import { getMultiMarketValues } from '../multi-market-values.js'
+import { getMultiMarketValues, formatMarketValuesForPrompt } from '../multi-market-values.js'
 import { buildSessionContext } from '../session-context.js'
+import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
+import { z } from 'zod'
 
-// Tier 1 RSS only: injury watch needs high-signal, time-critical beat reports.
-// YouTube and Tier 3 add noise for this time-sensitive agent.
+const agentContext = loadAgentContext(import.meta.url)
+
 const DEFAULTS = {
   recencyWindowHours: 48,
   maxContentItems: 10,
@@ -19,20 +19,25 @@ const DEFAULTS = {
 function toSeverity(injuryStatus: string | null, status: string | null): 'high' | 'medium' | 'low' {
   const injury = (injuryStatus ?? '').toLowerCase()
   const playerStatus = (status ?? '').toLowerCase()
-
   if (
     injury.includes('out') ||
     injury.includes('doubtful') ||
     injury.includes('ir') ||
     playerStatus.includes('inactive')
-  ) {
+  )
     return 'high'
-  }
-  if (injury.includes('questionable') || injury.includes('limited')) {
-    return 'medium'
-  }
+  if (injury.includes('questionable') || injury.includes('limited')) return 'medium'
   return 'low'
 }
+
+const EnrichedAlertSchema = z.array(
+  z.object({
+    playerId: z.string(),
+    summary: z.string(),
+    recommendation: z.string(),
+    handcuffSuggestion: z.string().nullable().optional(),
+  }),
+)
 
 export async function runInjuryWatchAgent(
   input: InjuryWatchInput,
@@ -45,20 +50,20 @@ export async function runInjuryWatchAgent(
     throw new Error('No Sleeper account connected. Visit /account/sleeper to link your account.')
   }
 
-  // ── Fetch user roster + all league rosters (for league-wide injury scope) ──
+  // ── Rule-based alert generation (always runs, no LLM needed) ─────────────
   const [userRoster, allLeagueRosters] = await Promise.all([
     SleeperConnector.getUserRoster(leagueId, sleeperProfile.sleeperId),
     SleeperConnector.getRosters(leagueId).catch(() => []),
   ])
-
   if (!userRoster) {
     throw new Error(`No roster found for user ${sleeperProfile.sleeperId} in league ${leagueId}`)
   }
 
   const starterIds = new Set(userRoster.starters ?? [])
-  const ownRosterIds = (userRoster.players ?? []).filter((id: string) => !id.match(/^[A-Z]{2,3}$/) && id !== 'DEF')
+  const ownRosterIds = (userRoster.players ?? []).filter(
+    (id: string) => !id.match(/^[A-Z]{2,3}$/) && id !== 'DEF',
+  )
 
-  // Collect league-wide player IDs (opponents' starters) for broader injury scan
   const opponentStarterIds = new Set<string>()
   for (const roster of allLeagueRosters) {
     if (roster.roster_id === userRoster.roster_id) continue
@@ -68,15 +73,9 @@ export async function runInjuryWatchAgent(
   }
 
   const allMonitoredIds = Array.from(new Set([...ownRosterIds, ...opponentStarterIds]))
-
-  const players = await db.player.findMany({
-    where: { sleeperId: { in: allMonitoredIds } },
-  })
-
+  const players = await db.player.findMany({ where: { sleeperId: { in: allMonitoredIds } } })
   const playerMap = new Map(players.map((p) => [p.sleeperId, p]))
 
-  // ── Rule-based severity classification (always runs) ──────────────────────
-  // Own starters: full alerts. Own bench: monitor alerts. Opponent starters: waiver-opportunity alerts.
   const buildAlert = (id: string, context: 'own_starter' | 'own_bench' | 'opponent_starter') => {
     const p = playerMap.get(id)
     if (!p) return null
@@ -96,7 +95,7 @@ export async function runInjuryWatchAgent(
         : `${p.firstName} ${p.lastName} has no listed injury status.`,
       recommendation:
         context === 'opponent_starter'
-          ? `Opponent player. If this injury is confirmed, check your waiver wire — their backup may be a valuable add.`
+          ? 'Opponent player. If this injury is confirmed, check your waiver wire — their backup may be a valuable add.'
           : severity === 'high'
             ? 'Prepare a backup option immediately and monitor final game-day inactive reports.'
             : 'Track final practice reports and be ready with a contingency starter.',
@@ -104,8 +103,12 @@ export async function runInjuryWatchAgent(
   }
 
   const rawAlerts = [
-    ...ownRosterIds.filter((id: string) => starterIds.has(id)).map((id: string) => buildAlert(id, 'own_starter')),
-    ...ownRosterIds.filter((id: string) => !starterIds.has(id)).map((id: string) => buildAlert(id, 'own_bench')),
+    ...ownRosterIds
+      .filter((id: string) => starterIds.has(id))
+      .map((id: string) => buildAlert(id, 'own_starter')),
+    ...ownRosterIds
+      .filter((id: string) => !starterIds.has(id))
+      .map((id: string) => buildAlert(id, 'own_bench')),
     ...Array.from(opponentStarterIds).map((id) => buildAlert(id, 'opponent_starter')),
   ].filter(Boolean) as NonNullable<ReturnType<typeof buildAlert>>[]
 
@@ -116,14 +119,14 @@ export async function runInjuryWatchAgent(
   })
 
   const ownStarterCount = ownRosterIds.filter((id: string) => starterIds.has(id)).length
+  const ownAlerts = alerts.filter((a) => a.context !== 'opponent_starter')
 
-  // ── Trade values for flagged players (high-severity own starters) ──────────
-  const highSeverityOwnIds = alerts
-    .filter((a) => a.context === 'own_starter' && a.severity === 'high')
+  // Fetch news + market values for enrichment
+  const alertPlayerIds = ownAlerts.map((a) => a.playerId)
+  const highSeverityOwnIds = ownAlerts
+    .filter((a) => a.severity === 'high')
     .map((a) => a.playerId)
 
-  // ── Content injection ──────────────────────────────────────────────────────
-  const alertPlayerIds = alerts.filter((a) => a.context !== 'opponent_starter').map((a) => a.playerId)
   const [injection, marketValues, sessionContext] = await Promise.all([
     injectContent(alertPlayerIds, {
       agentType: 'injury_watch',
@@ -136,8 +139,7 @@ export async function runInjuryWatchAgent(
     buildSessionContext(userId, config?.sessionId),
   ])
 
-  // ── LLM enhancement (only when news is available) ─────────────────────────
-  const ownAlerts = alerts.filter((a) => a.context !== 'opponent_starter')
+  // If no news or no alerts to enrich, return rule-based output
   if (injection.items.length === 0 || ownAlerts.length === 0) {
     return {
       alerts,
@@ -149,47 +151,69 @@ export async function runInjuryWatchAgent(
     }
   }
 
-  console.log(`[injury-watch] Calling LLM to enrich ${alerts.length} alert(s) with ${injection.items.length} news item(s)`)
+  // ── LLM enrichment via loop engine ───────────────────────────────────────
+  console.log(
+    `[injury-watch] Enriching ${ownAlerts.length} alert(s) with ${injection.items.length} news item(s)`,
+  )
+
+  const tools = {
+    roster_alerts: async (): Promise<string> => {
+      const lines = ['[Injured Players — Enrich Summaries]']
+      for (const alert of ownAlerts) {
+        const contextLabel =
+          alert.context === 'own_bench'
+            ? ' [Bench]'
+            : alert.context === 'opponent_starter'
+              ? ' [Opponent]'
+              : ' [Starter]'
+        lines.push(
+          `Player: ${alert.playerName} (${alert.position}, ${alert.team ?? 'FA'})${contextLabel}`,
+          `Severity: ${alert.severity}`,
+          `Status: ${alert.injuryStatus ?? alert.status ?? 'none listed'}`,
+        )
+        const vals = marketValues.get(alert.playerId)
+        if (vals) lines.push(formatMarketValuesForPrompt(alert.playerName, vals))
+        const playerNews = injection.items.filter(
+          (item: InjectedContent) => item.playerId === alert.playerId,
+        )
+        if (playerNews.length > 0) {
+          lines.push('News:')
+          for (const n of playerNews) {
+            const tierLabel = n.sourceTier === 1 ? 'Tier 1' : n.sourceTier === 2 ? 'Tier 2' : 'Tier 3'
+            lines.push(`  [${n.sourceName} | ${tierLabel}]: "${n.title}"`)
+          }
+        } else {
+          lines.push('News: none available — use status field only.')
+        }
+        lines.push('')
+      }
+      return lines.join('\n')
+    },
+
+    session_history: async (): Promise<string> => {
+      return sessionContext || 'No prior session context.'
+    },
+  }
+
+  const extraParts: string[] = []
+  if (input.focusNote?.trim()) extraParts.push(`USER FOCUS: ${input.focusNote.trim()}`)
+  extraParts.push('Return a JSON array with one entry per player listed above.')
 
   try {
-    const newsSnippets = injection.items.map((item: InjectedContent) => ({
-      playerId: item.playerId,
-      sourceName: item.sourceName,
-      sourceTier: item.sourceTier,
-      title: item.title,
-      snippet: item.snippet,
-      publishedAt: item.publishedAt,
-    }))
+    const { output: enriched, metadata } = await runAgentLoop({
+      context: agentContext,
+      tools,
+      initialTools: ['roster_alerts'],
+      outputValidator: (raw) => EnrichedAlertSchema.parse(raw),
+      extraContext: extraParts.length > 0 ? extraParts.join('\n\n') : undefined,
+      model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
+      maxOutputTokens: 1000,
+    })
 
-    const alertContexts = ownAlerts.map((a) => ({
-      playerId: a.playerId,
-      playerName: a.playerName,
-      position: a.position,
-      team: a.team,
-      injuryStatus: a.injuryStatus,
-      status: a.status,
-      severity: a.severity,
-      context: a.context,
-      marketValues: marketValues.get(a.playerId) ?? null,
-    }))
-
-    const systemPrompt = buildSystemPrompt(config?.systemPromptOverride)
-    const userPrompt = buildUserPrompt(alertContexts, newsSnippets, input.focusNote, sessionContext || undefined)
-
-    const { data: enriched, tokensUsed } = await LLMConnector.completeJSON(
-      { systemPrompt, userPrompt, model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku' },
-      (raw) => {
-        if (!Array.isArray(raw)) throw new Error('Expected JSON array from LLM')
-        return raw as Array<{
-          playerId: string
-          summary: string
-          recommendation: string
-          handcuffSuggestion?: string | null
-        }>
-      },
+    console.log(
+      `[injury-watch] Complete — tokens=${metadata.tokensUsed} iters=${metadata.iterations}`,
     )
 
-    // Merge LLM-enriched fields into rule-based alerts
     const enrichedMap = new Map(enriched.map((e) => [e.playerId, e]))
     const mergedAlerts = alerts.map((alert) => {
       const llm = enrichedMap.get(alert.playerId)
@@ -204,15 +228,20 @@ export async function runInjuryWatchAgent(
 
     return {
       alerts: mergedAlerts,
-      riskyStarters: mergedAlerts.filter((a) => (a as typeof a & { context?: string }).context === 'own_starter').length,
-      healthyStarters: Math.max(0, ownStarterCount - mergedAlerts.filter((a) => (a as typeof a & { context?: string }).context === 'own_starter').length),
-      tokensUsed,
+      riskyStarters: mergedAlerts.filter((a) => a.context === 'own_starter').length,
+      healthyStarters: Math.max(
+        0,
+        ownStarterCount - mergedAlerts.filter((a) => a.context === 'own_starter').length,
+      ),
+      tokensUsed: metadata.tokensUsed,
       confidenceScore: injection.confidenceScore,
       sourcesUsed: injection.sourcesUsed,
     }
   } catch (err) {
-    // If LLM enrichment fails, fall back to rule-based output gracefully
-    console.warn('[injury-watch] LLM enrichment failed, using rule-based output:', err instanceof Error ? err.message : String(err))
+    console.warn(
+      '[injury-watch] LLM enrichment failed, using rule-based output:',
+      err instanceof Error ? err.message : String(err),
+    )
     return {
       alerts,
       riskyStarters: ownAlerts.length,
