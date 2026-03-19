@@ -71,7 +71,7 @@ export async function runTradeAnalysisAgent(input: TradeAnalysisInput, config?: 
   let leagueStandings: Array<{ teamName: string; wins: number; losses: number }> = []
   if (leagueId) {
     try {
-      const rosters = await SleeperConnector.getLeagueRosters(leagueId)
+      const rosters = await SleeperConnector.getRosters(leagueId)
       leagueStandings = rosters
         .filter((r) => r.settings)
         .map((r) => ({

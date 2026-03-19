@@ -137,8 +137,8 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
   }
 
   // ── 4. Determine trend ─────────────────────────────────────────────────────
-  const userPrefs = await db.userPreferences.findUnique({ where: { userId }, select: { leagueStyle: true } }).catch(() => null)
-  const leagueStyle = (userPrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft'
+  const leaguePrefs = await db.userPreferences.findUnique({ where: { userId }, select: { leagueStyle: true } }).catch(() => null)
+  const leagueStyle = ((leaguePrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft') as 'dynasty' | 'redraft'
 
   const playerContext = {
     name: `${player.firstName} ${player.lastName}`.trim(),
@@ -177,7 +177,7 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
     }).parse(raw),
   )
 
-  console.log(`[player-scout] Complete — tokens=${tokensUsed} trend=${determineTrend()} dynastyRank=${dynastyRank} posRank=${dynastyPositionRank}`)
+  console.log(`[player-scout] Complete — tokens=${tokensUsed} dynastyRank=${dynastyRank} posRank=${dynastyPositionRank}`)
 
   return {
     playerId,
@@ -193,8 +193,8 @@ export async function runPlayerScoutAgent(input: PlayerScoutInput, config?: Agen
     redraftValue: getAnchorValue(marketValues, 'redraft'),
     newsItems: newsItems.length > 0 ? newsItems : undefined,
     recentTradesCount: Math.max(tradeCount, communityTradeCount),
-    trend: classifyTrend(getAnchorTrend(marketValues)),
     ...llmOutput,
+    trend: classifyTrend(getAnchorTrend(marketValues)),
     tokensUsed,
     confidenceScore: injection.confidenceScore,
     sourcesUsed: injection.sourcesUsed,

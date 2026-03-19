@@ -75,7 +75,6 @@ export async function buildSessionContext(
         userId,
         sessionId,
         status: 'done',
-        outputJson: { not: null },
       },
       orderBy: { createdAt: 'asc' },
       take: 5,

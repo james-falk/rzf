@@ -48,7 +48,7 @@ export async function runInjuryWatchAgent(
   // ── Fetch user roster + all league rosters (for league-wide injury scope) ──
   const [userRoster, allLeagueRosters] = await Promise.all([
     SleeperConnector.getUserRoster(leagueId, sleeperProfile.sleeperId),
-    SleeperConnector.getLeagueRosters(leagueId).catch(() => [] as Awaited<ReturnType<typeof SleeperConnector.getLeagueRosters>>),
+    SleeperConnector.getRosters(leagueId).catch(() => []),
   ])
 
   if (!userRoster) {
@@ -56,7 +56,7 @@ export async function runInjuryWatchAgent(
   }
 
   const starterIds = new Set(userRoster.starters ?? [])
-  const ownRosterIds = (userRoster.players ?? []).filter((id) => !id.match(/^[A-Z]{2,3}$/) && id !== 'DEF')
+  const ownRosterIds = (userRoster.players ?? []).filter((id: string) => !id.match(/^[A-Z]{2,3}$/) && id !== 'DEF')
 
   // Collect league-wide player IDs (opponents' starters) for broader injury scan
   const opponentStarterIds = new Set<string>()
@@ -104,8 +104,8 @@ export async function runInjuryWatchAgent(
   }
 
   const rawAlerts = [
-    ...ownRosterIds.filter((id) => starterIds.has(id)).map((id) => buildAlert(id, 'own_starter')),
-    ...ownRosterIds.filter((id) => !starterIds.has(id)).map((id) => buildAlert(id, 'own_bench')),
+    ...ownRosterIds.filter((id: string) => starterIds.has(id)).map((id: string) => buildAlert(id, 'own_starter')),
+    ...ownRosterIds.filter((id: string) => !starterIds.has(id)).map((id: string) => buildAlert(id, 'own_bench')),
     ...Array.from(opponentStarterIds).map((id) => buildAlert(id, 'opponent_starter')),
   ].filter(Boolean) as NonNullable<ReturnType<typeof buildAlert>>[]
 
@@ -115,7 +115,7 @@ export async function runInjuryWatchAgent(
     return ctxRank[a.context] - ctxRank[b.context] || sevRank[a.severity] - sevRank[b.severity]
   })
 
-  const ownStarterCount = ownRosterIds.filter((id) => starterIds.has(id)).length
+  const ownStarterCount = ownRosterIds.filter((id: string) => starterIds.has(id)).length
 
   // ── Trade values for flagged players (high-severity own starters) ──────────
   const highSeverityOwnIds = alerts

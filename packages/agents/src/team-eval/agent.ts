@@ -138,8 +138,8 @@ export async function runTeamEvalAgent(input: TeamEvalInput, config?: AgentRunti
   const bench = enrichedPlayers.filter((p) => !p.isStarter)
 
   // ── 7. Content injection ───────────────────────────────────────────────────
-  const starterPlayerIds = starters.map((p) => p.sleeperId)
-  const injection = await injectContent(starterPlayerIds, {
+  const injectionPlayerIds = starters.map((p) => p.sleeperId)
+  const injection = await injectContent(injectionPlayerIds, {
     agentType: 'team_eval',
     recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
     maxItemsTotal: config?.maxContentItems ?? DEFAULTS.maxContentItems,

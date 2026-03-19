@@ -91,7 +91,7 @@ export async function runWaiverAgent(input: WaiverInput, config?: AgentRuntimeCo
       where: { sleeperId: { in: rosterPlayerIds } },
       select: { sleeperId: true, firstName: true, lastName: true, position: true, injuryStatus: true, team: true },
     }),
-    SleeperConnector.getLeagueTransactions(leagueId, week).catch(() => []),
+    SleeperConnector.getTransactions(leagueId, week).catch(() => []),
     buildSessionContext(userId, config?.sessionId),
   ])
 
