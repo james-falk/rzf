@@ -5,7 +5,6 @@ import { useAuth } from '@clerk/nextjs'
 import { api } from '@/lib/api'
 import { AgentResults } from '@/components/AgentResults'
 import type { AgentRunResult } from '@/components/AgentResults'
-import { FollowUpThread } from '@/components/FollowUpThread'
 import { cn } from '@/lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -142,10 +141,11 @@ export default function AnalyzePage() {
   const [selectedLeague, setSelectedLeague] = useState('')
   const [selectedYear, setSelectedYear] = useState(String(new Date().getFullYear()))
   const [textInput, setTextInput] = useState('')
-  const [phase, setPhase] = useState<'idle' | 'context-prompting' | 'league-select' | 'trade-select' | 'scout-select' | 'compare-select' | 'running'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'context-prompting' | 'league-select' | 'trade-select' | 'scout-select' | 'compare-select' | 'running' | 'follow-up'>('idle')
   const [pendingAgentType, setPendingAgentType] = useState('team_eval')
   const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
   const [runId, setRunId] = useState<string | null>(null)
+  const [followUpRunId, setFollowUpRunId] = useState<string | null>(null)
   const [credits, setCredits] = useState<number | null>(null)
   const [focusNote, setFocusNote] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -267,7 +267,6 @@ export default function AnalyzePage() {
         const run = await api.getAgentRun(token, runId)
         if (run.status === 'done' || run.status === 'failed') {
           clearInterval(pollRef.current!)
-          setPhase('idle')
           setMessages((prev) => prev.filter((m) => m.type !== 'loading'))
           if (run.status === 'done' && run.output) {
             push({ id: mid(), role: 'assistant', type: 'result', result: run as AgentRunResult, runId })
@@ -278,7 +277,10 @@ export default function AnalyzePage() {
               const sid = await ensureSession(token)
               persistMessage(token, sid, 'assistant', 'result', JSON.stringify({ agentType: run.agentType }), run.id)
             }
+            setFollowUpRunId(runId)
+            setPhase('follow-up')
           } else {
+            setPhase('idle')
             push({ id: mid(), role: 'assistant', type: 'error', content: `${run.errorMessage ?? 'Unknown error'}\n\nRun ID: ${run.id}` })
           }
         }
@@ -419,6 +421,26 @@ export default function AnalyzePage() {
     const msg = textInput.trim()
     setTextInput('')
 
+    // ── Follow-up phase: route to the completed run's follow-up endpoint ───────
+    if (phase === 'follow-up' && followUpRunId) {
+      if (!msg) return
+      push({ id: mid(), role: 'user', type: 'user', content: msg })
+      await showTypingThen(async () => {
+        try {
+          const token = await getToken()
+          if (!token) return
+          const { reply, suggestedAgent } = await api.followUpAgentRun(token, followUpRunId, msg)
+          push({ id: mid(), role: 'assistant', type: 'text', content: reply })
+          if (suggestedAgent) {
+            push({ id: mid(), role: 'assistant', type: 'text', content: `Want a deeper answer? I can run a full **${suggestedAgent.label}** — just say the word.` })
+          }
+        } catch {
+          push({ id: mid(), role: 'assistant', type: 'error', content: 'Something went wrong. Please try again.' })
+        }
+      }, 800)
+      return
+    }
+
     // ── Context-prompting phase: capture focusNote then show selector ──────────
     if (phase === 'context-prompting') {
       // Empty = skip
@@ -552,7 +574,7 @@ export default function AnalyzePage() {
         push({ id: mid(), role: 'assistant', type: 'error', content: 'Something went wrong. Please try again.' })
       }
     }, 1000)
-  }, [textInput, getToken, selectedLeague, leagues, phase, pendingAgentType, push, showTypingThen, startRunning, ensureSession, persistMessage])
+  }, [textInput, getToken, selectedLeague, leagues, phase, followUpRunId, pendingAgentType, push, showTypingThen, startRunning, ensureSession, persistMessage])
 
   const handleRate = useCallback(async (rateRunId: string, rating: 'up' | 'down') => {
     try {
@@ -579,12 +601,19 @@ export default function AnalyzePage() {
 
   const loadingMessages = AGENT_LOADING_MESSAGES[pendingAgentType] ?? DEFAULT_LOADING_MESSAGES
 
+  const handleFollowUpNew = useCallback(() => {
+    setFollowUpRunId(null)
+    setPhase('idle')
+    push({ id: mid(), role: 'assistant', type: 'chips' })
+  }, [push])
+
   const handleReset = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
     if (loadingRef.current) { clearInterval(loadingRef.current); loadingRef.current = null }
     setMessages([])
     setPhase('idle')
     setRunId(null)
+    setFollowUpRunId(null)
     setPendingAgentType('team_eval')
     setTextInput('')
     setFocusNote('')
@@ -751,11 +780,28 @@ export default function AnalyzePage() {
       {/* Text input */}
       {phase !== 'running' && (
         <div className="border-t border-white/10 bg-zinc-950 px-4 py-4 md:px-6">
+          {phase === 'follow-up' && (
+            <div className="mx-auto mb-2 flex max-w-2xl items-center justify-between">
+              <span className="text-xs text-zinc-500">Following up on this report — ask anything</span>
+              <button
+                type="button"
+                onClick={handleFollowUpNew}
+                className="text-xs text-indigo-400 transition hover:text-indigo-300"
+              >
+                New topic →
+              </button>
+            </div>
+          )}
           <form onSubmit={handleTextSubmit} className="mx-auto flex max-w-2xl items-center gap-3">
             <input
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
-              placeholder={phase === 'context-prompting' ? 'Type your focus, or press Enter to skip…' : phase === 'compare-select' ? 'Search for a player to add to comparison…' : 'Ask me about your team...'}
+              placeholder={
+                phase === 'follow-up' ? 'Ask a follow-up question…' :
+                phase === 'context-prompting' ? 'Type your focus, or press Enter to skip…' :
+                phase === 'compare-select' ? 'Search for a player to add to comparison…' :
+                'Ask me about your team...'
+              }
               className="flex-1 rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 text-sm text-white placeholder-zinc-600 outline-none transition focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
             />
             <button
@@ -1338,17 +1384,7 @@ function MessageBubble({
 
         {/* Result */}
         {msg.role === 'assistant' && msg.type === 'result' && msg.result.output != null && (
-          <>
-            <AgentResults result={msg.result} onRate={(r) => onRate(msg.runId, r)} />
-            <FollowUpThread
-              runId={msg.runId}
-              getToken={getToken}
-              onSuggestAgent={(agentType) => {
-                const action = QUICK_ACTIONS.find((a) => a.type === agentType)
-                if (action) onQuickAction(action)
-              }}
-            />
-          </>
+          <AgentResults result={msg.result} onRate={(r) => onRate(msg.runId, r)} />
         )}
       </div>
     </div>
