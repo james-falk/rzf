@@ -869,7 +869,7 @@ interface PlayerSearch {
 
 function MessageBubble({
   msg, leagues, selectedLeague, selectedYear, onLeagueChange, onYearChange, onRun, credits, onRate, onQuickAction,
-  loadingMsg, phase, getToken,
+  loadingMsg, phase, getToken: _getToken,
   givingPlayers, receivingPlayers, tradeLeague, tradeLeagues, tradeActiveSelector,
   myRoster, rosterLoading, playerPickMode, onPlayerPickModeChange,
   searchQuery, searchResults, searching, posFilter,
