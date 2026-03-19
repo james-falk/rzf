@@ -142,16 +142,6 @@ const CONTEXT_ACK: Record<string, string> = {
   player_compare: "Got it — I'll weight that angle in the comparison.",
 }
 
-const MANAGER_PATTERNS = [
-  'what can you do', 'what do you do', 'how do you work', 'what are you', 'who are you',
-  'help me', 'where do i start', 'what should i do', 'how can you help', 'what do you offer',
-  'what features', 'what can you help', 'tell me about yourself',
-]
-function isManagerQuery(msg: string): boolean {
-  const lower = msg.toLowerCase().trim()
-  if (lower.length < 3) return false
-  return MANAGER_PATTERNS.some((p) => lower.includes(p))
-}
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -313,7 +303,7 @@ export default function AnalyzePage() {
       } catch { clearInterval(pollRef.current!) }
     }, 2000)
     return () => { if (pollRef.current) clearInterval(pollRef.current) }
-  }, [runId, phase, getToken, push])
+  }, [runId, phase, getToken, push, ensureSession, persistMessage])
 
   // Fetch the user's own roster when trade league changes
   useEffect(() => {
@@ -568,7 +558,7 @@ export default function AnalyzePage() {
         push({ id: mid(), role: 'assistant', type: 'error', content: 'Something went wrong. Please try again.' })
       }
     }, 1000)
-  }, [textInput, getToken, selectedLeague, sessionId, leagues, phase, followUpRunId, pendingAgentType, chatTurnCount, push, showTypingThen, startRunning, ensureSession, persistMessage, setChatTurnCount])
+  }, [textInput, getToken, selectedLeague, sessionId, leagues, phase, followUpRunId, pendingAgentType, push, showTypingThen, ensureSession, persistMessage])
 
   const handleRate = useCallback(async (rateRunId: string, rating: 'up' | 'down') => {
     try {
