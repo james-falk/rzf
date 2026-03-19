@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { dirname, resolve } from 'path'
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -50,12 +50,12 @@ export async function handleMemoryCommand(text: string): Promise<string> {
     return `📋 *Current memory:*\n\`\`\`\n${memory}\n\`\`\``
   }
 
-  // Use Claude Haiku to intelligently update the memory file
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  // Use GPT-4o-mini to intelligently update the memory file
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   const currentMemory = await loadMemory()
 
-  const response = await client.messages.create({
-    model: 'claude-haiku-4-5',
+  const response = await client.chat.completions.create({
+    model: 'gpt-4o-mini',
     max_tokens: 1500,
     messages: [
       {
@@ -75,8 +75,7 @@ Instructions:
     ],
   })
 
-  const updatedMemory =
-    response.content[0]?.type === 'text' ? response.content[0].text.trim() : currentMemory
+  const updatedMemory = response.choices[0]?.message.content?.trim() ?? currentMemory
 
   await saveMemory(updatedMemory)
   return '✅ Got it, saved to memory.'

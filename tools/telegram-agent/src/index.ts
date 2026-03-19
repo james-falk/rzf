@@ -16,7 +16,7 @@ const ALLOWED_USER_ID = parseInt(process.env.TELEGRAM_ALLOWED_USER_ID ?? '0', 10
 
 if (!BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN is required — set it in .env')
 if (!ALLOWED_USER_ID) throw new Error('TELEGRAM_ALLOWED_USER_ID is required — set it in .env')
-if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is required — set it in .env')
+if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is required — set it in .env')
 if (!process.env.ADMIN_SECRET) throw new Error('ADMIN_SECRET is required — set it in .env')
 
 const bot = new Bot(BOT_TOKEN)

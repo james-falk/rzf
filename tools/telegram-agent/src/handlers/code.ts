@@ -1,5 +1,5 @@
 import type { Context } from 'grammy'
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { readFile, readdir, stat } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { dirname, resolve, relative, join } from 'path'
@@ -33,15 +33,15 @@ const MAX_TREE_CHARS = 6_000
 export async function handleCode(ctx: Context, task: string): Promise<void> {
   await ctx.reply('🤖 Thinking...')
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
   try {
     // Step 1: Build workspace file tree
     const tree = (await buildTree(WORKSPACE_ROOT)).slice(0, MAX_TREE_CHARS)
 
-    // Step 2: Ask Haiku which files to read
-    const planRes = await client.messages.create({
-      model: 'claude-haiku-4-5',
+    // Step 2: Ask gpt-4o-mini which files to read
+    const planRes = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
       max_tokens: 600,
       messages: [
         {
@@ -58,7 +58,7 @@ Example: ["apps/api/src/index.ts", "packages/shared/src/types/agent.ts"]`,
       ],
     })
 
-    const planText = planRes.content[0]?.type === 'text' ? planRes.content[0].text : '[]'
+    const planText = planRes.choices[0]?.message.content ?? '[]'
     let filePaths: string[] = []
     try {
       const match = planText.match(/\[[\s\S]*?\]/)
@@ -70,7 +70,7 @@ Example: ["apps/api/src/index.ts", "packages/shared/src/types/agent.ts"]`,
     // Step 3: Read those files
     const fileContents = await readFiles(filePaths)
 
-    // Step 4: Generate the changes with Sonnet
+    // Step 4: Generate the changes with gpt-4o
     const systemPrompt = await injectMemory(`You are an AI coding agent working on "rzf-workspace" (Red Zone Fantasy) — a TypeScript pnpm monorepo. Write clean, minimal changes that match existing patterns exactly.
 
 IMPORTANT: Respond with ONLY a JSON object matching this exact structure:
@@ -91,11 +91,14 @@ Rules:
 
     await ctx.reply('⚙️ Generating changes...')
 
-    const codeRes = await client.messages.create({
-      model: 'claude-sonnet-4-5',
+    const codeRes = await client.chat.completions.create({
+      model: 'gpt-4o',
       max_tokens: 8000,
-      system: systemPrompt,
       messages: [
+        {
+          role: 'system',
+          content: systemPrompt,
+        },
         {
           role: 'user',
           content: `Task: ${task}
@@ -108,8 +111,7 @@ Complete the task and return the JSON response.`,
       ],
     })
 
-    const rawOutput =
-      codeRes.content[0]?.type === 'text' ? codeRes.content[0].text.trim() : ''
+    const rawOutput = codeRes.choices[0]?.message.content?.trim() ?? ''
 
     // Extract JSON from Claude's response
     const jsonMatch = rawOutput.match(/\{[\s\S]*\}/)
