@@ -158,6 +158,39 @@ export async function runLineupAgent(
       return formatContentByPlayer(injection.items, playerNameMap) || 'No recent news.'
     },
 
+    prop_lines: async (): Promise<string> => {
+      const lines = await db.playerPropLine.findMany({
+        where: { sleeperId: { in: allPlayerIds } },
+        orderBy: { fetchedAt: 'desc' },
+      })
+      if (lines.length === 0) return 'No prop lines available for current roster.'
+      const playerRecords = await db.player.findMany({
+        where: { sleeperId: { in: allPlayerIds } },
+        select: { sleeperId: true, firstName: true, lastName: true },
+      })
+      const nameMap = new Map(playerRecords.map((p) => [p.sleeperId, `${p.firstName} ${p.lastName}`.trim()]))
+      const grouped = new Map<string, typeof lines>()
+      for (const l of lines) {
+        const bucket = grouped.get(l.sleeperId) ?? []
+        bucket.push(l)
+        grouped.set(l.sleeperId, bucket)
+      }
+      return Array.from(grouped.entries())
+        .map(([id, pLines]) => {
+          const name = nameMap.get(id) ?? id
+          const formatted = pLines.map((l) => {
+            const parts = [`${l.market}`]
+            if (l.line != null) parts.push(`O/U ${l.line}`)
+            if (l.overOdds != null) parts.push(`Over ${l.overOdds > 0 ? '+' : ''}${l.overOdds}`)
+            if (l.underOdds != null) parts.push(`Under ${l.underOdds > 0 ? '+' : ''}${l.underOdds}`)
+            parts.push(`[${l.bookmaker}]`)
+            return parts.join(' ')
+          })
+          return `${name}:\n  ${formatted.join('\n  ')}`
+        })
+        .join('\n\n')
+    },
+
     session_history: async (): Promise<string> => {
       const ctx = await buildSessionContext(userId, config?.sessionId)
       return ctx || 'No prior session context.'
@@ -182,7 +215,8 @@ export async function runLineupAgent(
     outputValidator: (raw) => outputSchema.parse(raw),
     extraContext: extraParts.join('\n\n'),
     model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
-    maxOutputTokens: 1500,
+    maxOutputTokens: 3000,
+    maxIterations: 4,
   })
 
   console.log(

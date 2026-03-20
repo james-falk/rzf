@@ -137,11 +137,11 @@ export interface RSSRunResult {
 
 export const RSSConnector = {
   /**
-   * Fetch all active RSS (or Reddit) sources from the DB and process each feed.
-   * Pass platform='reddit' to process Reddit RSS sources instead.
+   * Fetch all active RSS sources from the DB and process each feed.
+   * Pass platform='reddit' for Reddit RSS or platform='twitter' for Nitter RSS feeds.
    * Safe to call repeatedly — deduplicates by sourceUrl.
    */
-  async run(platform: 'rss' | 'reddit' = 'rss'): Promise<RSSRunResult> {
+  async run(platform: 'rss' | 'reddit' | 'twitter' = 'rss'): Promise<RSSRunResult> {
     const sources = await db.contentSource.findMany({
       where: { platform, isActive: true },
     })

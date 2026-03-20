@@ -93,6 +93,7 @@ export const api = {
     message: string,
     leagueId?: string,
     sessionId?: string,
+    reportContext?: { agentType: string; runId: string },
   ) {
     return apiFetch<
       | { type: 'answer'; reply: string; followUpSuggestions?: string[] }
@@ -100,7 +101,7 @@ export const api = {
     >('/agents/chat', {
       method: 'POST',
       token,
-      body: JSON.stringify({ message, leagueId, sessionId }),
+      body: JSON.stringify({ message, leagueId, sessionId, reportContext }),
     })
   },
 

@@ -9,11 +9,15 @@ import {
   runPlayerScoutAgent,
   runPlayerCompareAgent,
 } from '@rzf/agents'
+import { writeLearningSignal } from '@rzf/agents/context-revision'
+import { sendInjuryAlerts } from '../telegram-notifier.js'
 import { env } from '@rzf/shared/env'
 import { AgentJobTypes } from '@rzf/shared/types'
 import type { AgentJobData } from '@rzf/shared/types'
 import { getRedisConnection } from '../redis.js'
 import { QUEUE_NAMES } from '../queues.js'
+
+const LOW_CONFIDENCE_THRESHOLD = 60
 
 export function createAgentWorker(): Worker<AgentJobData> {
   const worker = new Worker<AgentJobData>(
@@ -121,6 +125,25 @@ export function createAgentWorker(): Worker<AgentJobData> {
           },
           input.userId,
         )
+
+        // Telegram injury alerts — fire-and-forget for high-severity own starter alerts
+        if (agentType === AgentJobTypes.INJURY_WATCH) {
+          sendInjuryAlerts(output as Parameters<typeof sendInjuryAlerts>[0])
+        }
+
+        // Low-confidence signal detection — fire-and-forget, never blocks the run
+        if (confidenceScore != null && confidenceScore < LOW_CONFIDENCE_THRESHOLD) {
+          writeLearningSignal({
+            agentType,
+            signalType: 'low_confidence',
+            runId: agentRunId,
+            confidenceScore,
+            inputSummary: JSON.stringify(input).slice(0, 300),
+            outputSummary: JSON.stringify(output).slice(0, 300),
+          }).catch((err) => {
+            console.warn('[agent-worker] Failed to write low-confidence signal:', err)
+          })
+        }
 
         console.log(`[agent-worker] Completed ${agentType} job ${job.id} in ${durationMs}ms (${tokensUsed} tokens)`)
         return output

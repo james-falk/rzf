@@ -172,6 +172,48 @@ export async function runTradeAnalysisAgent(
       const ctx = await buildSessionContext(userId, config?.sessionId)
       return ctx || 'No prior session context.'
     },
+
+    lookup_player: async (): Promise<string> => {
+      // Extracts candidate player names from the focusNote for mid-trade lookups
+      // e.g. "what if I also give Justin Jefferson" → finds Jefferson's data
+      if (!focusNote?.trim()) return 'No player name in focus note to look up.'
+      const words = focusNote.trim().replace(/[^\w\s'-]/g, ' ').split(/\s+/).filter((w) => w.length >= 2)
+      const candidates = new Set<string>()
+      for (let i = 0; i < words.length; i++) {
+        const w0 = words[i]
+        const w1 = words[i + 1]
+        if (!w0) continue
+        candidates.add(w0)
+        if (w1) candidates.add(`${w0} ${w1}`)
+      }
+      const STOP = new Set(['the','what','if','also','give','get','add','instead','swap','trade','for','and','or','my','we','i'])
+      const searchTerms = Array.from(candidates).filter((c) => !STOP.has(c.toLowerCase())).slice(0, 4)
+      if (searchTerms.length === 0) return 'Could not extract a player name from focus note.'
+      const players = await db.player.findMany({
+        where: {
+          OR: searchTerms.flatMap((term) => [
+            { lastName: { contains: term, mode: 'insensitive' } },
+            { firstName: { contains: term, mode: 'insensitive' } },
+          ]),
+          position: { in: ['QB', 'RB', 'WR', 'TE', 'K'] },
+          team: { not: null },
+        },
+        take: 3,
+      })
+      if (players.length === 0) return `No player found matching "${searchTerms.join(', ')}".`
+      const results: string[] = []
+      for (const p of players) {
+        const valuesMap = await getMultiMarketValues([p.sleeperId])
+        const vals = valuesMap.get(p.sleeperId)
+        const lines = [
+          `${p.firstName} ${p.lastName} (${p.position ?? '?'}, ${p.team ?? 'FA'}) ID: ${p.sleeperId}`,
+          `Status: ${p.injuryStatus ?? 'Healthy'}`,
+        ]
+        if (vals) lines.push(formatMarketValuesForPrompt(`${p.firstName} ${p.lastName}`, vals, leagueStyle))
+        results.push(lines.join('\n'))
+      }
+      return results.join('\n\n')
+    },
   }
 
   const extraParts: string[] = []
@@ -192,7 +234,8 @@ export async function runTradeAnalysisAgent(
     outputValidator: (raw) => outputSchema.parse(raw),
     extraContext: extraParts.length > 0 ? extraParts.join('\n\n') : undefined,
     model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'sonnet',
-    maxOutputTokens: 1500,
+    maxOutputTokens: 3500,
+    maxIterations: 5,
   })
 
   console.log(

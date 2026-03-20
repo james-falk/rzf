@@ -195,7 +195,8 @@ export async function runPlayerCompareAgent(
     outputValidator: (raw) => outputSchema.parse(raw),
     extraContext: extraParts.join('\n\n'),
     model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'sonnet',
-    maxOutputTokens: 1500,
+    maxOutputTokens: 3000,
+    maxIterations: 4,
   })
 
   console.log(

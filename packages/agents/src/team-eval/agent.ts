@@ -193,7 +193,8 @@ export async function runTeamEvalAgent(
     outputValidator: (raw) => outputSchema.parse(raw),
     extraContext: extraParts.join('\n\n'),
     model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
-    maxOutputTokens: 1200,
+    maxOutputTokens: 3000,
+    maxIterations: 4,
   })
 
   console.log(

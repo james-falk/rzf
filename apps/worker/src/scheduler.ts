@@ -171,7 +171,16 @@ export async function scheduleIngestionJobs(): Promise<void> {
     { name: 'twitter-ingestion', data: { type: IngestionJobTypes.TWITTER_INGESTION_REFRESH } },
   )
 
+  // ── Learning Pipeline ────────────────────────────────────────────────────────
+
+  // Nightly at 3am UTC — analyze accumulated learning signals and generate proposals
+  await queue.upsertJobScheduler(
+    'context-revision-nightly',
+    { pattern: '0 3 * * *' },
+    { name: 'context-revision', data: { type: IngestionJobTypes.CONTEXT_REVISION } },
+  )
+
   console.log(
-    '[scheduler] Ingestion jobs scheduled: player-daily, injury-30min, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly, fp-player-id-sync-weekly, fp-rankings-2x-week, fp-projections-2x-week, fp-news-6h, fp-injuries-12h, espn-news-6h, espn-defense-weekly, odds-wed-sat, reddit-2h, twitter-ingestion-6h',
+    '[scheduler] Ingestion jobs scheduled: player-daily, injury-30min, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly, fp-player-id-sync-weekly, fp-rankings-2x-week, fp-projections-2x-week, fp-news-6h, fp-injuries-12h, espn-news-6h, espn-defense-weekly, odds-wed-sat, reddit-2h, twitter-ingestion-6h, context-revision-nightly',
   )
 }

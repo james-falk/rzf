@@ -1164,3 +1164,71 @@ model RedditPendingPost {
   @@index([accountId, status])
   @@map("reddit_pending_posts")
 }
+
+// ─── Human-in-the-Loop Learning Pipeline ─────────────────────────────────────
+
+/// Individual failure event captured from agent runs or chat interactions.
+/// Batched into LearningProposal rows when count >= 3 for the same agentType+signalType.
+model LearningSignal {
+  id            String   @id @default(cuid())
+  agentType     String
+  /// "low_confidence" | "chat_failure" | "manual"
+  signalType    String
+  runId         String?
+  userMessage   String?  @db.Text
+  agentResponse String?  @db.Text
+  confidenceScore Int?
+  inputSummary  String?  @db.Text
+  outputSummary String?  @db.Text
+  detectedPattern String?
+
+  proposalId    String?
+  proposal      LearningProposal? @relation(fields: [proposalId], references: [id])
+
+  createdAt     DateTime @default(now())
+
+  @@index([agentType, signalType])
+  @@index([proposalId])
+  @@map("learning_signals")
+}
+
+/// Admin-reviewable proposal to edit a CONTEXT.md section, generated from batched signals.
+model LearningProposal {
+  id              String   @id @default(cuid())
+  agentType       String
+  signalType      String
+  signalCount     Int      @default(0)
+  problem         String   @db.Text
+  rootCause       String   @db.Text
+  affectedSection String
+  aiDraftEdit     String   @db.Text
+  adminFinalEdit  String?  @db.Text
+  /// "pending" | "approved" | "denied"
+  status          String   @default("pending")
+  deniedReason    String?
+
+  appliedAt       DateTime?
+  reviewedAt      DateTime?
+  createdAt       DateTime @default(now())
+
+  signals         LearningSignal[]
+  versions        AgentContextVersion[]
+
+  @@index([agentType, status])
+  @@map("learning_proposals")
+}
+
+/// Full CONTEXT.md snapshot for version history and one-click rollback.
+model AgentContextVersion {
+  id          String   @id @default(cuid())
+  agentType   String
+  contextMd   String   @db.Text
+  proposalId  String?
+  proposal    LearningProposal? @relation(fields: [proposalId], references: [id])
+  /// "approved" | "rollback" | "initial"
+  versionType String   @default("approved")
+  createdAt   DateTime @default(now())
+
+  @@index([agentType, createdAt])
+  @@map("agent_context_versions")
+}

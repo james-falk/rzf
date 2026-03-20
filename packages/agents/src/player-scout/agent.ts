@@ -152,6 +152,23 @@ export async function runPlayerScoutAgent(
       return parts.join('\n')
     },
 
+    prop_lines: async (): Promise<string> => {
+      const lines = await db.playerPropLine.findMany({
+        where: { sleeperId: playerId },
+        orderBy: { fetchedAt: 'desc' },
+      })
+      if (lines.length === 0) return 'No prop lines available for this player.'
+      const formatted = lines.map((l) => {
+        const parts = [`${l.market}`]
+        if (l.line != null) parts.push(`O/U ${l.line}`)
+        if (l.overOdds != null) parts.push(`Over ${l.overOdds > 0 ? '+' : ''}${l.overOdds}`)
+        if (l.underOdds != null) parts.push(`Under ${l.underOdds > 0 ? '+' : ''}${l.underOdds}`)
+        parts.push(`[${l.bookmaker}]`)
+        return parts.join(' ')
+      })
+      return `Prop Lines:\n${formatted.join('\n')}`
+    },
+
     session_history: async (): Promise<string> => {
       const sessionCtx = await buildSessionContext(userId, config?.sessionId)
       return sessionCtx || 'No prior session context.'
@@ -196,7 +213,8 @@ export async function runPlayerScoutAgent(
     outputValidator: (raw) => outputSchema.parse(raw),
     extraContext,
     model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
-    maxOutputTokens: 1200,
+    maxOutputTokens: 2500,
+    maxIterations: 4,
   })
 
   console.log(

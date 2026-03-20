@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '@rzf/db'
 import { requireAuth, requireAdmin, requireAdminSecret } from '../middleware/auth.js'
 import { getAgentQueue, getIngestionQueue } from '../lib/queue.js'
+import { writeLearningSignal, applyProposal, rollbackToVersion } from '@rzf/agents/context-revision'
 import {
   AgentJobTypes,
   IngestionJobTypes,
@@ -435,6 +436,9 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         IngestionJobTypes.ADP_REFRESH,
         IngestionJobTypes.DYNASTY_DADDY_REFRESH,
         IngestionJobTypes.SEASON_STATS_REFRESH,
+        IngestionJobTypes.REDDIT_SEED,
+        IngestionJobTypes.TWITTER_SEED,
+        IngestionJobTypes.CONTEXT_REVISION,
       ]),
     }).safeParse(req.body)
 
@@ -1169,6 +1173,101 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         agents: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, error: 'Redis unavailable' },
         ingestion: { waiting: 0, active: 0, completed: 0, failed: 0, delayed: 0, error: 'Redis unavailable' },
       })
+    }
+  })
+
+  // ── Learning Pipeline Endpoints ──────────────────────────────────────────────
+
+  // POST /internal/agents/train-example — manually inject a failure example
+  app.post('/internal/agents/train-example', { preHandler: adminGuard }, async (req, reply) => {
+    const body = z.object({
+      agentType: z.string(),
+      userMessage: z.string(),
+      expectedBehavior: z.string(),
+      notes: z.string().optional(),
+    }).safeParse(req.body)
+
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
+    }
+
+    await writeLearningSignal({
+      agentType: body.data.agentType,
+      signalType: 'manual',
+      userMessage: body.data.userMessage,
+      outputSummary: `Expected: ${body.data.expectedBehavior}${body.data.notes ? ` | Notes: ${body.data.notes}` : ''}`,
+      detectedPattern: 'manual_injection',
+    })
+
+    return reply.status(201).send({ ok: true })
+  })
+
+  // GET /internal/learning/proposals — list pending proposals for admin review
+  app.get('/internal/learning/proposals', { preHandler: adminGuard }, async (req, reply) => {
+    const { status = 'pending' } = (req.query as { status?: string })
+    const proposals = await db.learningProposal.findMany({
+      where: { status },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        signals: {
+          select: { id: true, signalType: true, userMessage: true, agentResponse: true, confidenceScore: true, createdAt: true },
+        },
+      },
+    })
+    return reply.send(proposals)
+  })
+
+  // PATCH /internal/learning/proposals/:id — approve or deny a proposal
+  app.patch('/internal/learning/proposals/:id', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const body = z.object({
+      action: z.enum(['approve', 'deny']),
+      adminFinalEdit: z.string().optional(),
+      deniedReason: z.string().optional(),
+    }).safeParse(req.body)
+
+    if (!body.success) {
+      return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
+    }
+
+    if (body.data.action === 'approve') {
+      if (body.data.adminFinalEdit) {
+        await db.learningProposal.update({
+          where: { id },
+          data: { adminFinalEdit: body.data.adminFinalEdit },
+        })
+      }
+      await applyProposal(id)
+      return reply.send({ ok: true, status: 'approved' })
+    } else {
+      await db.learningProposal.update({
+        where: { id },
+        data: { status: 'denied', deniedReason: body.data.deniedReason, reviewedAt: new Date() },
+      })
+      return reply.send({ ok: true, status: 'denied' })
+    }
+  })
+
+  // GET /internal/learning/versions/:agentType — version history for an agent
+  app.get('/internal/learning/versions/:agentType', { preHandler: adminGuard }, async (req, reply) => {
+    const { agentType } = req.params as { agentType: string }
+    const versions = await db.agentContextVersion.findMany({
+      where: { agentType },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: { id: true, agentType: true, versionType: true, proposalId: true, createdAt: true },
+    })
+    return reply.send(versions)
+  })
+
+  // POST /internal/learning/versions/:id/rollback — restore a prior snapshot
+  app.post('/internal/learning/versions/:id/rollback', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    try {
+      await rollbackToVersion(id)
+      return reply.send({ ok: true })
+    } catch (err) {
+      return reply.status(400).send({ error: err instanceof Error ? err.message : String(err) })
     }
   })
 }

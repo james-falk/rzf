@@ -207,7 +207,8 @@ export async function runInjuryWatchAgent(
       outputValidator: (raw) => EnrichedAlertSchema.parse(raw),
       extraContext: extraParts.length > 0 ? extraParts.join('\n\n') : undefined,
       model: (config?.modelTierOverride as 'haiku' | 'sonnet') ?? 'haiku',
-      maxOutputTokens: 1000,
+      maxOutputTokens: 2000,
+      maxIterations: 3,
     })
 
     console.log(

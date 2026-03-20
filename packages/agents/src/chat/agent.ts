@@ -32,13 +32,17 @@ export interface ChatInput {
   message: string
   leagueId?: string
   sessionId?: string
+  reportContext?: {
+    agentType: string
+    runId: string
+  }
 }
 
 // ─── Agent ────────────────────────────────────────────────────────────────────
 
 export async function runChatAgent(input: ChatInput): Promise<ChatOutput> {
-  const { userId, message, leagueId, sessionId } = input
-  console.log(`[chat-agent] message="${message.slice(0, 80)}" leagueId=${leagueId ?? 'none'}`)
+  const { userId, message, leagueId, sessionId, reportContext } = input
+  console.log(`[chat-agent] message="${message.slice(0, 80)}" leagueId=${leagueId ?? 'none'} reportContext=${reportContext?.agentType ?? 'none'}`)
 
   // Tools available to the chat agent
   const tools = {
@@ -93,39 +97,59 @@ export async function runChatAgent(input: ChatInput): Promise<ChatOutput> {
     },
 
     player_lookup: async (): Promise<string> => {
-      // Extract capitalized words (proper nouns) that are likely player names
-      const STOP = new Set([
-        'The', 'Who', 'What', 'When', 'Where', 'Should', 'Would', 'Could', 'Does',
-        'Will', 'His', 'Her', 'Him', 'Are', 'Was', 'How', 'Can', 'Did', 'Has',
-        'Any', 'But', 'And', 'For', 'This', 'That', 'With', 'From', 'Just',
-      ])
-      const properNouns = [
-        ...new Set(message.match(/\b[A-Z][a-z]{2,}\b/g) ?? []),
-      ].filter((w) => !STOP.has(w))
+      // Split message into candidate word sequences (bigrams + single words)
+      // to handle "DJ Moore", "AJ Brown", multi-word names, and lowercase mentions
+      const words = message
+        .replace(/[^\w\s'-]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length >= 2)
 
-      if (properNouns.length === 0) return 'Could not identify a player name in the query.'
+      const candidates = new Set<string>()
+      for (let i = 0; i < words.length; i++) {
+        const w0 = words[i]
+        const w1 = words[i + 1]
+        const w2 = words[i + 2]
+        if (!w0) continue
+        candidates.add(w0)
+        if (w1) candidates.add(`${w0} ${w1}`)
+        if (w1 && w2) candidates.add(`${w0} ${w1} ${w2}`)
+      }
+
+      const STOP = new Set([
+        'the', 'who', 'what', 'when', 'where', 'should', 'would', 'could', 'does',
+        'will', 'his', 'her', 'him', 'are', 'was', 'how', 'can', 'did', 'has',
+        'any', 'but', 'and', 'for', 'this', 'that', 'with', 'from', 'just',
+        'scout', 'trade', 'add', 'drop', 'start', 'sit', 'pick', 'help', 'my',
+        'team', 'player', 'week', 'score', 'point', 'rank', 'value', 'good', 'bad',
+      ])
+      const searchTerms = Array.from(candidates)
+        .filter((c) => !STOP.has(c.toLowerCase()))
+        .slice(0, 6)
+
+      if (searchTerms.length === 0) return 'Could not identify a player name in the query.'
 
       const players = await db.player.findMany({
         where: {
-          OR: properNouns.slice(0, 4).flatMap((noun) => [
-            { lastName: { contains: noun, mode: 'insensitive' } },
-            { firstName: { contains: noun, mode: 'insensitive' } },
+          OR: searchTerms.flatMap((term) => [
+            { lastName: { contains: term, mode: 'insensitive' } },
+            { firstName: { contains: term, mode: 'insensitive' } },
           ]),
-          position: { not: undefined },
+          position: { in: ['QB', 'RB', 'WR', 'TE', 'K'] },
+          team: { not: null },
         },
-        take: 3,
+        take: 4,
       })
 
       if (players.length === 0) {
-        return `Could not find a player matching "${properNouns.join(', ')}" in the database.`
+        return `Could not find a player matching "${searchTerms.join(', ')}" in the database.`
       }
 
       const results: string[] = []
-      for (const player of players.slice(0, 2)) {
+      for (const player of players.slice(0, 3)) {
         const valuesMap = await getMultiMarketValues([player.sleeperId])
         const values = valuesMap.get(player.sleeperId)
         const lines = [
-          `${player.firstName} ${player.lastName} (${player.position ?? 'N/A'}, ${player.team ?? 'FA'})`,
+          `${player.firstName} ${player.lastName} (${player.position ?? 'N/A'}, ${player.team ?? 'FA'}) [sleeperId:${player.sleeperId}]`,
           `Status: ${player.injuryStatus ?? 'Healthy'}`,
         ]
         if (values) {
@@ -236,6 +260,15 @@ export async function runChatAgent(input: ChatInput): Promise<ChatOutput> {
   const wantsStandings = /standing|record|rank|place|first|last|win|loss/.test(lowerMsg)
   const wantsWaivers = /waiver|free agent|available|pickup|add|trending/.test(lowerMsg)
 
+  const extraContextParts: string[] = [`User message: "${message}"`]
+  if (reportContext) {
+    extraContextParts.push(
+      `[Prior Report Context] The user just completed a ${reportContext.agentType} report (runId: ${reportContext.runId}). ` +
+      `If they are asking to modify that analysis (e.g., add/swap a player in a trade, ask a follow-up about that specific report) ` +
+      `consider that context. If they are asking about a new topic or a different player, route to the appropriate specialist agent.`,
+    )
+  }
+
   const { output } = await runAgentLoop({
     context: agentContext,
     tools,
@@ -249,9 +282,10 @@ export async function runChatAgent(input: ChatInput): Promise<ChatOutput> {
         ]
       : ['session_history'],
     outputValidator: (raw) => ChatOutputSchema.parse(raw),
-    extraContext: `User message: "${message}"`,
+    extraContext: extraContextParts.join('\n\n'),
     model: 'haiku',
-    maxOutputTokens: 600,
+    maxOutputTokens: 1500,
+    maxIterations: 3,
   })
 
   console.log(`[chat-agent] type=${output.type}`)

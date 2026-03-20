@@ -9,6 +9,8 @@ import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { FantasyProsConnector } from '@rzf/connectors/fantasypros'
 import { ESPNConnector } from '@rzf/connectors/espn'
 import { OddsConnector } from '@rzf/connectors/odds'
+import { RedditConnector } from '@rzf/connectors/reddit'
+import { seedNitterSources } from '@rzf/connectors/twitter'
 import { IngestionJobTypes, generateAliases } from '@rzf/shared'
 import type { IngestionJobType } from '@rzf/shared/types'
 import { getRedisConnection } from '../redis.js'
@@ -87,6 +89,15 @@ export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
           break
         case IngestionJobTypes.REDDIT_REFRESH:
           await runRedditRefresh()
+          break
+        case IngestionJobTypes.REDDIT_SEED:
+          await runRedditSeed()
+          break
+        case IngestionJobTypes.TWITTER_SEED:
+          await runTwitterSeed()
+          break
+        case IngestionJobTypes.CONTEXT_REVISION:
+          await runContextRevision()
           break
         default:
           throw new Error(`Unknown ingestion job type: ${type}`)
@@ -594,6 +605,10 @@ async function runSeasonStatsRefresh(): Promise<void> {
 // FP_PLAYER_ID_SYNC — Weekly: map Sleeper players to FP IDs (and ESPN/Yahoo/CBS)
 // via sportsdata_player_id bridge. Seeds PlayerExternalId for all future FP calls.
 async function runFPPlayerIdSync(): Promise<void> {
+  if (!process.env['FANTASYPROS_API_KEY']) {
+    console.warn('[ingestion] FP_PLAYER_ID_SYNC skipped — FANTASYPROS_API_KEY not configured')
+    return
+  }
   const result = await FantasyProsConnector.syncPlayerIds()
   console.log(
     `[ingestion] FP player ID sync complete — synced=${result.synced} unmatched=${result.unmatched} errors=${result.errors.length}`,
@@ -606,6 +621,10 @@ async function runFPPlayerIdSync(): Promise<void> {
 // FP_RANKINGS_REFRESH — Tuesday + Friday: sync consensus ECR rankings with tier,
 // ownership %, and per-format ranks into PlayerRanking.
 async function runFPRankingsRefresh(): Promise<void> {
+  if (!process.env['FANTASYPROS_API_KEY']) {
+    console.warn('[ingestion] FP_RANKINGS_REFRESH skipped — FANTASYPROS_API_KEY not configured')
+    return
+  }
   const nflState = await SleeperConnector.getNFLState()
   const week = nflState.week
   const season = parseInt(nflState.season, 10)
@@ -622,6 +641,10 @@ async function runFPRankingsRefresh(): Promise<void> {
 // FP_PROJECTIONS_REFRESH — Tuesday + Friday: sync weekly + ROS projected fantasy
 // points and stat lines into PlayerProjection (table was previously empty).
 async function runFPProjectionsRefresh(): Promise<void> {
+  if (!process.env['FANTASYPROS_API_KEY']) {
+    console.warn('[ingestion] FP_PROJECTIONS_REFRESH skipped — FANTASYPROS_API_KEY not configured')
+    return
+  }
   const nflState = await SleeperConnector.getNFLState()
   const week = nflState.week
   const season = parseInt(nflState.season, 10)
@@ -638,6 +661,10 @@ async function runFPProjectionsRefresh(): Promise<void> {
 // FP_NEWS_REFRESH — Every 6 hours: sync latest 100 NFL news items with expert-written
 // fantasy impact blurbs into ContentItem / ContentPlayerMention as Tier 1 api content.
 async function runFPNewsRefresh(): Promise<void> {
+  if (!process.env['FANTASYPROS_API_KEY']) {
+    console.warn('[ingestion] FP_NEWS_REFRESH skipped — FANTASYPROS_API_KEY not configured')
+    return
+  }
   const result = await FantasyProsConnector.syncNews()
   console.log(
     `[ingestion] FP news refresh complete — inserted=${result.inserted} skipped=${result.skipped} errors=${result.errors.length}`,
@@ -650,6 +677,10 @@ async function runFPNewsRefresh(): Promise<void> {
 // FP_INJURIES_REFRESH — Every 12 hours: sync injury status and numeric probability
 // of playing into Player.probabilityOfPlaying for use by the Injury Watch agent.
 async function runFPInjuriesRefresh(): Promise<void> {
+  if (!process.env['FANTASYPROS_API_KEY']) {
+    console.warn('[ingestion] FP_INJURIES_REFRESH skipped — FANTASYPROS_API_KEY not configured')
+    return
+  }
   const result = await FantasyProsConnector.syncInjuries()
   console.log(
     `[ingestion] FP injuries refresh complete — updated=${result.updated} skipped=${result.skipped} errors=${result.errors.length}`,
@@ -700,57 +731,57 @@ async function runOddsRefresh(): Promise<void> {
   }
 }
 
-// TWITTER_INGESTION_REFRESH — Every 6 hours: scrape curated Twitter/X accounts
-// using TweetMonitorRule entries for read-only content ingestion.
-// The official X API (write path) is NOT used here — this uses the search endpoint.
+// TWITTER_INGESTION_REFRESH — Every 6 hours: ingest Twitter content.
+// Primary path (no API key): processes Nitter RSS ContentSource rows (platform='twitter')
+// via the existing RSS pipeline — same dedup, player tagging, and content storage.
+// Fallback path (if X API configured): also processes any active TweetMonitorRule entries.
 async function runTwitterIngestionRefresh(): Promise<void> {
+  // Primary: Nitter RSS feeds (zero cost, no API key required)
+  const nitterSources = await db.contentSource.count({
+    where: { platform: 'twitter', isActive: true },
+  })
+
+  if (nitterSources > 0) {
+    const result = await RSSConnector.run('twitter')
+    console.log(
+      `[ingestion] Nitter RSS complete — inserted=${result.inserted} sources=${result.sources} errors=${result.errors.length}`,
+    )
+    if (result.errors.length > 0) {
+      console.warn('[ingestion] Nitter errors (first 3):', result.errors.slice(0, 3))
+    }
+  } else {
+    console.log('[ingestion] Twitter/Nitter: no active sources — run TWITTER_SEED first')
+  }
+
+  // Fallback: official X API (only if authenticated TweetMonitorRule entries exist)
   const rules = await db.tweetMonitorRule.findMany({
     where: { isActive: true },
     include: { xAccount: { select: { accessToken: true, isActive: true } } },
   })
+  const authenticatedRules = rules.filter((r) => r.xAccount?.isActive && r.xAccount.accessToken)
+  if (authenticatedRules.length === 0) return
 
-  if (rules.length === 0) {
-    console.log('[ingestion] Twitter ingestion: no active monitor rules found')
-    return
-  }
-
+  console.log(`[ingestion] Processing ${authenticatedRules.length} authenticated X API rules`)
   const aliases = await db.playerAlias.findMany({
     where: { player: { status: { not: 'Inactive' } } },
     select: { alias: true, playerId: true, aliasType: true },
   })
-
-  // Ensure a Twitter ContentSource exists
-  let twitterSource = await db.contentSource.findFirst({
-    where: { platform: 'twitter', name: 'Twitter/X Monitor' },
-  })
+  let twitterSource = await db.contentSource.findFirst({ where: { platform: 'twitter', name: 'Twitter/X Monitor' } })
   if (!twitterSource) {
     twitterSource = await db.contentSource.create({
-      data: {
-        name: 'Twitter/X Monitor',
-        platform: 'twitter',
-        feedUrl: 'https://twitter.com',
-        tier: 2,
-        refreshIntervalMins: 360,
-      },
+      data: { name: 'Twitter/X Monitor', platform: 'twitter', feedUrl: 'https://twitter.com', tier: 2, refreshIntervalMins: 360 },
     })
   }
-
   const { XConnector } = await import('@rzf/connectors/twitter')
   const { resolvePlayerMentions, extractSnippet, inferMentionContext } = await import('@rzf/shared')
-
   let inserted = 0
-  for (const rule of rules) {
-    if (!rule.xAccount?.isActive || !rule.xAccount.accessToken) continue
-
+  for (const rule of authenticatedRules) {
     try {
-      const result = await XConnector.searchTweets(rule.xAccount.accessToken, rule.query, 25)
+      const result = await XConnector.searchTweets(rule.xAccount!.accessToken, rule.query, 25)
       if (!result.success || !result.data) continue
-
       for (const tweet of result.data.tweets) {
         const url = `https://twitter.com/i/web/status/${tweet.id}`
-        const existing = await db.contentItem.findUnique({ where: { sourceUrl: url } })
-        if (existing) continue
-
+        if (await db.contentItem.findUnique({ where: { sourceUrl: url } })) continue
         const matches = resolvePlayerMentions(tweet.text, aliases, { strictMode: true })
         const contentItem = await db.contentItem.create({
           data: {
@@ -762,39 +793,23 @@ async function runTwitterIngestionRefresh(): Promise<void> {
             authorName: tweet.authorHandle ? `@${tweet.authorHandle}` : 'Twitter',
             publishedAt: tweet.createdAt ? new Date(tweet.createdAt) : null,
             topics: [],
-            mediaMeta: {
-              tweetId: tweet.id,
-              likeCount: tweet.publicMetrics?.likeCount ?? 0,
-              retweetCount: tweet.publicMetrics?.retweetCount ?? 0,
-              replyCount: tweet.publicMetrics?.replyCount ?? 0,
-            },
+            mediaMeta: { tweetId: tweet.id, likeCount: tweet.publicMetrics?.likeCount ?? 0, retweetCount: tweet.publicMetrics?.retweetCount ?? 0, replyCount: tweet.publicMetrics?.replyCount ?? 0 },
           },
         })
-
         if (matches.length > 0) {
           await db.contentPlayerMention.createMany({
-            data: matches.map((m) => ({
-              contentId: contentItem.id,
-              playerId: m.playerId,
-              context: inferMentionContext(extractSnippet(tweet.text, m)),
-              snippet: extractSnippet(tweet.text, m, 140),
-            })),
+            data: matches.map((m) => ({ contentId: contentItem.id, playerId: m.playerId, context: inferMentionContext(extractSnippet(tweet.text, m)), snippet: extractSnippet(tweet.text, m, 140) })),
             skipDuplicates: true,
           })
         }
         inserted++
       }
-
-      await db.tweetMonitorRule.update({
-        where: { id: rule.id },
-        data: { lastRanAt: new Date() },
-      })
+      await db.tweetMonitorRule.update({ where: { id: rule.id }, data: { lastRanAt: new Date() } })
     } catch (err) {
       console.warn(`[ingestion] Twitter rule "${rule.query}": ${err instanceof Error ? err.message : String(err)}`)
     }
   }
-
-  console.log(`[ingestion] Twitter ingestion complete — inserted=${inserted} items`)
+  console.log(`[ingestion] X API ingestion complete — inserted=${inserted} items`)
 }
 
 // REDDIT_REFRESH — Every 2 hours: process Reddit RSS sources (platform='reddit')
@@ -808,4 +823,26 @@ async function runRedditRefresh(): Promise<void> {
   if (result.errors.length > 0) {
     console.warn('[ingestion] Reddit errors (first 5):', result.errors.slice(0, 5))
   }
+}
+
+// REDDIT_SEED — One-time setup: registers r/fantasyfootball, r/DynastyFF, r/FFCommish
+// as ContentSource rows so the 2-hour REDDIT_REFRESH job has targets to process.
+async function runRedditSeed(): Promise<void> {
+  await RedditConnector.seedDefaultSources()
+  console.log('[ingestion] Reddit seed complete')
+}
+
+// TWITTER_SEED — One-time setup: registers default Nitter RSS handles (beat reporters,
+// fantasy analysts) as ContentSource rows. After seeding, TWITTER_INGESTION_REFRESH
+// will automatically pick them up via the RSS pipeline on every 6-hour run.
+async function runTwitterSeed(): Promise<void> {
+  const result = await seedNitterSources()
+  console.log(`[ingestion] Twitter/Nitter seed complete — seeded=${result.seeded} existing=${result.existing}`)
+}
+
+// CONTEXT_REVISION — Nightly at 3am UTC: analyze low-confidence runs and chat
+// failures, generate LearningProposal rows for admin review.
+async function runContextRevision(): Promise<void> {
+  const { runContextRevisionJob } = await import('@rzf/agents/context-revision')
+  await runContextRevisionJob()
 }

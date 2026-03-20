@@ -374,6 +374,12 @@ export const IngestionJobTypes = {
   TWITTER_INGESTION_REFRESH: 'twitter_ingestion_refresh',
   // Reddit content ingestion (via RSS feeds)
   REDDIT_REFRESH: 'reddit_refresh',
+  // One-time seed: registers default subreddits as ContentSource rows
+  REDDIT_SEED: 'reddit_seed',
+  // One-time seed: registers default Nitter/Twitter handles as ContentSource rows
+  TWITTER_SEED: 'twitter_seed',
+  // Context revision: nightly pass to generate learning proposals
+  CONTEXT_REVISION: 'context_revision',
 } as const
 
 export type IngestionJobType = (typeof IngestionJobTypes)[keyof typeof IngestionJobTypes]

@@ -446,18 +446,55 @@ export default function AnalyzePage() {
     const msg = textInput.trim()
     setTextInput('')
 
-    // ── Follow-up phase: route to the completed run's follow-up endpoint ───────
+    // ── Follow-up phase: route through chat agent with report context ───────────
     if (phase === 'follow-up' && followUpRunId) {
       if (!msg) return
       push({ id: mid(), role: 'user', type: 'user', content: msg })
+      setChatTurnCount((c) => c + 1)
       await showTypingThen(async () => {
         try {
           const token = await getToken()
           if (!token) return
-          const { reply, suggestedAgent } = await api.followUpAgentRun(token, followUpRunId, msg)
-          push({ id: mid(), role: 'assistant', type: 'text', content: reply })
-          if (suggestedAgent) {
-            push({ id: mid(), role: 'assistant', type: 'text', content: `Want a deeper answer? I can run a full **${suggestedAgent.label}** — just say the word.` })
+          const result = await api.chatMessage(
+            token,
+            msg,
+            selectedLeague || undefined,
+            sessionId || undefined,
+            { agentType: pendingAgentType, runId: followUpRunId },
+          )
+          if (result.type === 'answer') {
+            push({ id: mid(), role: 'assistant', type: 'chat-answer', content: result.reply, suggestions: result.followUpSuggestions })
+          } else if (result.type === 'route') {
+            push({ id: mid(), role: 'assistant', type: 'text', content: result.reply })
+            await delay(300)
+            const routeType = result.route
+            const playerHint = result.extractedParams?.playerName ?? ''
+            setPendingAgentType(routeType)
+            setFocusNote('')
+            if (routeType === 'trade_analysis') {
+              setGivingPlayers([])
+              setReceivingPlayers([])
+              setTradeActiveSelector(null)
+              setSearchQuery('')
+              setSearchResults([])
+              setPhase('trade-select')
+              push({ id: mid(), role: 'assistant', type: 'trade-select' })
+            } else if (routeType === 'player_scout') {
+              setScoutPlayer(null)
+              setScoutQuery(playerHint)
+              if (playerHint) setScoutShowResults(true)
+              setPhase('scout-select')
+              push({ id: mid(), role: 'assistant', type: 'scout-select' })
+            } else if (routeType === 'player_compare') {
+              setComparePlayers([])
+              setSearchQuery('')
+              setSearchResults([])
+              setPhase('compare-select')
+              push({ id: mid(), role: 'assistant', type: 'compare-select' })
+            } else {
+              setPhase('league-select')
+              push({ id: mid(), role: 'assistant', type: 'league-select', leagues, agentType: routeType })
+            }
           }
         } catch {
           push({ id: mid(), role: 'assistant', type: 'error', content: 'Something went wrong. Please try again.' })

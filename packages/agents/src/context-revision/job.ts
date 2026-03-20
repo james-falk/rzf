@@ -1,13 +1,17 @@
 /**
- * Context Revision Job
+ * Context Revision Job — Human-in-the-Loop Learning Pipeline
  *
- * Reads accumulated low-rated agent runs, identifies patterns of failure,
- * and rewrites the "## Learned Preferences" section of each agent's CONTEXT.md.
+ * Stage 1 (Detection): LearningSignal rows are written by:
+ *   - agent.worker.ts (confidenceScore < 60 → low_confidence signal)
+ *   - chat.ts route (chat failure patterns → chat_failure signal)
+ *   - /internal/agents/train-example endpoint (manual signal)
  *
- * This is the feedback loop that makes agents self-improve over time.
+ * Stage 2 (Proposal): When 3+ unprocessed signals share the same agentType+signalType,
+ *   this job generates a LearningProposal via Claude Sonnet for admin review.
  *
- * Trigger: Called periodically (e.g. nightly) or when a threshold of low-rated
- * runs accumulates for a given agent type.
+ * Stage 3 (Approval): Admin reviews proposals in /admin/learning, edits the AI draft,
+ *   and approves. On approval, applyProposal() saves a version snapshot and patches
+ *   the CONTEXT.md on disk.
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'fs'
@@ -18,8 +22,8 @@ import { LLMConnector } from '@rzf/connectors/llm'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-// Map agent type strings to their CONTEXT.md paths
 const AGENT_CONTEXT_PATHS: Record<string, string> = {
+  chat: join(__dirname, '..', 'chat', 'CONTEXT.md'),
   player_scout: join(__dirname, '..', 'player-scout', 'CONTEXT.md'),
   trade_analysis: join(__dirname, '..', 'trade-analysis', 'CONTEXT.md'),
   team_eval: join(__dirname, '..', 'team-eval', 'CONTEXT.md'),
@@ -29,171 +33,295 @@ const AGENT_CONTEXT_PATHS: Record<string, string> = {
   injury_watch: join(__dirname, '..', 'injury-watch', 'CONTEXT.md'),
 }
 
-// Minimum low-rated runs needed before revision is attempted
-const MIN_LOW_RATED_RUNS = 3
+const MIN_SIGNALS_FOR_PROPOSAL = 3
 
-export interface ContextRevisionResult {
+// ─── Signal Writing ───────────────────────────────────────────────────────────
+
+export interface LearningSignalInput {
   agentType: string
-  revised: boolean
-  reason: string
-  lowRatedRunsFound: number
+  signalType: 'low_confidence' | 'chat_failure' | 'manual'
+  runId?: string
+  userMessage?: string
+  agentResponse?: string
+  confidenceScore?: number
+  inputSummary?: string
+  outputSummary?: string
+  detectedPattern?: string
 }
 
 /**
- * Run context revision for all agents that have enough low-rated feedback.
+ * Write a learning signal and, if threshold is reached, trigger proposal generation.
  */
-export async function runContextRevisionJob(): Promise<ContextRevisionResult[]> {
-  const results: ContextRevisionResult[] = []
-
-  for (const [agentType, contextPath] of Object.entries(AGENT_CONTEXT_PATHS)) {
-    const result = await reviseAgentContext(agentType, contextPath)
-    results.push(result)
-  }
-
-  return results
-}
-
-/**
- * Revise a single agent's CONTEXT.md based on recent low-rated runs.
- */
-export async function reviseAgentContext(
-  agentType: string,
-  contextPath: string,
-): Promise<ContextRevisionResult> {
-  // Try src/ path if compiled dist/ path doesn't exist
-  const resolvedPath = resolveContextPath(contextPath)
-  if (!resolvedPath) {
-    return { agentType, revised: false, reason: 'CONTEXT.md not found', lowRatedRunsFound: 0 }
-  }
-
-  // Fetch recent low-rated runs for this agent
-  const lowRatedRuns = await db.agentRun.findMany({
-    where: {
-      agentType,
-      rating: 'down',
-      status: 'done',
-      outputJson: { not: undefined },
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 10,
-    select: {
-      id: true,
-      inputJson: true,
-      outputJson: true,
-      createdAt: true,
+export async function writeLearningSignal(input: LearningSignalInput): Promise<void> {
+  await db.learningSignal.create({
+    data: {
+      agentType: input.agentType,
+      signalType: input.signalType,
+      runId: input.runId,
+      userMessage: input.userMessage,
+      agentResponse: input.agentResponse,
+      confidenceScore: input.confidenceScore,
+      inputSummary: input.inputSummary,
+      outputSummary: input.outputSummary,
+      detectedPattern: input.detectedPattern,
     },
   })
 
-  if (lowRatedRuns.length < MIN_LOW_RATED_RUNS) {
-    return {
-      agentType,
-      revised: false,
-      reason: `Only ${lowRatedRuns.length}/${MIN_LOW_RATED_RUNS} low-rated runs — not enough to revise`,
-      lowRatedRunsFound: lowRatedRuns.length,
+  // Check if we've hit the threshold for proposal generation
+  const unprocessed = await db.learningSignal.count({
+    where: {
+      agentType: input.agentType,
+      signalType: input.signalType,
+      proposalId: null,
+    },
+  })
+
+  if (unprocessed >= MIN_SIGNALS_FOR_PROPOSAL) {
+    await generateProposal(input.agentType, input.signalType).catch((err) => {
+      console.warn(`[context-revision] Proposal generation failed for ${input.agentType}:`, err)
+    })
+  }
+}
+
+// ─── Stage 2: Proposal Generation ────────────────────────────────────────────
+
+/**
+ * Nightly pass: check all agent+signal groups and generate proposals for any
+ * that have accumulated 3+ unprocessed signals.
+ */
+export async function runContextRevisionJob(): Promise<void> {
+  console.log('[context-revision] Starting nightly proposal generation pass')
+
+  const groups = await db.learningSignal.groupBy({
+    by: ['agentType', 'signalType'],
+    where: { proposalId: null },
+    _count: { id: true },
+  })
+
+  let generated = 0
+  for (const group of groups) {
+    if (group._count.id >= MIN_SIGNALS_FOR_PROPOSAL) {
+      try {
+        await generateProposal(group.agentType, group.signalType)
+        generated++
+      } catch (err) {
+        console.warn(`[context-revision] Failed for ${group.agentType}/${group.signalType}:`, err)
+      }
     }
   }
 
-  const currentContext = readFileSync(resolvedPath, 'utf-8')
+  console.log(`[context-revision] Complete — generated=${generated} proposals`)
+}
 
-  // Build a summary of the low-rated runs for Claude to analyze
-  const runSummaries = lowRatedRuns.map((run, i) => {
-    const output = run.outputJson as Record<string, unknown>
-    return `Run ${i + 1} (${run.createdAt.toISOString().split('T')[0]}):\nOutput summary: ${JSON.stringify(output).slice(0, 400)}`
+async function generateProposal(agentType: string, signalType: string): Promise<void> {
+  const signals = await db.learningSignal.findMany({
+    where: { agentType, signalType, proposalId: null },
+    orderBy: { createdAt: 'asc' },
+    take: 10,
   })
 
-  const systemPrompt = `You are an AI assistant helping to improve a fantasy football analysis agent by revising its context file.
+  if (signals.length < MIN_SIGNALS_FOR_PROPOSAL) return
 
-You will be given:
-1. The agent's current CONTEXT.md (specifically the ## Learned Preferences section)
-2. A sample of runs that users rated negatively (thumbs down)
+  const contextPath = resolveContextPath(AGENT_CONTEXT_PATHS[agentType])
+  if (!contextPath) {
+    console.warn(`[context-revision] No CONTEXT.md found for ${agentType}`)
+    return
+  }
 
-Your job is to analyze the patterns in the low-rated outputs and suggest TARGETED improvements to the ## Learned Preferences section only. Do not change any other sections.
+  const currentContext = readFileSync(contextPath, 'utf-8')
+
+  const signalSummary = signals
+    .map((s, i) => {
+      const parts = [`Signal ${i + 1} (${s.signalType} — ${s.createdAt.toISOString().split('T')[0]})`]
+      if (s.userMessage) parts.push(`User: "${s.userMessage.slice(0, 200)}"`)
+      if (s.agentResponse) parts.push(`Agent: "${s.agentResponse.slice(0, 200)}"`)
+      if (s.confidenceScore != null) parts.push(`Confidence: ${s.confidenceScore}%`)
+      if (s.outputSummary) parts.push(`Output: ${s.outputSummary.slice(0, 200)}`)
+      if (s.detectedPattern) parts.push(`Pattern: ${s.detectedPattern}`)
+      return parts.join('\n')
+    })
+    .join('\n\n')
+
+  const systemPrompt = `You are an AI assistant analyzing failure patterns in a fantasy football agent system.
+
+You will receive:
+1. The agent's current CONTEXT.md
+2. A batch of failure signals (low confidence runs or chat failures)
+
+Your task:
+1. Identify the root cause of the failures
+2. Determine which section of CONTEXT.md needs to change
+3. Draft a targeted, minimal edit to that specific section
 
 Rules:
-- Only modify the "## Learned Preferences" section
-- Add, modify, or remove preference bullets based on the failure patterns
-- Keep preferences specific and actionable
-- Do not exceed 8 preference bullets total
-- Return the COMPLETE updated ## Learned Preferences section only (starting with "## Learned Preferences")
-- No other text, no explanation, no markdown fences`
+- Focus on ONE specific improvement — not a full rewrite
+- Be concrete: say exactly what to add, change, or remove
+- Identify the section heading (e.g. "## Learned Preferences", "## Output Gaps Logged")
+- Return JSON in this exact shape:
+{
+  "problem": "one sentence describing what's failing",
+  "rootCause": "one sentence on why it's failing",
+  "affectedSection": "## Section Name",
+  "proposedEdit": "the new text for that section, or the specific lines to add/change"
+}`
 
-  const userPrompt = `Current CONTEXT.md:
+  const userPrompt = `Agent Type: ${agentType}
+Signal Type: ${signalType}
+Signal Count: ${signals.length}
+
+Current CONTEXT.md:
 ${currentContext}
 
 ---
-Recent low-rated runs (${lowRatedRuns.length} total):
-${runSummaries.join('\n\n')}
+Failure Signals:
+${signalSummary}
 
----
-Analyze these low-rated outputs and identify what patterns led to user dissatisfaction.
-Return the updated ## Learned Preferences section with targeted improvements.`
+Analyze the pattern and return JSON.`
 
-  let revisedSection: string
+  const result = await LLMConnector.complete({
+    systemPrompt,
+    userPrompt,
+    model: 'sonnet',
+    maxTokens: 1000,
+  })
+
+  let parsed: { problem: string; rootCause: string; affectedSection: string; proposedEdit: string }
   try {
-    const result = await LLMConnector.complete({
-      systemPrompt,
-      userPrompt,
-      model: 'sonnet',
-      maxTokens: 600,
-    })
-    revisedSection = result.content.trim()
-  } catch (err) {
-    return {
+    const jsonMatch = result.content.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('No JSON in response')
+    parsed = JSON.parse(jsonMatch[0])
+  } catch {
+    console.warn(`[context-revision] Could not parse LLM response for ${agentType}`)
+    return
+  }
+
+  const proposal = await db.learningProposal.create({
+    data: {
       agentType,
-      revised: false,
-      reason: `LLM call failed: ${String(err)}`,
-      lowRatedRunsFound: lowRatedRuns.length,
-    }
+      signalType,
+      signalCount: signals.length,
+      problem: parsed.problem,
+      rootCause: parsed.rootCause,
+      affectedSection: parsed.affectedSection,
+      aiDraftEdit: parsed.proposedEdit,
+      status: 'pending',
+    },
+  })
+
+  // Link signals to this proposal
+  await db.learningSignal.updateMany({
+    where: { id: { in: signals.map((s) => s.id) } },
+    data: { proposalId: proposal.id },
+  })
+
+  console.log(`[context-revision] Created proposal ${proposal.id} for ${agentType}/${signalType}`)
+}
+
+// ─── Stage 3: Apply / Rollback ────────────────────────────────────────────────
+
+/**
+ * Apply an approved proposal: snapshot CONTEXT.md before + after, patch the file.
+ */
+export async function applyProposal(proposalId: string): Promise<void> {
+  const proposal = await db.learningProposal.findUniqueOrThrow({
+    where: { id: proposalId },
+  })
+
+  if (proposal.status !== 'pending') {
+    throw new Error(`Proposal ${proposalId} is already ${proposal.status}`)
   }
 
-  // Validate that the response looks like a Learned Preferences section
-  if (!revisedSection.includes('## Learned Preferences')) {
-    return {
-      agentType,
-      revised: false,
-      reason: 'LLM response did not contain a valid ## Learned Preferences section',
-      lowRatedRunsFound: lowRatedRuns.length,
-    }
+  const contextPath = resolveContextPath(AGENT_CONTEXT_PATHS[proposal.agentType])
+  if (!contextPath) {
+    throw new Error(`No CONTEXT.md found for ${proposal.agentType}`)
   }
 
-  // Replace the existing Learned Preferences section in the full context
-  const updatedContext = replaceLearnedPreferences(currentContext, revisedSection)
+  const currentContent = readFileSync(contextPath, 'utf-8')
+  const editToApply = proposal.adminFinalEdit ?? proposal.aiDraftEdit
 
-  writeFileSync(resolvedPath, updatedContext, 'utf-8')
+  // Snapshot before
+  await db.agentContextVersion.create({
+    data: {
+      agentType: proposal.agentType,
+      contextMd: currentContent,
+      proposalId,
+      versionType: 'approved',
+    },
+  })
 
-  console.log(
-    `[context-revision] Revised ${agentType} CONTEXT.md based on ${lowRatedRuns.length} low-rated runs`,
-  )
+  // Patch the affected section
+  const newContent = patchSection(currentContent, proposal.affectedSection, editToApply)
+  writeFileSync(contextPath, newContent, 'utf-8')
 
-  return {
-    agentType,
-    revised: true,
-    reason: `Revised based on ${lowRatedRuns.length} low-rated runs`,
-    lowRatedRunsFound: lowRatedRuns.length,
+  // Snapshot after
+  await db.agentContextVersion.create({
+    data: {
+      agentType: proposal.agentType,
+      contextMd: newContent,
+      proposalId,
+      versionType: 'approved',
+    },
+  })
+
+  await db.learningProposal.update({
+    where: { id: proposalId },
+    data: { status: 'approved', appliedAt: new Date(), reviewedAt: new Date() },
+  })
+
+  console.log(`[context-revision] Applied proposal ${proposalId} to ${proposal.agentType} CONTEXT.md`)
+}
+
+/**
+ * Rollback to a prior CONTEXT.md snapshot.
+ */
+export async function rollbackToVersion(versionId: string): Promise<void> {
+  const version = await db.agentContextVersion.findUniqueOrThrow({
+    where: { id: versionId },
+  })
+
+  const contextPath = resolveContextPath(AGENT_CONTEXT_PATHS[version.agentType])
+  if (!contextPath) {
+    throw new Error(`No CONTEXT.md found for ${version.agentType}`)
   }
+
+  const currentContent = readFileSync(contextPath, 'utf-8')
+
+  // Snapshot current state before rollback
+  await db.agentContextVersion.create({
+    data: {
+      agentType: version.agentType,
+      contextMd: currentContent,
+      versionType: 'rollback',
+    },
+  })
+
+  writeFileSync(contextPath, version.contextMd, 'utf-8')
+
+  console.log(`[context-revision] Rolled back ${version.agentType} to version ${versionId}`)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function resolveContextPath(primaryPath: string): string | null {
+function resolveContextPath(primaryPath: string | undefined): string | null {
+  if (!primaryPath) return null
   if (existsSync(primaryPath)) return primaryPath
-
-  // Fallback: if running from dist/, check src/ counterpart
   const srcPath = primaryPath.replace(/[/\\]dist[/\\]/, '/src/')
   if (existsSync(srcPath)) return srcPath
-
   return null
 }
 
-function replaceLearnedPreferences(fullContext: string, newSection: string): string {
-  // Match from "## Learned Preferences" to the next "##" heading or end of file
-  const pattern = /## Learned Preferences[\s\S]*?(?=\n## |\s*$)/
+/**
+ * Replace or append a named section (## Heading) with new content.
+ */
+function patchSection(fullContext: string, sectionHeading: string, newSectionContent: string): string {
+  const escapedHeading = sectionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(`${escapedHeading}[\\s\\S]*?(?=\\n## |\\s*$)`)
   const match = fullContext.match(pattern)
 
   if (!match) {
-    // Section not found — append it
-    return `${fullContext.trim()}\n\n${newSection}\n`
+    // Section not found — append
+    return `${fullContext.trim()}\n\n${newSectionContent}\n`
   }
 
-  return fullContext.replace(pattern, newSection)
+  return fullContext.replace(pattern, newSectionContent)
 }
