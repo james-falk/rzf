@@ -1,6 +1,26 @@
 import { db } from '@rzf/db'
-import { SleeperConnector } from '@rzf/connectors/sleeper'
 import type { CustomFeedConfig } from './customFeedConfig'
+
+/** Same as SleeperConnector.getUserRoster — fetch only, no @rzf/connectors (avoids Next/webpack resolving workspace dist). */
+async function fetchSleeperUserRosterPlayerIds(
+  leagueId: string,
+  ownerSleeperId: string,
+): Promise<{ playerIds: string[]; error?: string }> {
+  try {
+    const res = await fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`, {
+      headers: { 'User-Agent': 'RedZoneFantasy/1.0' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) return { playerIds: [], error: 'Could not load Sleeper roster for this league.' }
+    const rosters = (await res.json()) as Array<{ owner_id: string; players?: string[] | null }>
+    const roster = rosters.find((r) => r.owner_id === ownerSleeperId)
+    const ids = roster?.players?.filter(Boolean) ?? []
+    if (ids.length === 0) return { playerIds: [], error: 'No players on roster for this league.' }
+    return { playerIds: ids }
+  } catch {
+    return { playerIds: [], error: 'Could not load Sleeper roster for this league.' }
+  }
+}
 
 export type FeedCursor = { publishedAt: string; id: string } | null
 
@@ -41,14 +61,7 @@ async function resolvePlayerIdsForSleeper(
   })
   if (!profile) return { playerIds: [], error: 'Connect Sleeper in Account settings.' }
 
-  try {
-    const roster = await SleeperConnector.getUserRoster(sleeperLeagueId, profile.sleeperId)
-    const ids = roster?.players ?? []
-    if (ids.length === 0) return { playerIds: [], error: 'No players on roster for this league.' }
-    return { playerIds: ids }
-  } catch {
-    return { playerIds: [], error: 'Could not load Sleeper roster for this league.' }
-  }
+  return fetchSleeperUserRosterPlayerIds(sleeperLeagueId, profile.sleeperId)
 }
 
 export async function resolveCustomFeedItems(
