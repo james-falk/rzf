@@ -12,6 +12,7 @@
 
 import { db } from '@rzf/db'
 import { resolvePlayerMentions, extractSnippet, inferMentionContext } from '@rzf/shared'
+import { inferContentTopics } from '../topics/inferTopics.js'
 
 const ESPN_SITE_API = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl'
 const ESPN_CORE_API = 'https://sports.core.api.espn.com/v2/sports/football/leagues/nfl'
@@ -123,17 +124,8 @@ async function resolveMentionsFromESPN(
 }
 
 function inferTopicsFromESPN(article: ESPNArticle): string[] {
-  const text = `${article.headline} ${article.description ?? ''}`.toLowerCase()
-  const topics: string[] = ['espn']
-
-  if (/injur|hurt|questionable|doubtful|out\b|placed on ir|injured reserve/.test(text)) topics.push('injury')
-  if (/trade[d]?|trading|deal|acqui[re|red]/.test(text)) topics.push('trade')
-  if (/waiver|stream|pickup|add\b/.test(text)) topics.push('waiver')
-  if (/start|lineup|flex|sit\b|bench|must.?start/.test(text)) topics.push('lineup')
-  if (/break.?out|emerge|target share|snap count|usage rate|role/.test(text)) topics.push('breakout')
-  if (/depth chart|promoted|demoted|starter|resting/.test(text)) topics.push('depth_chart')
-
-  return topics
+  const text = `${article.headline} ${article.description ?? ''}`
+  return [...new Set(['espn', ...inferContentTopics(text)])]
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

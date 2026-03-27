@@ -45,6 +45,9 @@ const envSchema = z.object({
   // X/Twitter API v2 Bearer token — read-only free tier
   TWITTER_BEARER_TOKEN: z.string().optional(),
 
+  /// Comma-separated Nitter base URLs (e.g. https://nitter.cz). Overrides default public instances when set.
+  NITTER_BASE_URLS: z.string().optional(),
+
   // ── Notifications ─────────────────────────────────────────────────────────
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),

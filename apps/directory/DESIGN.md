@@ -166,7 +166,7 @@ Content: "★ Partner"
 ### Logo Resolution Order
 
 1. Manual `logoUrl` override (set in Admin Command Center)
-2. `https://logo.clearbit.com/{domain}` auto-resolved from URL
+2. Google favicon service (`/s2/favicons?domain=…`) from URL hostname — see `src/lib/brandLogo.ts` (Clearbit’s public logo host is deprecated / unreliable)
 3. Single-letter avatar with `rgba(220,38,38,0.15)` background
 
 ### Sidebar Filter Panel (FeedWithFilters)

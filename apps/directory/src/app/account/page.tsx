@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@rzf/db'
 import Navbar from '@/components/Navbar'
+import { brandLogoUrlFromDomain } from '@/lib/brandLogo'
 import { SleeperConnect } from './SleeperConnect'
 import type { Metadata } from 'next'
 
@@ -44,7 +45,7 @@ export default async function AccountPage() {
               {/* Sleeper logo */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="https://logo.clearbit.com/sleeper.com"
+                src={brandLogoUrlFromDomain('sleeper.com')}
                 alt="Sleeper"
                 className="h-5 w-5 rounded"
                 onError={() => {}}

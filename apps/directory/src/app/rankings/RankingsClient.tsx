@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { brandLogoUrlFromDomain } from '@/lib/brandLogo'
 
 interface RankingSite {
   id: string
@@ -39,7 +40,7 @@ function extractDomain(url: string): string {
 function SiteLogo({ site }: { site: RankingSite }) {
   const [errored, setErrored] = useState(false)
   const domain = extractDomain(site.url)
-  const src = site.logoUrl ?? (domain ? `https://logo.clearbit.com/${domain}` : null)
+  const src = site.logoUrl ?? (domain ? brandLogoUrlFromDomain(domain) : null)
   const initial = site.name.charAt(0).toUpperCase()
 
   if (!src || errored) {

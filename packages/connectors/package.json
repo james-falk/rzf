@@ -17,7 +17,8 @@
     "./espn": "./dist/espn/index.js",
     "./odds": "./dist/odds/index.js",
     "./platform": "./dist/platform/index.js",
-    "./reddit": "./dist/reddit/index.js"
+    "./reddit": "./dist/reddit/index.js",
+    "./topics": "./dist/topics/inferTopics.js"
   },
   "scripts": {
     "build": "tsc --build",

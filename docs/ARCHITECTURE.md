@@ -298,6 +298,10 @@ erDiagram
 | Redis | Render Key Value | Starter | $10/mo |
 | **Total** | | | **$31/mo** |
 
+### Directory app API routes (Next.js Route Handlers)
+
+Authenticated custom feeds (Clerk): `GET`/`POST` `/api/custom-feeds`, `PATCH`/`DELETE` `/api/custom-feeds/[id]`, `GET` `/api/custom-feeds/[id]/items` (cursor pagination). Trending topic chips use server-side aggregation + `unstable_cache` on the home page (`getTrendingTopics`).
+
 ---
 
 ## 8. Security Notes

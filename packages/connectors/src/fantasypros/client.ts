@@ -12,6 +12,7 @@
 import { db } from '@rzf/db'
 import { env } from '@rzf/shared/env'
 import { resolvePlayerMentions, inferMentionContext, extractSnippet, type AliasLookup } from '@rzf/shared'
+import { inferContentTopics } from '../topics/inferTopics.js'
 import {
   FPPlayersResponseSchema,
   FPNewsResponseSchema,
@@ -443,7 +444,7 @@ export const FantasyProsConnector = {
       const rawContent = `${item.title}\n\n${desc}${impact}`.trim()
 
       // Infer topics from content
-      const topics = inferTopics(rawContent)
+      const topics = inferTopicsForFantasyPros(rawContent)
 
       let publishedAt: Date | null = null
       try {
@@ -610,16 +611,11 @@ async function getPlayerName(sleeperId: string): Promise<string> {
   return name
 }
 
-function inferTopics(text: string): string[] {
+function inferTopicsForFantasyPros(text: string): string[] {
   const lower = text.toLowerCase()
-  const topics: string[] = []
-  if (lower.includes('injur') || lower.includes('questionable') || lower.includes('doubtful') || lower.includes(' out ')) topics.push('injury')
-  if (lower.includes('trade') || lower.includes('traded')) topics.push('trade')
-  if (lower.includes('waiver') || lower.includes('add') || lower.includes('drop')) topics.push('waiver')
-  if (lower.includes('depth chart') || lower.includes('starter') || lower.includes('backup')) topics.push('depth_chart')
-  if (lower.includes('breakout') || lower.includes('target share') || lower.includes('opportunity')) topics.push('breakout')
-  if (lower.includes('touchdown') || lower.includes('yards') || lower.includes('points')) topics.push('stat_update')
-  return [...new Set(topics)]
+  const base = inferContentTopics(text)
+  if (/touchdown|yards|fantasy points|receptions|carries/.test(lower)) base.push('stat_update')
+  return [...new Set(base)]
 }
 
 function sleep(ms: number): Promise<void> {

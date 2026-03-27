@@ -13,6 +13,7 @@
 import { db } from '@rzf/db'
 import { env } from '@rzf/shared/env'
 import { resolvePlayerMentions, extractSnippet, inferMentionContext } from '@rzf/shared'
+import { inferContentTopics } from '../topics/inferTopics.js'
 
 const YT_BASE = 'https://www.googleapis.com/youtube/v3'
 
@@ -60,21 +61,6 @@ interface YouTubeVideoItem {
 
 interface YouTubeVideosResponse {
   items?: YouTubeVideoItem[]
-}
-
-// ─── Topic Tagging ────────────────────────────────────────────────────────────
-
-function inferTopics(text: string): string[] {
-  const t = text.toLowerCase()
-  const topics: string[] = []
-  if (/injur|hurt|questionable|doubtful|out\b|placed on ir|injured reserve/.test(t)) topics.push('injury')
-  if (/trade[d]?|trading|deal|acqui[re|red]/.test(t)) topics.push('trade')
-  if (/waiver|stream|pickup|add\b/.test(t)) topics.push('waiver')
-  if (/start|lineup|flex|sit\b|bench|must.?start/.test(t)) topics.push('lineup')
-  if (/break.?out|emerge|target share|snap count|usage rate|role/.test(t)) topics.push('breakout')
-  if (/depth chart|promoted|demoted|starter|resting/.test(t)) topics.push('depth_chart')
-  if (/rank\b|ranking|tier\b|consensus/.test(t)) topics.push('rankings')
-  return topics
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -192,7 +178,7 @@ async function processChannel(
   for (const video of videos) {
     const sourceUrl = `https://www.youtube.com/watch?v=${video.id}`
     const rawContent = `${video.snippet.title}\n\n${video.snippet.description}`
-    const topics = inferTopics(rawContent)
+    const topics = inferContentTopics(rawContent)
     // Title-first: full-name match in title wins. Description allows full names only.
     const titleMatches = resolvePlayerMentions(video.snippet.title, aliases, { strictMode: true })
     const matches = titleMatches.length > 0

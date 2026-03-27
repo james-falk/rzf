@@ -1,5 +1,6 @@
 import { db } from '@rzf/db'
 import Navbar from '@/components/Navbar'
+import { brandLogoUrlFromDomain } from '@/lib/brandLogo'
 import { ToolsClient } from './ToolsClient'
 import type { Metadata } from 'next'
 
@@ -64,7 +65,7 @@ export default async function ToolsPage() {
 
 function FeaturedToolCard({ tool }: { tool: Awaited<ReturnType<typeof db.fantasyTool.findMany>>[0] }) {
   const domain = (() => { try { return new URL(tool.url).hostname.replace(/^www\./, '') } catch { return '' } })()
-  const logoSrc = tool.logoUrl ?? (domain ? `https://logo.clearbit.com/${domain}` : null)
+  const logoSrc = tool.logoUrl ?? (domain ? brandLogoUrlFromDomain(domain) : null)
   const priceLabel = tool.priceType === 'free' ? 'Free' : tool.priceType === 'freemium' ? 'Freemium' : tool.price ?? 'Paid'
 
   return (

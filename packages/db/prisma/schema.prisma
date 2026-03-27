@@ -943,7 +943,7 @@ model FantasyTool {
   @@map("fantasy_tools")
 }
 
-/// User-saved custom content feeds (up to 5 for paid users).
+/// User-saved custom content feeds — 2 slots for signed-in free users, up to 5 for Pro (enforced in app when builder ships).
 model CustomFeed {
   id     String @id @default(cuid())
   userId String

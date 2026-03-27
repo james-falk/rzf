@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import { db } from '@rzf/db'
@@ -5,10 +6,14 @@ import Navbar from '@/components/Navbar'
 import { TrendingTicker } from '@/components/TrendingTicker'
 import { FeedWithFilters } from '@/components/FeedWithFilters'
 import { ContentCard } from '@/components/ContentCard'
+import { getTrendingTopics } from '@/lib/getTrendingTopics'
+
+/** Max items loaded for the home “All Feed” grid (newest first). Increase if you add pagination / infinite scroll. */
+const HOME_FEED_ITEM_LIMIT = 500
 
 async function getData() {
   try {
-  const [trendingRaw, featuredSources, latestContent, allSources] = await Promise.all([
+  const [trendingRaw, featuredSources, latestContent, allSources, trendingTopics] = await Promise.all([
     // Trending players (last 48h, skip inactive) — fetch extra to dedup in JS
     db.trendingPlayer.findMany({
       where: {
@@ -47,7 +52,7 @@ async function getData() {
         },
       },
       orderBy: { publishedAt: 'desc' },
-      take: 60,
+      take: HOME_FEED_ITEM_LIMIT,
     }),
 
     // All active sources for sidebar filter
@@ -56,6 +61,8 @@ async function getData() {
       select: { id: true, name: true, platform: true, avatarUrl: true, feedUrl: true },
       orderBy: [{ featured: 'desc' }, { name: 'asc' }],
     }),
+
+    getTrendingTopics(),
   ])
 
   // Deduplicate by sleeperId in JS — Prisma's distinct+orderBy combo doesn't
@@ -75,17 +82,24 @@ async function getData() {
   const featuredContent = latestContent.filter((item) => item.source && featuredSourceNames.has(item.source.name)).slice(0, 3)
   const regularContent = latestContent.filter((item) => !featuredContent.includes(item))
 
-  return { trending, featuredContent, featuredSources, regularContent, allSources }
+  return { trending, featuredContent, featuredSources, regularContent, allSources, trendingTopics }
   } catch {
     // DB unavailable during build or missing migration — return empty state
-    return { trending: [], featuredContent: [], featuredSources: [], regularContent: [], allSources: [] }
+    return {
+      trending: [],
+      featuredContent: [],
+      featuredSources: [],
+      regularContent: [],
+      allSources: [],
+      trendingTopics: [],
+    }
   }
 }
 
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const { trending, featuredContent, featuredSources, regularContent, allSources } = await getData()
+  const { trending, featuredContent, featuredSources, regularContent, allSources, trendingTopics } = await getData()
 
   // Get user tier for upgrade gate in custom feeds tab
   const { userId: clerkId } = await auth()
@@ -192,6 +206,7 @@ export default async function HomePage() {
                 authorName={item.authorName}
                 source={item.source}
                 playerMentions={item.playerMentions}
+                topics={item.topics}
               />
             ))}
           </div>
@@ -199,23 +214,33 @@ export default async function HomePage() {
       )}
 
       {/* Content feed with sidebar filters + custom feeds tab */}
-      <section className="mx-auto max-w-7xl px-4 py-12">
-        <FeedWithFilters
-          items={regularContent.map((item) => ({
-            id: item.id,
-            title: item.title,
-            summary: item.summary,
-            thumbnailUrl: item.thumbnailUrl,
-            sourceUrl: item.sourceUrl,
-            publishedAt: item.publishedAt,
-            contentType: item.contentType,
-            authorName: item.authorName,
-            source: item.source,
-            playerMentions: item.playerMentions,
-          }))}
-          sources={allSources}
-          userTier={userTier}
-        />
+      <section id="feed" className="mx-auto max-w-7xl px-4 py-12">
+        <Suspense
+          fallback={
+            <div className="animate-pulse rounded-xl border py-24 text-center text-sm" style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(14,14,14)', color: 'rgb(115,115,115)' }}>
+              Loading feed…
+            </div>
+          }
+        >
+          <FeedWithFilters
+            items={regularContent.map((item) => ({
+              id: item.id,
+              title: item.title,
+              summary: item.summary,
+              thumbnailUrl: item.thumbnailUrl,
+              sourceUrl: item.sourceUrl,
+              publishedAt: item.publishedAt,
+              contentType: item.contentType,
+              authorName: item.authorName,
+              source: item.source,
+              playerMentions: item.playerMentions,
+              topics: item.topics ?? [],
+            }))}
+            sources={allSources}
+            userTier={userTier}
+            trendingTopics={trendingTopics}
+          />
+        </Suspense>
       </section>
 
       {/* RosterMind CTA */}

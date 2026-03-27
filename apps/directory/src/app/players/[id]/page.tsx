@@ -4,6 +4,8 @@ import Image from 'next/image'
 import { db } from '@rzf/db'
 import Navbar from '@/components/Navbar'
 import { ProGate } from '@/components/ProGate'
+import { PlayerTradeValuesSection } from '@/components/PlayerTradeValuesSection'
+import { PlayerNewsMentionCard } from '@/components/PlayerNewsMentionCard'
 import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
@@ -17,26 +19,45 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: `${player.firstName} ${player.lastName} — Red Zone Fantasy` }
 }
 
+function rankingSourceLabel(source: string): string {
+  const m: Record<string, string> = {
+    fantasypros: 'FantasyPros',
+    espn: 'ESPN',
+    sleeper_trending: 'Sleeper',
+  }
+  return m[source] ?? source
+}
+
 export default async function PlayerPage({ params }: Props) {
   const { id } = await params
 
   const player = await db.player.findUnique({
     where: { sleeperId: id },
     include: {
-      rankings: { orderBy: { week: 'asc' }, take: 10 },
+      rankings: { orderBy: [{ season: 'desc' }, { week: 'desc' }], take: 40 },
       projections: { orderBy: { week: 'asc' }, take: 10 },
       contentMentions: {
         include: { content: { include: { source: true } } },
         orderBy: { content: { publishedAt: 'desc' } },
         take: 20,
       },
-      tradeValues: { orderBy: { fetchedAt: 'desc' }, take: 3 },
+      tradeValues: { orderBy: { fetchedAt: 'desc' }, take: 20 },
     },
   })
 
   if (!player) notFound()
 
-  const latestRanking = player.rankings[0]
+  const rankingsSorted = player.rankings
+  const top = rankingsSorted[0]
+  const latestWeekRankings = top
+    ? rankingsSorted.filter((r) => r.season === top.season && r.week === top.week)
+    : []
+  const fpRank = latestWeekRankings.find((r) => r.source === 'fantasypros')
+  const heroRank = fpRank ?? latestWeekRankings[0]
+  const otherWeekRankings = heroRank
+    ? latestWeekRankings.filter((r) => r.id !== heroRank.id)
+    : []
+
   const freeMentions = player.contentMentions.slice(0, 3)
   const proMentions = player.contentMentions.slice(3)
 
@@ -50,7 +71,6 @@ export default async function PlayerPage({ params }: Props) {
           className="flex flex-wrap items-start gap-6 rounded-2xl border p-6"
           style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
         >
-          {/* Sleeper headshot */}
           <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-zinc-800">
             <Image
               src={`https://sleepercdn.com/content/nfl/players/${player.sleeperId}.jpg`}
@@ -75,92 +95,93 @@ export default async function PlayerPage({ params }: Props) {
                 {player.injuryStatus ?? player.status}
               </div>
             )}
+
+            {otherWeekRankings.length > 0 && top && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {otherWeekRankings.map((r) => (
+                  <div
+                    key={`${r.source}-${r.id}`}
+                    className="rounded-lg border px-3 py-2 text-left"
+                    style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(14,14,14)' }}
+                  >
+                    <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'rgb(115,115,115)' }}>
+                      {rankingSourceLabel(r.source)}
+                    </div>
+                    <div className="text-sm font-bold text-white">
+                      {r.posRank ? (
+                        <span>{r.posRank}</span>
+                      ) : (
+                        <span>
+                          {player.position}
+                          {r.rankPosition}
+                        </span>
+                      )}
+                      <span className="ml-1.5 text-xs font-normal" style={{ color: 'rgb(115,115,115)' }}>
+                        · #{r.rankOverall} overall
+                      </span>
+                    </div>
+                    <div className="text-[10px]" style={{ color: 'rgb(82,82,91)' }}>
+                      Week {r.week} · {r.season}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {latestRanking && (
+          {heroRank && (
             <div className="rounded-xl border px-6 py-4 text-center" style={{ borderColor: 'rgba(220,38,38,0.3)', background: 'rgba(220,38,38,0.05)' }}>
               <div className="text-4xl font-extrabold" style={{ color: 'rgb(220,38,38)' }}>
-                #{latestRanking.rankOverall}
+                #{heroRank.rankOverall}
               </div>
-              <div className="mt-1 text-xs" style={{ color: 'rgb(115,115,115)' }}>Overall Rank</div>
+              <div className="mt-1 text-xs" style={{ color: 'rgb(115,115,115)' }}>Overall rank</div>
               <div className="mt-0.5 text-xs" style={{ color: 'rgb(163,163,163)' }}>
-                {player.position}{latestRanking.rankPosition}
+                {rankingSourceLabel(heroRank.source)}
+                {heroRank.posRank && ` · ${heroRank.posRank}`}
+                {!heroRank.posRank && (
+                  <>
+                    {' '}
+                    · {player.position}
+                    {heroRank.rankPosition}
+                  </>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Trade values (free) */}
         {player.tradeValues.length > 0 && (
-          <section className="mt-8">
-            <h2 className="mb-4 text-lg font-bold text-white">Trade Values</h2>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {player.tradeValues.map((tv) => {
-                const vals = [
-                  tv.dynasty1qb != null && { label: 'Dynasty 1QB', val: tv.dynasty1qb },
-                  tv.dynastySf != null && { label: 'Dynasty SF', val: tv.dynastySf },
-                  tv.redraft != null && { label: 'Redraft', val: tv.redraft },
-                ].filter(Boolean) as Array<{ label: string; val: number }>
-                return vals.map(({ label, val }) => (
-                  <div key={`${tv.id}-${label}`} className="rounded-xl border p-4 text-center" style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(18,18,18)' }}>
-                    <div className="text-2xl font-bold text-white">{val}</div>
-                    <div className="mt-1 text-xs capitalize" style={{ color: 'rgb(115,115,115)' }}>{label}</div>
-                    <div className="text-[10px]" style={{ color: 'rgb(82,82,91)' }}>{tv.source}</div>
-                  </div>
-                ))
-              })}
-            </div>
-          </section>
+          <PlayerTradeValuesSection
+            rows={player.tradeValues.map((tv) => ({
+              id: tv.id,
+              source: tv.source,
+              dynasty1qb: tv.dynasty1qb,
+              dynastySf: tv.dynastySf,
+              redraft: tv.redraft,
+              trend30d: tv.trend30d,
+            }))}
+          />
         )}
 
-        {/* Free content (3 items) */}
         {freeMentions.length > 0 && (
           <section className="mt-8">
-            <h2 className="mb-4 text-lg font-bold text-white">Recent News & Analysis</h2>
+            <h2 className="mb-4 text-lg font-bold text-white">Recent news & analysis</h2>
+            <p className="mb-4 text-xs" style={{ color: 'rgb(115,115,115)' }}>
+              Logos use each source&apos;s avatar from Source Manager when set; otherwise a site favicon.
+            </p>
             <div className="flex flex-col gap-3">
               {freeMentions.map(({ content }) => (
-                <a
-                  key={content.id}
-                  href={content.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group rounded-xl border p-4 transition-all hover:border-red-800/50 hover:bg-white/[0.02]"
-                  style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 text-xs" style={{ color: 'rgb(115,115,115)' }}>
-                        <span>{content.source?.name ?? 'Unknown'}</span>
-                        {content.publishedAt && (
-                          <><span>·</span><span>{new Date(content.publishedAt).toLocaleDateString()}</span></>
-                        )}
-                      </div>
-                      <p className="mt-1 font-medium text-white transition-colors group-hover:text-red-400 line-clamp-1">
-                        {content.title}
-                      </p>
-                      {content.summary && (
-                        <p className="mt-1 text-sm line-clamp-2" style={{ color: 'rgb(115,115,115)' }}>
-                          {content.summary}
-                        </p>
-                      )}
-                    </div>
-                    {content.thumbnailUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={content.thumbnailUrl} alt="" className="h-16 w-24 flex-shrink-0 rounded-lg object-cover" />
-                    )}
-                  </div>
-                </a>
+                <PlayerNewsMentionCard key={content.id} content={content} />
               ))}
             </div>
           </section>
         )}
 
-        {/* Pro-gated: more content + projections */}
         {(proMentions.length > 0 || player.projections.length > 0) && (
           <section className="mt-8">
             <ProGate
               preview={
-                <div className="flex flex-col gap-3 pointer-events-none">
+                <div className="pointer-events-none flex flex-col gap-3">
                   {proMentions.slice(0, 2).map(({ content }) => (
                     <div key={content.id} className="rounded-xl border p-4" style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}>
                       <p className="font-medium text-white">{content.title}</p>
@@ -170,37 +191,10 @@ export default async function PlayerPage({ params }: Props) {
                 </div>
               }
             >
+              <h2 className="mb-4 text-lg font-bold text-white">More coverage</h2>
               <div className="flex flex-col gap-3">
                 {proMentions.map(({ content }) => (
-                  <a
-                    key={content.id}
-                    href={content.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="group rounded-xl border p-4 transition-all hover:border-red-800/50 hover:bg-white/[0.02]"
-                    style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 text-xs" style={{ color: 'rgb(115,115,115)' }}>
-                          <span>{content.source?.name ?? 'Unknown'}</span>
-                          {content.publishedAt && (
-                            <><span>·</span><span>{new Date(content.publishedAt).toLocaleDateString()}</span></>
-                          )}
-                        </div>
-                        <p className="mt-1 font-medium text-white transition-colors group-hover:text-red-400 line-clamp-1">
-                          {content.title}
-                        </p>
-                        {content.summary && (
-                          <p className="mt-1 text-sm line-clamp-2" style={{ color: 'rgb(115,115,115)' }}>{content.summary}</p>
-                        )}
-                      </div>
-                      {content.thumbnailUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={content.thumbnailUrl} alt="" className="h-16 w-24 flex-shrink-0 rounded-lg object-cover" />
-                      )}
-                    </div>
-                  </a>
+                  <PlayerNewsMentionCard key={content.id} content={content} />
                 ))}
               </div>
             </ProGate>

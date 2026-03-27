@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
+import { brandLogoUrlFromDomain } from '@/lib/brandLogo'
+import { topicDisplayLabel } from '@/lib/topicLabels'
 
 interface PlayerChip {
   sleeperId: string
@@ -28,6 +30,8 @@ interface ContentCardProps {
     partnerTier: string | null
   } | null
   playerMentions: Array<{ player: PlayerChip }>
+  /** Topic slugs from ingestion (optional) */
+  topics?: string[]
 }
 
 function extractDomain(url: string): string | null {
@@ -69,6 +73,7 @@ export function ContentCard({
   contentType,
   source,
   playerMentions,
+  topics = [],
 }: ContentCardProps) {
   const platform = source?.platform ?? 'rss'
   const badge = PLATFORM_BADGE[platform] ?? PLATFORM_BADGE['rss']!
@@ -99,7 +104,7 @@ export function ContentCard({
             <div className="flex h-full flex-col items-center justify-center gap-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`https://logo.clearbit.com/${logoDomain}`}
+                src={brandLogoUrlFromDomain(logoDomain)}
                 alt={source?.name ?? ''}
                 className="h-12 w-12 rounded-lg object-contain"
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
@@ -164,6 +169,23 @@ export function ContentCard({
           <p className="mb-3 line-clamp-2 text-xs leading-relaxed" style={{ color: 'rgb(115,115,115)' }}>
             {summary}
           </p>
+        )}
+
+        {topics.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {topics.slice(0, 4).map((slug) => (
+              <span
+                key={slug}
+                className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+                style={{ background: 'rgb(26,26,26)', color: 'rgb(115,115,115)' }}
+              >
+                {topicDisplayLabel(slug)}
+              </span>
+            ))}
+            {topics.length > 4 && (
+              <span className="text-[10px]" style={{ color: 'rgb(82,82,91)' }}>+{topics.length - 4}</span>
+            )}
+          </div>
         )}
 
         {/* Footer: player chips + time */}

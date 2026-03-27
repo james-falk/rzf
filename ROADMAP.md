@@ -84,6 +84,10 @@
 - [ ] **Player trend signals** — snap count %, target share, opportunity scores from box scores
 - [ ] **Season-long projections** — ROS outlook, not just this week
 
+### Directory — custom feeds & trending (planned)
+
+See **`docs/PLAN_CUSTOM_FEEDS_TRENDING_TOPICS.md`** for the full execution plan: authenticated custom feed CRUD + query layer (Sleeper / players / team / sources), enforcement of 2 free / 5 Pro feeds, Reddit & X operational hardening, **five trending topic chips** on the home feed driven by `ContentItem.topics` aggregation, and a **Featured Content** carousel (Swiper, 10s autoplay, peek layout) above the main feed.
+
 ---
 
 ## Phase 4 — RosterMind Chat Continuity & UX Depth

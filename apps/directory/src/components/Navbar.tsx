@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { useAuth, SignInButton, UserButton } from '@clerk/nextjs'
 
 const NAV_LINKS = [
+  { href: '/', label: 'Feed' },
   { href: '/search', label: 'Players' },
   { href: '/sources', label: 'Sources' },
   { href: '/rankings', label: 'Rankings' },

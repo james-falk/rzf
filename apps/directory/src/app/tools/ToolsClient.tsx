@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { brandLogoUrlFromDomain } from '@/lib/brandLogo'
 
 interface FantasyTool {
   id: string
@@ -47,7 +48,7 @@ function extractDomain(url: string): string {
 function ToolLogo({ tool }: { tool: FantasyTool }) {
   const [errored, setErrored] = useState(false)
   const domain = extractDomain(tool.url)
-  const src = tool.logoUrl ?? (domain ? `https://logo.clearbit.com/${domain}` : null)
+  const src = tool.logoUrl ?? (domain ? brandLogoUrlFromDomain(domain) : null)
   if (!src || errored) {
     return (
       <div

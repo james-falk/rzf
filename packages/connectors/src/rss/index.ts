@@ -11,6 +11,7 @@
 import Parser from 'rss-parser'
 import { db } from '@rzf/db'
 import { resolvePlayerMentions, extractSnippet, inferMentionContext } from '@rzf/shared'
+import { inferContentTopics } from '../topics/inferTopics.js'
 
 // rss-parser generic: <feed-level custom fields, item-level custom fields>
 type CustomItem = {
@@ -24,24 +25,6 @@ const parser = new Parser<Record<string, unknown>, CustomItem>({
   },
   timeout: 15000,
 })
-
-// ─── Topic Tagging ────────────────────────────────────────────────────────────
-
-function inferTopics(text: string): string[] {
-  const t = text.toLowerCase()
-  const topics: string[] = []
-
-  if (/injur|hurt|questionable|doubtful|out\b|placed on ir|injured reserve/.test(t))
-    topics.push('injury')
-  if (/trade[d]?|trading|deal|acqui[re|red]/.test(t)) topics.push('trade')
-  if (/waiver|stream|pickup|add\b/.test(t)) topics.push('waiver')
-  if (/start|lineup|flex|sit\b|bench|must.?start/.test(t)) topics.push('lineup')
-  if (/break.?out|emerge|target share|snap count|usage rate|role/.test(t)) topics.push('breakout')
-  if (/depth chart|promoted|demoted|starter|resting/.test(t)) topics.push('depth_chart')
-  if (/rank\b|ranking|tier\b|consensus/.test(t)) topics.push('rankings')
-
-  return topics
-}
 
 // ─── Feed Processor ───────────────────────────────────────────────────────────
 
@@ -83,7 +66,7 @@ async function processFeed(
     const thumbnailUrl =
       (item['media:content'] as CustomItem['media:content'])?.$?.url ?? null
 
-    const topics = inferTopics(`${item.title} ${rawContent}`)
+    const topics = inferContentTopics(`${item.title} ${rawContent}`)
     // Title-first strategy: prefer accurate title matches over noisy body matches.
     // If a full name appears in the title, tag that player. Otherwise fall back to
     // body scan using strictMode (full names only, no last-name-only aliases).

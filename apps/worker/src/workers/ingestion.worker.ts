@@ -2,6 +2,7 @@ import { Worker } from 'bullmq'
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { RSSConnector } from '@rzf/connectors/rss'
+import { inferContentTopics } from '@rzf/connectors/topics'
 import { YouTubeConnector } from '@rzf/connectors/youtube'
 import { FantasyCalcConnector } from '@rzf/connectors/fantasycalc'
 import { FFCConnector } from '@rzf/connectors/ffc'
@@ -15,6 +16,9 @@ import { IngestionJobTypes, generateAliases } from '@rzf/shared'
 import type { IngestionJobType } from '@rzf/shared/types'
 import { getRedisConnection } from '../redis.js'
 import { QUEUE_NAMES } from '../queues.js'
+
+/** Warn after this many consecutive Reddit runs with zero inserts (sources > 0). */
+let redditZeroInsertStreak = 0
 
 export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
   const worker = new Worker<{ type: IngestionJobType }>(
@@ -783,6 +787,7 @@ async function runTwitterIngestionRefresh(): Promise<void> {
         const url = `https://twitter.com/i/web/status/${tweet.id}`
         if (await db.contentItem.findUnique({ where: { sourceUrl: url } })) continue
         const matches = resolvePlayerMentions(tweet.text, aliases, { strictMode: true })
+        const topics = inferContentTopics(tweet.text)
         const contentItem = await db.contentItem.create({
           data: {
             sourceId: twitterSource.id,
@@ -792,7 +797,7 @@ async function runTwitterIngestionRefresh(): Promise<void> {
             rawContent: tweet.text,
             authorName: tweet.authorHandle ? `@${tweet.authorHandle}` : 'Twitter',
             publishedAt: tweet.createdAt ? new Date(tweet.createdAt) : null,
-            topics: [],
+            topics,
             mediaMeta: { tweetId: tweet.id, likeCount: tweet.publicMetrics?.likeCount ?? 0, retweetCount: tweet.publicMetrics?.retweetCount ?? 0, replyCount: tweet.publicMetrics?.replyCount ?? 0 },
           },
         })
@@ -822,6 +827,16 @@ async function runRedditRefresh(): Promise<void> {
   )
   if (result.errors.length > 0) {
     console.warn('[ingestion] Reddit errors (first 5):', result.errors.slice(0, 5))
+  }
+  if (result.sources > 0 && result.inserted === 0) {
+    redditZeroInsertStreak++
+    if (redditZeroInsertStreak >= 3) {
+      console.warn(
+        `[ingestion] Reddit: ${redditZeroInsertStreak} consecutive refresh(es) with 0 new items (check RSS URLs, rate limits, or subreddit changes)`,
+      )
+    }
+  } else {
+    redditZeroInsertStreak = 0
   }
 }
 

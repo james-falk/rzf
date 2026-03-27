@@ -7,11 +7,14 @@ function getSecret(): string {
 }
 
 async function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // Do not send Content-Type: application/json with an empty body — Fastify's JSON parser
+  // returns 400 for DELETE/PATCH/POST with that header and no JSON body (common admin bug).
+  const hasBody = options.body != null && options.body !== ''
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
       'x-admin-secret': getSecret(),
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
     },
   })
