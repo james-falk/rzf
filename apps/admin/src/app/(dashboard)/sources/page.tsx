@@ -7,14 +7,7 @@ import { Badge } from '@/components/ui/Badge'
 import { formatRelativeTime } from '@/lib/utils'
 import { RefreshCw, ChevronDown, ChevronRight, Play, AlertTriangle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-
-const INGESTION_JOBS = [
-  { type: 'content_refresh', label: 'Content Refresh', desc: 'Fetch all active RSS feeds' },
-  { type: 'player_refresh', label: 'Player Refresh', desc: 'Sync all NFL players from Sleeper' },
-  { type: 'trending_refresh', label: 'Trending Refresh', desc: 'Update trending adds/drops' },
-  { type: 'rankings_refresh', label: 'Rankings Refresh', desc: 'Update player rankings' },
-  { type: 'credits_refill', label: 'Credits Refill', desc: 'Reset paid users to 50 credits' },
-]
+import { INGESTION_JOB_CATALOG } from '@rzf/shared'
 
 export default function SourcesPage() {
   const router = useRouter()
@@ -211,17 +204,25 @@ export default function SourcesPage() {
       {/* Manual ingestion triggers */}
       <div className="rounded-xl border border-white/10 bg-zinc-900">
         <div className="border-b border-white/10 px-4 py-3">
-          <h2 className="text-sm font-semibold text-white">Manual Triggers</h2>
-          <p className="mt-0.5 text-xs text-zinc-500">Enqueue ingestion jobs immediately, bypassing the scheduler</p>
+          <h2 className="text-sm font-semibold text-white">Ingestion job catalog</h2>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            Full parity with worker job types — enqueue immediately. Schedules match{' '}
+            <code className="text-zinc-400">apps/worker/src/scheduler.ts</code>. See also{' '}
+            <a href="/queue/ingestion" className="text-red-400 hover:underline">
+              Queue / ingestion
+            </a>{' '}
+            for BullMQ state and DB run audit.
+          </p>
         </div>
         <div className="divide-y divide-white/5">
-          {INGESTION_JOBS.map((job) => {
+          {INGESTION_JOB_CATALOG.map((job) => {
             const result = triggerResults[job.type]
             return (
-              <div key={job.type} className="flex items-center justify-between gap-4 px-4 py-3">
-                <div>
+              <div key={job.type} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-white">{job.label}</p>
                   <p className="text-xs text-zinc-500">{job.desc}</p>
+                  <p className="mt-1 text-[11px] text-zinc-600">Schedule: {job.schedule}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   {result && (

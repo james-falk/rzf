@@ -7,6 +7,7 @@ export interface PlayerMarketValues {
   fantasycalc: { dynasty1qb: number | null; dynastySf: number | null; redraft: number | null; trend30d: number | null } | null
   dynastyprocess: { dynasty1qb: number | null; dynastySf: number | null; trend30d: number | null } | null
   dynastysuperflex: { dynasty1qb: number | null; dynastySf: number | null; trend30d: number | null } | null
+  dynastydaddy: { dynasty1qb: number | null; dynastySf: number | null; redraft: number | null; trend30d: number | null } | null
 }
 
 export type MultiMarketMap = Map<string, PlayerMarketValues>
@@ -14,8 +15,8 @@ export type MultiMarketMap = Map<string, PlayerMarketValues>
 // ─── Core Query ───────────────────────────────────────────────────────────────
 
 /**
- * Fetch all four trade value markets (KTC, FantasyCalc, Dynasty Process,
- * Dynasty Superflex) for a set of players in a single DB query.
+ * Fetch trade value markets (KTC, FantasyCalc, Dynasty Process, Dynasty Superflex,
+ * Dynasty Daddy) for a set of players in a single DB query.
  *
  * Returns a Map<sleeperId, PlayerMarketValues>. Every requested ID is present
  * in the map — missing markets are null, not absent.
@@ -26,7 +27,7 @@ export async function getMultiMarketValues(playerIds: string[]): Promise<MultiMa
   const rows = await db.playerTradeValue.findMany({
     where: {
       sleeperId: { in: playerIds },
-      source: { in: ['ktc', 'fantasycalc', 'dynastyprocess', 'dynastysuperflex'] },
+      source: { in: ['ktc', 'fantasycalc', 'dynastyprocess', 'dynastysuperflex', 'dynastydaddy'] },
     },
     select: {
       sleeperId: true,
@@ -40,7 +41,13 @@ export async function getMultiMarketValues(playerIds: string[]): Promise<MultiMa
 
   const result = new Map<string, PlayerMarketValues>()
   for (const id of playerIds) {
-    result.set(id, { ktc: null, fantasycalc: null, dynastyprocess: null, dynastysuperflex: null })
+    result.set(id, {
+      ktc: null,
+      fantasycalc: null,
+      dynastyprocess: null,
+      dynastysuperflex: null,
+      dynastydaddy: null,
+    })
   }
 
   for (const row of rows) {
@@ -57,6 +64,8 @@ export async function getMultiMarketValues(playerIds: string[]): Promise<MultiMa
       entry.dynastyprocess = base
     } else if (row.source === 'dynastysuperflex') {
       entry.dynastysuperflex = base
+    } else if (row.source === 'dynastydaddy') {
+      entry.dynastydaddy = { ...base, redraft: row.redraft }
     }
   }
 
@@ -76,7 +85,12 @@ export function formatMarketValuesForPrompt(
   leagueStyle: 'dynasty' | 'redraft' = 'dynasty',
 ): string {
   const lines: string[] = [`  ${name} — Market Values:`]
-  const hasAny = values.ktc || values.fantasycalc || values.dynastyprocess || values.dynastysuperflex
+  const hasAny =
+    values.ktc ||
+    values.fantasycalc ||
+    values.dynastyprocess ||
+    values.dynastysuperflex ||
+    values.dynastydaddy
 
   if (!hasAny) {
     lines.push('    No market values available')
@@ -108,6 +122,12 @@ export function formatMarketValuesForPrompt(
     lines.push(`    Dynasty Superflex: ${values.dynastysuperflex.dynasty1qb ?? 'N/A'}${sfStr}`)
   }
 
+  if (values.dynastydaddy) {
+    const primary = leagueStyle === 'redraft' ? values.dynastydaddy.redraft : values.dynastydaddy.dynasty1qb
+    const sfStr = values.dynastydaddy.dynastySf != null ? ` | SF: ${values.dynastydaddy.dynastySf}` : ''
+    lines.push(`    Dynasty Daddy: ${primary ?? 'N/A'}${sfStr}`)
+  }
+
   return lines.join('\n')
 }
 
@@ -129,6 +149,7 @@ export function getAnchorValue(
     values.fantasycalc?.dynasty1qb ??
     values.dynastyprocess?.dynasty1qb ??
     values.dynastysuperflex?.dynasty1qb ??
+    values.dynastydaddy?.dynasty1qb ??
     null
   )
 }

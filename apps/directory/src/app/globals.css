@@ -71,3 +71,22 @@ body {
 ::-webkit-scrollbar-track { background: rgb(var(--background)); }
 ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgb(63 63 70); }
+
+/* Home featured carousel (Swiper) */
+.featured-swiper .swiper-slide {
+  opacity: 0.5;
+  transform: scale(0.94);
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+.featured-swiper .swiper-slide-active {
+  opacity: 1;
+  transform: scale(1);
+}
+.featured-swiper .swiper-slide-active .featured-slide-card {
+  border-color: rgba(234, 179, 8, 0.85) !important;
+  box-shadow:
+    0 0 0 1px rgba(234, 179, 8, 0.35),
+    0 20px 50px -12px rgba(0, 0, 0, 0.6);
+}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { api, type QueueStats, type QueueJob, ApiError } from '@/lib/api'
+import { api, type QueueStats, type QueueJob, type IngestionJobRunRow, ApiError } from '@/lib/api'
 import { StatCard } from '@/components/ui/StatCard'
 import { RefreshCw, Info } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -31,6 +31,8 @@ function Tooltip({ text }: { text: string }) {
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
     active: 'bg-emerald-500/20 text-emerald-400',
+    running: 'bg-emerald-500/20 text-emerald-400',
+    success: 'bg-zinc-700 text-zinc-400',
     waiting: 'bg-yellow-500/20 text-yellow-400',
     delayed: 'bg-blue-500/20 text-blue-400',
     completed: 'bg-zinc-700 text-zinc-400',
@@ -55,6 +57,11 @@ export default function IngestionQueuePage() {
   const router = useRouter()
   const [stats, setStats] = useState<QueueStats | null>(null)
   const [jobs, setJobs] = useState<QueueJob[]>([])
+  const [ingestionRuns, setIngestionRuns] = useState<IngestionJobRunRow[]>([])
+  const [runsTotal, setRunsTotal] = useState(0)
+  const [runsPage, setRunsPage] = useState(1)
+  const [runsStatusFilter, setRunsStatusFilter] = useState<string>('')
+  const [retryingId, setRetryingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
@@ -63,19 +70,23 @@ export default function IngestionQueuePage() {
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     try {
-      const [statsData, jobsData] = await Promise.all([
+      const statusArg = runsStatusFilter || undefined
+      const [statsData, jobsData, runsData] = await Promise.all([
         api.getQueueStats(),
         api.getQueueJobs('ingestion', 20),
+        api.getIngestionRuns(runsPage, 25, statusArg),
       ])
       setStats(statsData)
       setJobs(jobsData.jobs)
+      setIngestionRuns(runsData.runs)
+      setRunsTotal(runsData.total)
       setLastRefreshed(new Date())
     } catch (err) {
       if (err instanceof ApiError && err.isUnauthorized) router.push('/login')
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [router])
+  }, [router, runsPage, runsStatusFilter])
 
   useEffect(() => { void load() }, [load])
 
@@ -132,7 +143,118 @@ export default function IngestionQueuePage() {
         </section>
 
         <section>
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Recent Jobs</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Ingestion job runs (DB audit)</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={runsStatusFilter}
+                onChange={(e) => {
+                  setRunsPage(1)
+                  setRunsStatusFilter(e.target.value)
+                }}
+                className="rounded-lg border border-white/10 bg-zinc-900 px-2 py-1 text-xs text-zinc-300"
+              >
+                <option value="">All statuses</option>
+                <option value="running">running</option>
+                <option value="success">success</option>
+                <option value="failed">failed</option>
+              </select>
+              <span className="text-xs text-zinc-600">{runsTotal} total</span>
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-zinc-900">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/5 text-left text-xs text-zinc-500">
+                  <th className="px-5 py-3 font-medium">Type</th>
+                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium">Started</th>
+                  <th className="px-5 py-3 font-medium">Finished</th>
+                  <th className="px-5 py-3 font-medium">Inserted</th>
+                  <th className="px-5 py-3 font-medium">Error / Retry</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ingestionRuns.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-6 text-center text-xs text-zinc-600">
+                      No ingestion runs recorded yet (worker writes rows after each job).
+                    </td>
+                  </tr>
+                ) : (
+                  ingestionRuns.map((run) => (
+                    <tr key={run.id} className="border-b border-white/5 last:border-0 hover:bg-white/2">
+                      <td className="px-5 py-3 font-mono text-xs text-zinc-300">{run.jobType}</td>
+                      <td className="px-5 py-3">
+                        <StatusBadge status={run.status} />
+                      </td>
+                      <td className="px-5 py-3 text-xs text-zinc-500">
+                        {new Date(run.startedAt).toLocaleString()}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-zinc-500">
+                        {run.finishedAt ? new Date(run.finishedAt).toLocaleString() : '—'}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-zinc-500">{run.insertedCount ?? '—'}</td>
+                      <td className="px-5 py-3 text-xs">
+                        {run.errorSnippet && (
+                          <span className="mb-1 block max-w-xs truncate text-red-400" title={run.errorSnippet}>
+                            {run.errorSnippet}
+                          </span>
+                        )}
+                        {run.status !== 'running' && (
+                          <button
+                            type="button"
+                            disabled={retryingId === run.id}
+                            onClick={async () => {
+                              setRetryingId(run.id)
+                              try {
+                                await api.retryIngestionRun(run.id)
+                                await load(true)
+                              } catch {
+                                /* toast optional */
+                              } finally {
+                                setRetryingId(null)
+                              }
+                            }}
+                            className="text-xs text-red-400 hover:underline disabled:opacity-50"
+                          >
+                            {retryingId === run.id ? 'Queuing…' : 'Retry job'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+            {runsTotal > 25 && (
+              <div className="flex items-center justify-between border-t border-white/5 px-5 py-3 text-xs text-zinc-500">
+                <button
+                  type="button"
+                  disabled={runsPage <= 1}
+                  onClick={() => setRunsPage((p) => Math.max(1, p - 1))}
+                  className="rounded border border-white/10 px-2 py-1 disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {runsPage} of {Math.max(1, Math.ceil(runsTotal / 25))}
+                </span>
+                <button
+                  type="button"
+                  disabled={runsPage >= Math.ceil(runsTotal / 25)}
+                  onClick={() => setRunsPage((p) => p + 1)}
+                  className="rounded border border-white/10 px-2 py-1 disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">Recent queue jobs (BullMQ)</h2>
           <div className="rounded-xl border border-white/10 bg-zinc-900">
             <table className="w-full text-sm">
               <thead>

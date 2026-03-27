@@ -5,15 +5,28 @@ import { db } from '@rzf/db'
 import Navbar from '@/components/Navbar'
 import { TrendingTicker } from '@/components/TrendingTicker'
 import { FeedWithFilters } from '@/components/FeedWithFilters'
-import { ContentCard } from '@/components/ContentCard'
+import { FeaturedContentCarousel } from '@/components/FeaturedContentCarousel'
 import { getTrendingTopics } from '@/lib/getTrendingTopics'
+import { encodeFeedCursor } from '@/lib/feed-cursor'
 
-/** Max items loaded for the home “All Feed” grid (newest first). Increase if you add pagination / infinite scroll. */
-const HOME_FEED_ITEM_LIMIT = 500
+/** First page size for the home “All Feed” grid; must match `PAGE_SIZE` in `/api/feed`. “Load more” fetches the next pages. */
+const HOME_FEED_PAGE_SIZE = 40
+
+const contentInclude = {
+  source: {
+    select: { id: true, name: true, platform: true, feedUrl: true, avatarUrl: true, featured: true, partnerTier: true },
+  },
+  playerMentions: {
+    include: {
+      player: { select: { sleeperId: true, firstName: true, lastName: true, position: true } },
+    },
+    take: 6,
+  },
+}
 
 async function getData() {
   try {
-  const [trendingRaw, featuredSources, latestContent, allSources, trendingTopics] = await Promise.all([
+  const [trendingRaw, featuredSources, allSources, trendingTopics] = await Promise.all([
     // Trending players (last 48h, skip inactive) — fetch extra to dedup in JS
     db.trendingPlayer.findMany({
       where: {
@@ -34,27 +47,6 @@ async function getData() {
       take: 6,
     }),
 
-    // Latest content items with source + player mentions
-    db.contentItem.findMany({
-      where: {
-        source: { isActive: true },
-        publishedAt: { not: null },
-      },
-      include: {
-        source: {
-          select: { id: true, name: true, platform: true, feedUrl: true, avatarUrl: true, featured: true, partnerTier: true },
-        },
-        playerMentions: {
-          include: {
-            player: { select: { sleeperId: true, firstName: true, lastName: true, position: true } },
-          },
-          take: 6,
-        },
-      },
-      orderBy: { publishedAt: 'desc' },
-      take: HOME_FEED_ITEM_LIMIT,
-    }),
-
     // All active sources for sidebar filter
     db.contentSource.findMany({
       where: { isActive: true },
@@ -63,6 +55,32 @@ async function getData() {
     }),
 
     getTrendingTopics(),
+  ])
+
+  const featuredSourceIds = featuredSources.map((s) => s.id)
+
+  const [featuredCarouselItems, latestContent] = await Promise.all([
+    featuredSourceIds.length === 0
+      ? Promise.resolve([])
+      : db.contentItem.findMany({
+          where: {
+            sourceId: { in: featuredSourceIds },
+            publishedAt: { not: null },
+            source: { isActive: true },
+          },
+          include: contentInclude,
+          orderBy: { publishedAt: 'desc' },
+          take: 12,
+        }),
+    db.contentItem.findMany({
+      where: {
+        source: { isActive: true },
+        publishedAt: { not: null },
+      },
+      include: contentInclude,
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+      take: HOME_FEED_PAGE_SIZE,
+    }),
   ])
 
   // Deduplicate by sleeperId in JS — Prisma's distinct+orderBy combo doesn't
@@ -77,12 +95,17 @@ async function getData() {
     .slice(0, 20)
     .map((t) => ({ ...t.player, count: t.count }))
 
-  // Separate featured content (from partner sources) for the featured section
-  const featuredSourceNames = new Set(featuredSources.map((s) => s.name))
-  const featuredContent = latestContent.filter((item) => item.source && featuredSourceNames.has(item.source.name)).slice(0, 3)
-  const regularContent = latestContent.filter((item) => !featuredContent.includes(item))
+  const featuredContent = featuredCarouselItems
+  const featuredIds = new Set(featuredContent.map((item) => item.id))
+  const regularContent = latestContent.filter((item) => !featuredIds.has(item.id))
 
-  return { trending, featuredContent, featuredSources, regularContent, allSources, trendingTopics }
+  const last = latestContent[HOME_FEED_PAGE_SIZE - 1]
+  const feedNextCursor =
+    latestContent.length === HOME_FEED_PAGE_SIZE && last?.publishedAt
+      ? encodeFeedCursor(last.publishedAt, last.id)
+      : null
+
+  return { trending, featuredContent, featuredSources, regularContent, allSources, trendingTopics, feedNextCursor }
   } catch {
     // DB unavailable during build or missing migration — return empty state
     return {
@@ -92,6 +115,7 @@ async function getData() {
       regularContent: [],
       allSources: [],
       trendingTopics: [],
+      feedNextCursor: null,
     }
   }
 }
@@ -99,7 +123,8 @@ async function getData() {
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  const { trending, featuredContent, featuredSources, regularContent, allSources, trendingTopics } = await getData()
+  const { trending, featuredContent, featuredSources, regularContent, allSources, trendingTopics, feedNextCursor } =
+    await getData()
 
   // Get user tier for upgrade gate in custom feeds tab
   const { userId: clerkId } = await auth()
@@ -176,41 +201,28 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* Featured partner content */}
+      {/* Featured partner carousel (before main feed) */}
       {featuredContent.length > 0 && (
-        <section className="mx-auto max-w-7xl px-4 py-12">
-          <div className="mb-6 flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-bold text-white">Featured</h2>
-              <p className="mt-1 text-sm" style={{ color: 'rgb(115,115,115)' }}>
-                Highlighted content from partner sources
-              </p>
-            </div>
-            {featuredSources.length > 0 && (
+        <>
+          <FeaturedContentCarousel
+            slides={featuredContent.map((item) => ({
+              id: item.id,
+              title: item.title,
+              summary: item.summary,
+              thumbnailUrl: item.thumbnailUrl,
+              sourceUrl: item.sourceUrl,
+              contentType: item.contentType,
+              sourceName: item.source?.name ?? null,
+            }))}
+          />
+          {featuredSources.length > 0 && (
+            <div className="mx-auto max-w-7xl px-4 pb-4 text-center">
               <Link href="/sources" className="text-sm transition hover:text-white" style={{ color: 'rgb(220,38,38)' }}>
-                All sources →
+                All partner sources →
               </Link>
-            )}
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {featuredContent.map((item) => (
-              <ContentCard
-                key={item.id}
-                id={item.id}
-                title={item.title}
-                summary={item.summary}
-                thumbnailUrl={item.thumbnailUrl}
-                sourceUrl={item.sourceUrl}
-                publishedAt={item.publishedAt}
-                contentType={item.contentType}
-                authorName={item.authorName}
-                source={item.source}
-                playerMentions={item.playerMentions}
-                topics={item.topics}
-              />
-            ))}
-          </div>
-        </section>
+            </div>
+          )}
+        </>
       )}
 
       {/* Content feed with sidebar filters + custom feeds tab */}
@@ -236,6 +248,7 @@ export default async function HomePage() {
               playerMentions: item.playerMentions,
               topics: item.topics ?? [],
             }))}
+            initialFeedNextCursor={feedNextCursor}
             sources={allSources}
             userTier={userTier}
             trendingTopics={trendingTopics}

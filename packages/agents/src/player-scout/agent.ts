@@ -6,6 +6,8 @@ import { PlayerScoutOutputSchema } from '@rzf/shared/types'
 import type { PlayerScoutInput, PlayerScoutOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { injectContent } from '../content-injector.js'
 import { getMultiMarketValues, getAnchorValue, getAnchorTrend, classifyTrend, formatMarketValuesForPrompt } from '../multi-market-values.js'
+import { loadTierZeroPlayerRankings, formatTierZeroRankingsForPrompt } from '../tier0-rankings.js'
+import { findRecentTradesForPlayers, formatRecentTradesForPrompt } from '../recent-trades-prompt.js'
 import { buildSessionContext } from '../session-context.js'
 import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
 
@@ -77,6 +79,7 @@ export async function runPlayerScoutAgent(
         fantasycalc: null,
         dynastyprocess: null,
         dynastysuperflex: null,
+        dynastydaddy: null,
       }
       const player = await db.player.findUnique({
         where: { sleeperId: playerId },
@@ -87,11 +90,9 @@ export async function runPlayerScoutAgent(
     },
 
     rankings: async (): Promise<string> => {
-      const ranking = await db.playerRanking.findFirst({
-        where: { playerId, source: 'fantasypros', week, season: seasonInt },
-      })
-      if (!ranking) return 'Rankings: not available for current week'
-      return `FP Overall: ${ranking.rankOverall ?? 'unranked'} | FP Position: ${ranking.rankPosition ?? 'unranked'}`
+      const rows = await loadTierZeroPlayerRankings([playerId], week, seasonInt)
+      if (rows.length === 0) return 'Rankings: not available for current week'
+      return formatTierZeroRankingsForPrompt(rows)
     },
 
     recent_news: async (): Promise<string> => {
@@ -127,6 +128,13 @@ export async function runPlayerScoutAgent(
         parts.push(`Recent league trades: ${Number(rawCount[0]?.count ?? 0)}`)
       } catch {
         parts.push('Recent league trades: N/A')
+      }
+
+      try {
+        const recent = await findRecentTradesForPlayers([playerId], 8)
+        if (recent.length > 0) parts.push(formatRecentTradesForPrompt(recent, 6))
+      } catch {
+        /* non-critical */
       }
 
       // DynastyDaddy community trades
@@ -235,6 +243,7 @@ export async function runPlayerScoutAgent(
     fantasycalc: null,
     dynastyprocess: null,
     dynastysuperflex: null,
+    dynastydaddy: null,
   }
 
   // Dynasty positional rank

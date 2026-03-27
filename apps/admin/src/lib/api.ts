@@ -1,5 +1,4 @@
-// eslint-disable-next-line no-restricted-syntax
-const API_BASE = (process.env['NEXT_PUBLIC_API_BASE_URL'] ?? 'http://localhost:3001').replace(/\/$/, '')
+const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3001').replace(/\/$/, '')
 
 function getSecret(): string {
   if (typeof window === 'undefined') return ''
@@ -79,6 +78,8 @@ export interface SourceSummary {
   avatarUrl: string | null
   isActive: boolean
   tier: number
+  featured: boolean
+  partnerTier: string | null
   refreshIntervalMins: number
   lastFetchedAt: string | null
   itemCount: number
@@ -133,6 +134,9 @@ export interface SourceCreateInput {
   isActive?: boolean
   avatarUrl?: string
   platformConfig?: Record<string, unknown>
+  tier?: number
+  featured?: boolean
+  partnerTier?: string | null
 }
 
 export interface SourceUpdateInput {
@@ -142,6 +146,20 @@ export interface SourceUpdateInput {
   isActive?: boolean
   avatarUrl?: string | null
   platformConfig?: Record<string, unknown>
+  tier?: number
+  featured?: boolean
+  partnerTier?: string | null
+}
+
+export interface IngestionJobRunRow {
+  id: string
+  jobType: string
+  bullmqJobId: string | null
+  status: string
+  startedAt: string
+  finishedAt: string | null
+  errorSnippet: string | null
+  insertedCount: number | null
 }
 
 export interface RefreshJobResult {
@@ -178,6 +196,23 @@ export const api = {
     adminFetch<{ jobId: string; type: string; status: string }>('/internal/ingestion/trigger', {
       method: 'POST',
       body: JSON.stringify({ type }),
+    }),
+
+  getIngestionRuns: (page = 1, pageSize = 40, status?: string) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+      ...(status ? { status } : {}),
+    })
+    return adminFetch<{ runs: IngestionJobRunRow[]; total: number; pages: number }>(
+      `/internal/ingestion/runs?${params}`,
+    )
+  },
+
+  retryIngestionRun: (id: string) =>
+    adminFetch<{ jobId: string; type: string; status: string }>(`/internal/ingestion/runs/${id}/retry`, {
+      method: 'POST',
+      body: '{}',
     }),
 
   createSource: (data: SourceCreateInput) =>

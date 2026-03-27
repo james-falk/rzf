@@ -14,9 +14,10 @@
  */
 
 import { db } from '@rzf/db'
+import { parseNitterBaseUrls } from '@rzf/shared'
 import { env } from '@rzf/shared/env'
 
-// Public Nitter instances — tried in order when NITTER_BASE_URLS is not set
+/** @deprecated use DEFAULT_NITTER_BASE_URLS from @rzf/shared */
 export const NITTER_INSTANCES = [
   'https://nitter.cz',
   'https://nitter.privacydev.net',
@@ -26,11 +27,7 @@ export const NITTER_INSTANCES = [
 
 /** Active Nitter bases: env override or defaults */
 export function getNitterBases(): string[] {
-  const fromEnv = env.NITTER_BASE_URLS?.split(',')
-    .map((s) => s.trim().replace(/\/$/, ''))
-    .filter(Boolean)
-  if (fromEnv && fromEnv.length > 0) return fromEnv
-  return NITTER_INSTANCES
+  return parseNitterBaseUrls(env.NITTER_BASE_URLS)
 }
 
 /**

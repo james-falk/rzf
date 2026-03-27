@@ -6,6 +6,9 @@ import { TradeAnalysisOutputSchema } from '@rzf/shared/types'
 import type { TradeAnalysisInput, TradeAnalysisOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { injectContent } from '../content-injector.js'
 import { getMultiMarketValues, formatMarketValuesForPrompt } from '../multi-market-values.js'
+import { loadTierZeroPlayerRankings } from '../tier0-rankings.js'
+import { buildTierZeroContext } from '../tier0-context.js'
+import { findRecentTradesForPlayers, formatRecentTradesForPrompt } from '../recent-trades-prompt.js'
 import { buildSessionContext } from '../session-context.js'
 import { isDraftPick, parseDraftPickId, formatDraftPickForPrompt } from '../draft-picks.js'
 import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
@@ -49,22 +52,34 @@ export async function runTradeAnalysisAgent(
   const leagueStyle =
     (userPrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft'
 
+  const nflState = await SleeperConnector.getNFLState()
+  const nflWeek = nflState.week
+  const nflSeasonInt = parseInt(nflState.season, 10)
+
+  const tierZeroGroundTruth = await buildTierZeroContext(allPlayerIds, nflWeek, nflSeasonInt)
+  if (tierZeroGroundTruth) {
+    console.log(
+      `[trade-analysis] Tier-0 ground truth block attached (${tierZeroGroundTruth.length} chars, wk=${nflWeek} season=${nflSeasonInt})`,
+    )
+  }
+
   // ── Tool registry ──────────────────────────────────────────────────────────
 
   const tools = {
     trade_values: async (): Promise<string> => {
-      const [players, marketValues, rankings] = await Promise.all([
+      const [players, marketValues, rankRows] = await Promise.all([
         db.player.findMany({ where: { sleeperId: { in: allPlayerIds } } }),
         getMultiMarketValues(allPlayerIds),
-        db.playerRanking.findMany({
-          where: { playerId: { in: allPlayerIds }, source: 'fantasypros' },
-          orderBy: { fetchedAt: 'desc' },
-          take: allPlayerIds.length,
-        }),
+        loadTierZeroPlayerRankings(allPlayerIds, nflWeek, nflSeasonInt),
       ])
 
       const playerMap = new Map(players.map((p) => [p.sleeperId, p]))
-      const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
+      const rankByPlayer = new Map<string, typeof rankRows>()
+      for (const r of rankRows) {
+        const arr = rankByPlayer.get(r.playerId) ?? []
+        arr.push(r)
+        rankByPlayer.set(r.playerId, arr)
+      }
 
       const formatSide = (ids: string[], label: string): string => {
         const lines = [`${label}:`]
@@ -75,23 +90,33 @@ export async function runTradeAnalysisAgent(
             continue
           }
           const p = playerMap.get(id)
-          const r = rankMap.get(id)
+          const ranks = rankByPlayer.get(id)
           const vals = marketValues.get(id)
           lines.push(
             `  ${p ? `${p.firstName} ${p.lastName}` : id} (${p?.position ?? '?'}, ${p?.team ?? 'FA'})`,
           )
           if (p?.injuryStatus) lines.push(`    Injury: ${p.injuryStatus}`)
-          if (r?.rankOverall) lines.push(`    FP Rank: ${r.rankOverall}`)
+          if (ranks?.length) {
+            const sorted = [...ranks].sort((a, b) => (a.source === 'fantasypros' ? -1 : b.source === 'fantasypros' ? 1 : 0))
+            for (const r of sorted) {
+              lines.push(
+                `    ${r.label}: ${r.rankOverall}${r.rankPosition > 0 ? ` (pos ${r.rankPosition})` : ''}`,
+              )
+            }
+          }
           if (vals) lines.push(formatMarketValuesForPrompt(p ? `${p.firstName} ${p.lastName}` : id, vals, leagueStyle))
         }
         return lines.join('\n')
       }
 
+      const recent = await findRecentTradesForPlayers(allPlayerIds, 14)
+      const tradeBlock = recent.length > 0 ? `\n\n${formatRecentTradesForPrompt(recent, 10)}` : ''
+
       return [
         `[Trade Proposal — ${leagueStyle === 'dynasty' ? 'Dynasty' : 'Redraft'} League]`,
         formatSide(giving, 'GIVING (trading away)'),
         formatSide(receiving, 'RECEIVING (getting back)'),
-      ].join('\n\n')
+      ].join('\n\n') + tradeBlock
     },
 
     trade_activity: async (): Promise<string> => {
@@ -218,6 +243,7 @@ export async function runTradeAnalysisAgent(
 
   const extraParts: string[] = []
   if (userContext) extraParts.push(userContext)
+  if (tierZeroGroundTruth) extraParts.push(tierZeroGroundTruth)
   if (focusNote?.trim()) extraParts.push(`USER FOCUS: ${focusNote.trim()}`)
 
   const outputSchema = TradeAnalysisOutputSchema.omit({

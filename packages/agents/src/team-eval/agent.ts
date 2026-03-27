@@ -7,6 +7,10 @@ import { injectContent, formatContentByPlayer } from '../content-injector.js'
 import { getMultiMarketValues, formatMarketValuesForPrompt } from '../multi-market-values.js'
 import { buildSessionContext } from '../session-context.js'
 import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
+import {
+  formatCompactTierZeroForPlayer,
+  loadTierZeroPlayerRankings,
+} from '../tier0-rankings.js'
 
 const agentContext = loadAgentContext(import.meta.url)
 
@@ -64,20 +68,18 @@ export async function runTeamEvalAgent(
 
   const tools = {
     roster: async (): Promise<string> => {
-      const [playerRecords, rankings] = await Promise.all([
+      const [playerRecords, tierRows] = await Promise.all([
         db.player.findMany({ where: { sleeperId: { in: allPlayerIds } } }),
-        db.playerRanking.findMany({
-          where: {
-            playerId: { in: allPlayerIds },
-            source: 'fantasypros',
-            week: currentWeek,
-            season: currentSeason,
-          },
-        }),
+        loadTierZeroPlayerRankings(allPlayerIds, currentWeek, currentSeason),
       ])
+      const tierBySleeper = new Map<string, typeof tierRows>()
+      for (const r of tierRows) {
+        const list = tierBySleeper.get(r.playerId) ?? []
+        list.push(r)
+        tierBySleeper.set(r.playerId, list)
+      }
 
       const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
-      const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
 
       const scoringType =
         league.scoring_settings['rec'] === 1
@@ -91,11 +93,11 @@ export async function runTeamEvalAgent(
 
       const formatPlayer = (id: string): string => {
         const p = playerMap.get(id)
-        const r = rankMap.get(id)
         const name = p ? `${p.firstName} ${p.lastName}`.trim() : id
         const parts = [`${name} (${p?.position ?? '?'}, ${p?.team ?? 'FA'})`]
         if (p?.injuryStatus) parts.push(`⚠ ${p.injuryStatus}`)
-        if (r?.rankPosition) parts.push(`FP: ${p?.position}${r.rankPosition}`)
+        const t0 = formatCompactTierZeroForPlayer(tierBySleeper.get(id) ?? [])
+        if (t0) parts.push(`Tier-0: ${t0}`)
         return parts.join(' | ')
       }
 

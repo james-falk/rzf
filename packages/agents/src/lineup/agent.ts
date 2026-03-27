@@ -4,6 +4,7 @@ import { buildUserContext } from '@rzf/shared'
 import { LineupOutputSchema } from '@rzf/shared/types'
 import type { LineupInput, LineupOutput, AgentRuntimeConfig } from '@rzf/shared/types'
 import { injectContent, formatContentByPlayer } from '../content-injector.js'
+import { loadTierZeroPlayerRankings } from '../tier0-rankings.js'
 import { buildSessionContext } from '../session-context.js'
 import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
 
@@ -62,11 +63,9 @@ export async function runLineupAgent(
 
   const tools = {
     roster: async (): Promise<string> => {
-      const [playerRecords, rankings, defenseData, projections] = await Promise.all([
+      const [playerRecords, tierRankRows, defenseData, projections] = await Promise.all([
         db.player.findMany({ where: { sleeperId: { in: allPlayerIds } } }),
-        db.playerRanking.findMany({
-          where: { playerId: { in: allPlayerIds }, source: 'fantasypros', week, season },
-        }),
+        loadTierZeroPlayerRankings(allPlayerIds, week, season),
         db.nFLTeamDefense.findMany({ where: { week, season } }),
         db.playerProjection.findMany({
           where: { playerId: { in: allPlayerIds }, week, season, isRos: false },
@@ -75,7 +74,17 @@ export async function runLineupAgent(
       ])
 
       const playerMap = new Map(playerRecords.map((p) => [p.sleeperId, p]))
-      const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
+      const fpRankMap = new Map<string, { rankOverall: number; rankPosition: number }>()
+      const otherRankLines = new Map<string, string[]>()
+      for (const r of tierRankRows) {
+        if (r.source === 'fantasypros') {
+          fpRankMap.set(r.playerId, { rankOverall: r.rankOverall, rankPosition: r.rankPosition })
+        } else {
+          const arr = otherRankLines.get(r.playerId) ?? []
+          arr.push(`${r.label} #${r.rankOverall}`)
+          otherRankLines.set(r.playerId, arr)
+        }
+      }
       const defenseMap = new Map(defenseData.map((d) => [d.team, d]))
       const projMap = new Map<string, (typeof projections)[number]>()
       for (const proj of projections) {
@@ -97,7 +106,7 @@ export async function runLineupAgent(
 
       const formatSlot = (id: string, isStarter: boolean): string => {
         const p = playerMap.get(id)
-        const r = rankMap.get(id)
+        const r = fpRankMap.get(id)
         const proj = projMap.get(id)
         const pos = p?.position ?? 'UNKNOWN'
         const team = p?.team ?? null
@@ -122,6 +131,8 @@ export async function runLineupAgent(
         const tag = isLocked ? '[LOCKED]' : '[DECISION]'
         const parts = [`${name} (${pos}, ${team ?? 'FA'}) ${tag}`]
         if (r?.rankPosition) parts.push(`FP rank: ${pos}${r.rankPosition}`)
+        const extras = otherRankLines.get(id)
+        if (extras?.length) parts.push(extras.join(' · '))
         if (projectedPoints != null) parts.push(`Proj: ${projectedPoints.toFixed(1)}pts`)
         if (p?.injuryStatus) parts.push(`⚠️ ${p.injuryStatus}`)
         if (defRankVsPos) parts.push(`Opp def vs ${pos}: ${defRankVsPos}/32`)

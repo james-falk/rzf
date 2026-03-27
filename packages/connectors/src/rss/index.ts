@@ -26,6 +26,68 @@ const parser = new Parser<Record<string, unknown>, CustomItem>({
   timeout: 15000,
 })
 
+// ─── Shared upsert (RSS, Reddit JSON backfill, etc.) ───────────────────────────
+
+type AliasRow = { alias: string; playerId: string; aliasType: string }
+
+/** Insert one article-like row if `sourceUrl` is new; same semantics as RSS item processing. */
+export async function upsertContentItemFromArticle(
+  source: { id: string; name: string },
+  item: {
+    link: string
+    title: string
+    rawContent: string
+    publishedAt: Date | null
+    authorName?: string | null
+    thumbnailUrl?: string | null
+  },
+  aliases: AliasRow[],
+): Promise<boolean> {
+  const existing = await db.contentItem.findUnique({
+    where: { sourceUrl: item.link },
+    select: { id: true },
+  })
+  if (existing) return false
+
+  const topics = inferContentTopics(`${item.title} ${item.rawContent}`)
+  const titleMatches = resolvePlayerMentions(item.title, aliases, { strictMode: true })
+  const matches =
+    titleMatches.length > 0
+      ? titleMatches
+      : resolvePlayerMentions(item.rawContent, aliases, { strictMode: true })
+
+  const contentItem = await db.contentItem.create({
+    data: {
+      sourceId: source.id,
+      contentType: 'article',
+      sourceUrl: item.link,
+      title: item.title,
+      rawContent: item.rawContent,
+      authorName: item.authorName ?? source.name,
+      publishedAt: item.publishedAt,
+      thumbnailUrl: item.thumbnailUrl ?? undefined,
+      topics,
+    },
+  })
+
+  if (matches.length > 0) {
+    await db.contentPlayerMention.createMany({
+      data: matches.map((match) => {
+        const snippet = extractSnippet(item.rawContent, match)
+        return {
+          contentId: contentItem.id,
+          playerId: match.playerId,
+          context: inferMentionContext(snippet),
+          snippet,
+        }
+      }),
+      skipDuplicates: true,
+    })
+  }
+
+  return true
+}
+
 // ─── Feed Processor ───────────────────────────────────────────────────────────
 
 async function processFeed(
@@ -66,45 +128,22 @@ async function processFeed(
     const thumbnailUrl =
       (item['media:content'] as CustomItem['media:content'])?.$?.url ?? null
 
-    const topics = inferContentTopics(`${item.title} ${rawContent}`)
-    // Title-first strategy: prefer accurate title matches over noisy body matches.
-    // If a full name appears in the title, tag that player. Otherwise fall back to
-    // body scan using strictMode (full names only, no last-name-only aliases).
-    const titleMatches = resolvePlayerMentions(item.title, aliases, { strictMode: true })
-    const matches = titleMatches.length > 0
-      ? titleMatches
-      : resolvePlayerMentions(rawContent, aliases, { strictMode: true })
-
-    const contentItem = await db.contentItem.create({
-      data: {
-        sourceId: source.id,
-        contentType: 'article',
-        sourceUrl: item.link,
+    const did = await upsertContentItemFromArticle(
+      source,
+      {
+        link: item.link,
         title: item.title,
         rawContent,
-        authorName: item.creator ?? source.name,
         publishedAt,
-        thumbnailUrl: thumbnailUrl ?? undefined,
-        topics,
+        authorName: item.creator ?? null,
+        thumbnailUrl,
       },
-    })
-
-    if (matches.length > 0) {
-      await db.contentPlayerMention.createMany({
-        data: matches.map((match) => {
-          const snippet = extractSnippet(rawContent, match)
-          return {
-            contentId: contentItem.id,
-            playerId: match.playerId,
-            context: inferMentionContext(snippet),
-            snippet,
-          }
-        }),
-        skipDuplicates: true,
-      })
+      aliases,
+    )
+    if (did) {
+      inserted++
+      existingUrls.add(item.link)
     }
-
-    inserted++
   }
 
   return inserted

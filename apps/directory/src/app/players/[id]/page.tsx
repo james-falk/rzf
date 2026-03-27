@@ -2,10 +2,11 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { db } from '@rzf/db'
+import { rankingSourceMeta } from '@rzf/shared'
 import Navbar from '@/components/Navbar'
-import { ProGate } from '@/components/ProGate'
 import { PlayerTradeValuesSection } from '@/components/PlayerTradeValuesSection'
-import { PlayerNewsMentionCard } from '@/components/PlayerNewsMentionCard'
+import { PlayerMentionsSection } from '@/components/PlayerMentionsSection'
+import { encodeMentionCursor } from '@/lib/mention-cursor'
 import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
@@ -17,15 +18,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const player = await db.player.findUnique({ where: { sleeperId: id }, select: { firstName: true, lastName: true } })
   if (!player) return { title: 'Player Not Found' }
   return { title: `${player.firstName} ${player.lastName} — Red Zone Fantasy` }
-}
-
-function rankingSourceLabel(source: string): string {
-  const m: Record<string, string> = {
-    fantasypros: 'FantasyPros',
-    espn: 'ESPN',
-    sleeper_trending: 'Sleeper',
-  }
-  return m[source] ?? source
 }
 
 export default async function PlayerPage({ params }: Props) {
@@ -47,6 +39,38 @@ export default async function PlayerPage({ params }: Props) {
 
   if (!player) notFound()
 
+  const mentionRows = player.contentMentions
+  const serializedMentions = mentionRows.map(({ content }) => ({
+    id: content.id,
+    title: content.title,
+    summary: content.summary,
+    sourceUrl: content.sourceUrl,
+    publishedAt: content.publishedAt?.toISOString() ?? null,
+    thumbnailUrl: content.thumbnailUrl,
+    source: content.source
+      ? {
+          name: content.source.name,
+          avatarUrl: content.source.avatarUrl,
+          feedUrl: content.source.feedUrl,
+        }
+      : null,
+  }))
+  const lastMention = mentionRows[mentionRows.length - 1]
+  const mentionsNextCursor =
+    mentionRows.length === 20 && lastMention?.content.publishedAt
+      ? encodeMentionCursor(lastMention.content.publishedAt, lastMention.contentId)
+      : null
+
+  const recentTrades = await db.$queryRaw<
+    Array<{ id: string; week: number; season: string; leagueId: string; createdAt: Date }>
+  >`
+    SELECT id, week, season, "leagueId", "createdAt"
+    FROM trade_transactions
+    WHERE adds::jsonb ? ${id} OR drops::jsonb ? ${id}
+    ORDER BY "createdAt" DESC
+    LIMIT 12
+  `
+
   const rankingsSorted = player.rankings
   const top = rankingsSorted[0]
   const latestWeekRankings = top
@@ -57,9 +81,6 @@ export default async function PlayerPage({ params }: Props) {
   const otherWeekRankings = heroRank
     ? latestWeekRankings.filter((r) => r.id !== heroRank.id)
     : []
-
-  const freeMentions = player.contentMentions.slice(0, 3)
-  const proMentions = player.contentMentions.slice(3)
 
   return (
     <div className="min-h-screen" style={{ background: 'rgb(10,10,10)' }}>
@@ -105,7 +126,7 @@ export default async function PlayerPage({ params }: Props) {
                     style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(14,14,14)' }}
                   >
                     <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: 'rgb(115,115,115)' }}>
-                      {rankingSourceLabel(r.source)}
+                      {rankingSourceMeta(r.source).label}
                     </div>
                     <div className="text-sm font-bold text-white">
                       {r.posRank ? (
@@ -117,7 +138,9 @@ export default async function PlayerPage({ params }: Props) {
                         </span>
                       )}
                       <span className="ml-1.5 text-xs font-normal" style={{ color: 'rgb(115,115,115)' }}>
-                        · #{r.rankOverall} overall
+                        · #
+                        {r.rankOverall}{' '}
+                        {rankingSourceMeta(r.source).kind === 'adp' ? 'ADP' : 'overall'}
                       </span>
                     </div>
                     <div className="text-[10px]" style={{ color: 'rgb(82,82,91)' }}>
@@ -134,9 +157,11 @@ export default async function PlayerPage({ params }: Props) {
               <div className="text-4xl font-extrabold" style={{ color: 'rgb(220,38,38)' }}>
                 #{heroRank.rankOverall}
               </div>
-              <div className="mt-1 text-xs" style={{ color: 'rgb(115,115,115)' }}>Overall rank</div>
+              <div className="mt-1 text-xs" style={{ color: 'rgb(115,115,115)' }}>
+                {rankingSourceMeta(heroRank.source).kind === 'adp' ? 'Avg draft position' : 'Expert consensus rank'}
+              </div>
               <div className="mt-0.5 text-xs" style={{ color: 'rgb(163,163,163)' }}>
-                {rankingSourceLabel(heroRank.source)}
+                {rankingSourceMeta(heroRank.source).label}
                 {heroRank.posRank && ` · ${heroRank.posRank}`}
                 {!heroRank.posRank && (
                   <>
@@ -149,6 +174,26 @@ export default async function PlayerPage({ params }: Props) {
             </div>
           )}
         </div>
+
+        {recentTrades.length > 0 && (
+          <section className="mt-8">
+            <h2 className="mb-3 text-lg font-bold text-white">Recent trades (league aggregate)</h2>
+            <p className="mb-3 text-xs" style={{ color: 'rgb(115,115,115)' }}>
+              Observed Sleeper trades across linked leagues where this player moved. No user-identifying data.
+            </p>
+            <ul className="space-y-2 text-sm text-zinc-300">
+              {recentTrades.map((t) => (
+                <li
+                  key={t.id}
+                  className="rounded-lg border px-3 py-2"
+                  style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(14,14,14)' }}
+                >
+                  Week {t.week} · Season {t.season} · {t.createdAt.toLocaleDateString()}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {player.tradeValues.length > 0 && (
           <PlayerTradeValuesSection
@@ -163,45 +208,13 @@ export default async function PlayerPage({ params }: Props) {
           />
         )}
 
-        {freeMentions.length > 0 && (
-          <section className="mt-8">
-            <h2 className="mb-4 text-lg font-bold text-white">Recent news & analysis</h2>
-            <p className="mb-4 text-xs" style={{ color: 'rgb(115,115,115)' }}>
-              Logos use each source&apos;s avatar from Source Manager when set; otherwise a site favicon.
-            </p>
-            <div className="flex flex-col gap-3">
-              {freeMentions.map(({ content }) => (
-                <PlayerNewsMentionCard key={content.id} content={content} />
-              ))}
-            </div>
-          </section>
-        )}
+        <PlayerMentionsSection
+          sleeperId={player.sleeperId}
+          initialItems={serializedMentions}
+          initialNextCursor={mentionsNextCursor}
+        />
 
-        {(proMentions.length > 0 || player.projections.length > 0) && (
-          <section className="mt-8">
-            <ProGate
-              preview={
-                <div className="pointer-events-none flex flex-col gap-3">
-                  {proMentions.slice(0, 2).map(({ content }) => (
-                    <div key={content.id} className="rounded-xl border p-4" style={{ background: 'rgb(18,18,18)', borderColor: 'rgb(38,38,38)' }}>
-                      <p className="font-medium text-white">{content.title}</p>
-                      {content.summary && <p className="mt-1 text-sm line-clamp-1" style={{ color: 'rgb(115,115,115)' }}>{content.summary}</p>}
-                    </div>
-                  ))}
-                </div>
-              }
-            >
-              <h2 className="mb-4 text-lg font-bold text-white">More coverage</h2>
-              <div className="flex flex-col gap-3">
-                {proMentions.map(({ content }) => (
-                  <PlayerNewsMentionCard key={content.id} content={content} />
-                ))}
-              </div>
-            </ProGate>
-          </section>
-        )}
-
-        {player.contentMentions.length === 0 && player.projections.length === 0 && (
+        {mentionRows.length === 0 && player.projections.length === 0 && (
           <div className="mt-8 rounded-xl border py-12 text-center" style={{ borderColor: 'rgb(26,26,26)', background: 'rgb(14,14,14)' }}>
             <div className="text-3xl">📡</div>
             <p className="mt-3 font-medium text-white">No data yet</p>

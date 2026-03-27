@@ -368,12 +368,17 @@ export const IngestionJobTypes = {
   // ESPN ingestion jobs
   ESPN_NEWS_REFRESH: 'espn_news_refresh',
   ESPN_DEFENSE_REFRESH: 'espn_defense_refresh',
+  ESPN_RANKINGS_REFRESH: 'espn_rankings_refresh',
   // The Odds API ingestion
   ODDS_REFRESH: 'odds_refresh',
+  // Yahoo Fantasy (OAuth) — PlayerRanking source=yahoo
+  YAHOO_RANKINGS_REFRESH: 'yahoo_rankings_refresh',
   // Twitter/X read ingestion (separate from write-only official API)
   TWITTER_INGESTION_REFRESH: 'twitter_ingestion_refresh',
   // Reddit content ingestion (via RSS feeds)
   REDDIT_REFRESH: 'reddit_refresh',
+  /** Paginate subreddit new.json ~14d; idempotent via URL dedupe */
+  REDDIT_BACKFILL: 'reddit_backfill',
   // One-time seed: registers default subreddits as ContentSource rows
   REDDIT_SEED: 'reddit_seed',
   // One-time seed: registers default Nitter/Twitter handles as ContentSource rows
@@ -383,3 +388,14 @@ export const IngestionJobTypes = {
 } as const
 
 export type IngestionJobType = (typeof IngestionJobTypes)[keyof typeof IngestionJobTypes]
+
+/** Every ingestion job type string (for catalogs). */
+export const INGESTION_JOB_TYPE_VALUES = Object.values(IngestionJobTypes) as IngestionJobType[]
+
+const _ingestionJobTypeZodTuple = Object.values(IngestionJobTypes) as [
+  IngestionJobType,
+  ...IngestionJobType[],
+]
+
+/** Validates `type` for `POST /internal/ingestion/trigger` — aligned with worker switch */
+export const IngestionJobTypeSchema = z.enum(_ingestionJobTypeZodTuple)

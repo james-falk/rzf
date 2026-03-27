@@ -13,6 +13,8 @@
 
 import { db } from '@rzf/db'
 
+export { runRedditBackfill, subredditFromFeedUrl, type RedditBackfillResult } from './backfill.js'
+
 export const DEFAULT_REDDIT_SOURCES = [
   {
     name: 'r/fantasyfootball',

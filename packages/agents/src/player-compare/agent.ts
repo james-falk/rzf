@@ -1,4 +1,5 @@
 import { db } from '@rzf/db'
+import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { buildUserContext } from '@rzf/shared'
 import { PlayerCompareOutputSchema } from '@rzf/shared/types'
@@ -7,6 +8,7 @@ import { injectContent } from '../content-injector.js'
 import { getMultiMarketValues, getAnchorValue, getAnchorTrend, classifyTrend, formatMarketValuesForPrompt } from '../multi-market-values.js'
 import { buildSessionContext } from '../session-context.js'
 import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
+import { formatCompactTierZeroForPlayer, loadTierZeroPlayerRankings } from '../tier0-rankings.js'
 
 const agentContext = loadAgentContext(import.meta.url)
 
@@ -40,21 +42,26 @@ export async function runPlayerCompareAgent(
   const leagueStyle =
     (userPrefs?.leagueStyle ?? 'redraft') === 'dynasty' ? 'dynasty' : 'redraft'
 
+  const nflState = await SleeperConnector.getNFLState()
+  const nflWeek = nflState.week
+  const nflSeason = parseInt(nflState.season, 10)
+
   const tools = {
     player_data: async (): Promise<string> => {
-      const [players, marketValuesMap, rankings, tradeVolumes] = await Promise.all([
+      const [players, marketValuesMap, tradeVolumes, tierRows] = await Promise.all([
         db.player.findMany({ where: { sleeperId: { in: playerIds } } }),
         getMultiMarketValues(playerIds),
-        db.playerRanking.findMany({
-          where: { playerId: { in: playerIds }, source: 'fantasypros' },
-          orderBy: { fetchedAt: 'desc' },
-          take: playerIds.length,
-        }),
         db.playerTradeVolume.findMany({ where: { sleeperId: { in: playerIds } } }),
+        loadTierZeroPlayerRankings(playerIds, nflWeek, nflSeason),
       ])
 
       const playerMap = new Map(players.map((p) => [p.sleeperId, p]))
-      const rankMap = new Map(rankings.map((r) => [r.playerId, r]))
+      const tierBySleeper = new Map<string, typeof tierRows>()
+      for (const r of tierRows) {
+        const list = tierBySleeper.get(r.playerId) ?? []
+        list.push(r)
+        tierBySleeper.set(r.playerId, list)
+      }
       const volumeMap = new Map(tradeVolumes.map((v) => [v.sleeperId, v]))
 
       // Compute dynasty ranks
@@ -99,7 +106,6 @@ export async function runPlayerCompareAgent(
 
       playerIds.forEach((pid, i) => {
         const p = playerMap.get(pid)
-        const r = rankMap.get(pid)
         const vol = volumeMap.get(pid)
         const ranks = dynastyRankMap.get(pid)
         const mvals = marketValuesMap.get(pid) ?? {
@@ -107,6 +113,7 @@ export async function runPlayerCompareAgent(
           fantasycalc: null,
           dynastyprocess: null,
           dynastysuperflex: null,
+          dynastydaddy: null,
         }
         const name = p ? `${p.firstName} ${p.lastName}`.trim() : pid
 
@@ -115,8 +122,9 @@ export async function runPlayerCompareAgent(
         lines.push(`  Name: ${name} (${p?.position ?? '?'}, ${p?.team ?? 'FA'})`)
         lines.push(`  Age: ${p?.age ?? 'N/A'} | Experience: ${p?.yearsExp ?? 'N/A'} years`)
         lines.push(formatMarketValuesForPrompt(name, mvals, leagueStyle))
+        const t0 = p ? formatCompactTierZeroForPlayer(tierBySleeper.get(pid) ?? []) : ''
         lines.push(
-          `  FP Overall: ${r?.rankOverall ?? 'unranked'} | FP Position: ${r?.rankPosition ?? 'unranked'} | Dynasty Rank: ${ranks?.dynastyRank ?? 'N/A'} | Dynasty Pos Rank: ${ranks?.dynastyPositionRank ?? 'N/A'}`,
+          `  Tier-0 (wk ${nflWeek}): ${t0 || 'none ingested'} | Dynasty Rank: ${ranks?.dynastyRank ?? 'N/A'} | Dynasty Pos Rank: ${ranks?.dynastyPositionRank ?? 'N/A'}`,
         )
         const trend = getAnchorTrend(mvals)
         if (trend !== null) lines.push(`  30d Trend: ${trend > 0 ? `+${trend}` : String(trend)}`)

@@ -18,6 +18,7 @@
     "./odds": "./dist/odds/index.js",
     "./platform": "./dist/platform/index.js",
     "./reddit": "./dist/reddit/index.js",
+    "./yahoo": "./dist/yahoo/index.js",
     "./topics": "./dist/topics/inferTopics.js"
   },
   "scripts": {

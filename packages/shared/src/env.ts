@@ -48,6 +48,14 @@ const envSchema = z.object({
   /// Comma-separated Nitter base URLs (e.g. https://nitter.cz). Overrides default public instances when set.
   NITTER_BASE_URLS: z.string().optional(),
 
+  /// Optional Cookie header for ESPN fantasy JSON APIs (browser session) — enables `espn_rankings_refresh` when set
+  ESPN_FANTASY_COOKIE: z.string().optional(),
+
+  /// Yahoo Fantasy API (OAuth refresh token) — set all three to enable `yahoo_rankings_refresh`
+  YAHOO_CLIENT_ID: z.string().optional(),
+  YAHOO_CLIENT_SECRET: z.string().optional(),
+  YAHOO_REFRESH_TOKEN: z.string().optional(),
+
   // ── Notifications ─────────────────────────────────────────────────────────
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   DISCORD_BOT_TOKEN: z.string().optional(),
@@ -78,6 +86,12 @@ const envSchema = z.object({
     .transform((v) => parseInt(v, 10))
     .pipe(z.number().min(1).max(50))
     .default('5'),
+
+  /// When true, worker startup enqueues reddit/twitter seed jobs if no active sources exist
+  AUTO_SEED_SOCIAL_SOURCES: z
+    .string()
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
 })
 
 export type Env = z.infer<typeof envSchema>

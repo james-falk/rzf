@@ -7,6 +7,7 @@ import { injectContent } from '../content-injector.js'
 import { getMultiMarketValues, formatMarketValuesForPrompt } from '../multi-market-values.js'
 import { buildSessionContext } from '../session-context.js'
 import { runAgentLoop, loadAgentContext } from '../loop-engine.js'
+import { formatCompactTierZeroForPlayer, loadTierZeroPlayerRankings } from '../tier0-rankings.js'
 
 const agentContext = loadAgentContext(import.meta.url)
 
@@ -57,6 +58,7 @@ export async function runWaiverAgent(
   const starterIds = new Set(userRoster.starters ?? [])
   const rosterSet = new Set(rosterPlayerIds)
   const week = nflState.week
+  const season = parseInt(nflState.season, 10)
 
   const trending = await db.trendingPlayer.findMany({
     where: { type: 'add' },
@@ -100,7 +102,9 @@ export async function runWaiverAgent(
     },
 
     waiver_candidates: async (): Promise<string> => {
-      const [injection, marketValues, tradeVolumes] = await Promise.all([
+      const topCandidates = candidates.slice(0, 25)
+      const topSleeperIds = topCandidates.map((c) => c.player.sleeperId)
+      const [injection, marketValues, tradeVolumes, tierRows] = await Promise.all([
         injectContent(candidateIds, {
           agentType: 'waiver',
           recencyWindowHours: config?.recencyWindowHours ?? DEFAULTS.recencyWindowHours,
@@ -110,6 +114,7 @@ export async function runWaiverAgent(
         }),
         getMultiMarketValues(candidateIds),
         db.playerTradeVolume.findMany({ where: { sleeperId: { in: candidateIds } } }),
+        loadTierZeroPlayerRankings(topSleeperIds, week, season),
       ])
 
       const newsMap = new Map<string, string>()
@@ -119,11 +124,17 @@ export async function runWaiverAgent(
         }
       }
       const volumeMap = new Map(tradeVolumes.map((v) => [v.sleeperId, v]))
+      const tierBySleeper = new Map<string, typeof tierRows>()
+      for (const r of tierRows) {
+        const list = tierBySleeper.get(r.playerId) ?? []
+        list.push(r)
+        tierBySleeper.set(r.playerId, list)
+      }
 
       const lines = [`[Available Free Agents — Week ${week} Trending]`]
       if (targetPosition) lines.push(`Target position: ${targetPosition}`)
 
-      candidates.slice(0, 25).forEach((c) => {
+      topCandidates.forEach((c) => {
         const id = c.player.sleeperId
         const vol = volumeMap.get(id)
         const vals = marketValues.get(id)
@@ -131,8 +142,10 @@ export async function runWaiverAgent(
         const injury = c.player.injuryStatus ? ` | Status: ${c.player.injuryStatus}` : ''
         const trend = c.count > 0 ? ` | Sleeper adds: ${c.count}` : ''
         const volStr = vol?.count1w != null ? ` | DD vol 1w: ${vol.count1w}` : ''
+        const t0 = formatCompactTierZeroForPlayer(tierBySleeper.get(id) ?? [])
+        const t0Str = t0 ? ` | Tier-0: ${t0}` : ''
         lines.push(
-          `${c.player.firstName} ${c.player.lastName} (${c.player.position}, ${c.player.team ?? 'FA'}) — Rank: ${c.player.searchRank ?? 'unranked'}${trend}${volStr}${injury}`,
+          `${c.player.firstName} ${c.player.lastName} (${c.player.position}, ${c.player.team ?? 'FA'}) — Rank: ${c.player.searchRank ?? 'unranked'}${trend}${volStr}${t0Str}${injury}`,
         )
         if (news) lines.push(`  ${news}`)
         if (vals)

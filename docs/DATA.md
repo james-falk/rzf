@@ -1,11 +1,18 @@
 # Data
 
-> Last updated: 2026-03-10
+> Last updated: 2026-03-26
 > Schema section auto-regenerated from `packages/db/prisma/schema.prisma` via `pnpm sync:docs`
 
 ## Data Strategy
 
 Agents query **our DB**, not external APIs at run time (except for the user's live Sleeper roster). This makes agents fast, reliable, and cost-free to scale.
+
+### Tier 0 (hard data) vs `ContentSource.tier` (1–3)
+
+Do **not** confuse these:
+
+- **Tier 0** — Structured ground-truth tables agents and Directory should trust: `Player`, `PlayerRanking`, `PlayerProjection`, `PlayerTradeValue`, `TrendingPlayer`, `TradeTransaction`, `PlayerSeasonStats`, props, defense rows, etc. Canonical allowlists live in `packages/shared/src/tier0-data.ts` (`TIER_ZERO_*` constants).
+- **`ContentSource.tier` (integer 1–3)** — Editorial quality for **news/video/social** injection via `injectContent` only. Editable in Admin Source Manager and `POST/PUT /internal/sources`. Unrelated to tier 0.
 
 ### Two data modes
 
@@ -15,7 +22,7 @@ Agents query **our DB**, not external APIs at run time (except for the user's li
 | **Live** | League settings | Sleeper API | Per agent run (cached in memory) |
 | **Cached** | All NFL players (injury, depth chart, position, team) | Sleeper `/players/nfl` | Daily refresh |
 | **Cached** | Trending adds/drops | Sleeper trending | Hourly refresh |
-| **Cached** | Consensus rankings | FantasyPros CSV | Weekly refresh |
+| **Cached** | Consensus rankings | FantasyPros + FFC ADP + optional ESPN/Yahoo | Scheduled refresh |
 
 ---
 
@@ -119,15 +126,15 @@ Cached NFL player data from Sleeper. Refreshed daily.
 | contentMentions | ContentPlayerMention[] | Content items that mention this player |
 
 ### `PlayerRanking`
-Consensus rankings from FantasyPros (and future sources). Refreshed weekly.
+Expert consensus, ADP, and platform ranks. Refreshed on worker schedule.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | id | String | Primary key |
 | playerId | String | FK → Player (sleeperId) |
-| source | String | `fantasypros` \| `sleeper_trending` |
-| rankOverall | Int | Overall rank across all positions |
-| rankPosition | Int | Rank within position |
+| source | String | `fantasypros` (ECR); `ffc_adp_ppr` / `ffc_adp_half_ppr` / `ffc_adp_standard` (ADP in `rankOverall`); `espn` / `yahoo` when those jobs run. Sleeper waiver trending is `TrendingPlayer`, not this table. |
+| rankOverall | Int | Overall rank (or ADP for FFC sources) |
+| rankPosition | Int | Rank within position (FFC ADP rows often use `0`) |
 | week | Int | NFL week number |
 | season | Int | NFL season year |
 | fetchedAt | DateTime | |
@@ -163,9 +170,12 @@ Registry of all content ingestion sources. Each entry drives a scheduled fetch j
 | id | String | Primary key |
 | name | String | Human-readable name e.g. "The Fantasy Footballers" |
 | platform | Enum | `rss` \| `youtube` \| `twitter` \| `podcast` \| `reddit` \| `api` \| `manual` |
-| feedUrl | String | RSS URL, YouTube channel URL, podcast feed, etc. |
+| feedUrl | String | RSS URL, YouTube channel URL, Nitter RSS for X handles, podcast feed, etc. |
 | avatarUrl | String? | Source logo for directory UI |
 | platformConfig | Json | Platform-specific config (channel ID, selectors, etc.) |
+| tier | Int | 1–3 — editorial quality for `injectContent` only (**not** tier 0 hard data) |
+| featured | Boolean | Partner carousel / highlights |
+| partnerTier | String? | Ordering among featured sources |
 | refreshIntervalMins | Int | Poll interval in minutes (default 60) |
 | lastFetchedAt | DateTime? | |
 | isActive | Boolean | Default true |
@@ -224,7 +234,7 @@ Weekly fantasy point projections per player per source.
 |-------|------|-------|
 | id | String | Primary key |
 | playerId | String | FK → Player |
-| source | String | `fantasypros` \| `espn` \| `numberfire` |
+| source | String | Primarily `fantasypros` today. Any value written by a worker is tier 0; avoid documenting hypothetical writers unless implemented. |
 | week / season | Int | NFL week and season year |
 | passYds, rushYds, recYds, etc. | Float? | Stat-line projections |
 | fpts | Float | Total projected fantasy points |

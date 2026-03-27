@@ -1,12 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { db } from '@rzf/db'
+import { env } from '@rzf/shared/env'
+import { normalizeTwitterFeedUrl, parseNitterBaseUrls } from '@rzf/shared'
 import { requireAuth, requireAdmin, requireAdminSecret } from '../middleware/auth.js'
 import { getAgentQueue, getIngestionQueue } from '../lib/queue.js'
 import { writeLearningSignal, applyProposal, rollbackToVersion } from '@rzf/agents/context-revision'
 import {
   AgentJobTypes,
   IngestionJobTypes,
+  IngestionJobTypeSchema,
   InjuryWatchInputSchema,
   TeamEvalInputSchema,
   WaiverInputSchema,
@@ -422,25 +425,7 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
   // POST /internal/ingestion/trigger — manually kick off an ingestion job
   // Useful for seeding data without waiting for the scheduled cron
   app.post('/internal/ingestion/trigger', { preHandler: adminGuard }, async (req, reply) => {
-    const body = z.object({
-      type: z.enum([
-        IngestionJobTypes.PLAYER_REFRESH,
-        IngestionJobTypes.TRENDING_REFRESH,
-        IngestionJobTypes.RANKINGS_REFRESH,
-        IngestionJobTypes.CONTENT_REFRESH,
-        IngestionJobTypes.INJURY_REFRESH,
-        IngestionJobTypes.CREDITS_REFILL,
-        IngestionJobTypes.YOUTUBE_REFRESH,
-        IngestionJobTypes.TRADE_REFRESH,
-        IngestionJobTypes.TRADE_VALUES_REFRESH,
-        IngestionJobTypes.ADP_REFRESH,
-        IngestionJobTypes.DYNASTY_DADDY_REFRESH,
-        IngestionJobTypes.SEASON_STATS_REFRESH,
-        IngestionJobTypes.REDDIT_SEED,
-        IngestionJobTypes.TWITTER_SEED,
-        IngestionJobTypes.CONTEXT_REVISION,
-      ]),
-    }).safeParse(req.body)
+    const body = z.object({ type: IngestionJobTypeSchema }).safeParse(req.body)
 
     if (!body.success) {
       return reply.status(400).send({ error: 'Invalid request', details: body.error.flatten() })
@@ -450,6 +435,53 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const job = await queue.add(body.data.type, { type: body.data.type })
 
     return reply.status(202).send({ jobId: job.id, type: body.data.type, status: 'queued' })
+  })
+
+  // GET /internal/ingestion/runs — durable audit rows from worker
+  app.get('/internal/ingestion/runs', { preHandler: adminGuard }, async (req, reply) => {
+    const q = z
+      .object({
+        page: z.coerce.number().int().min(1).default(1),
+        pageSize: z.coerce.number().int().min(1).max(100).default(40),
+        status: z.enum(['running', 'success', 'failed']).optional(),
+      })
+      .parse(req.query)
+
+    const where = q.status ? { status: q.status } : {}
+    const [total, runs] = await Promise.all([
+      db.ingestionJobRun.count({ where }),
+      db.ingestionJobRun.findMany({
+        where,
+        orderBy: { startedAt: 'desc' },
+        skip: (q.page - 1) * q.pageSize,
+        take: q.pageSize,
+      }),
+    ])
+
+    return reply.send({
+      runs,
+      total,
+      pages: Math.max(1, Math.ceil(total / q.pageSize)),
+    })
+  })
+
+  // POST /internal/ingestion/runs/:id/retry — re-queue same job type (failed or success)
+  app.post('/internal/ingestion/runs/:id/retry', { preHandler: adminGuard }, async (req, reply) => {
+    const { id } = req.params as { id: string }
+    const run = await db.ingestionJobRun.findUnique({ where: { id } })
+    if (!run) return reply.status(404).send({ error: 'Run not found' })
+    if (run.status === 'running') {
+      return reply.status(400).send({ error: 'Run is still in progress' })
+    }
+
+    const parsed = IngestionJobTypeSchema.safeParse(run.jobType)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Stored jobType is not a valid ingestion type' })
+    }
+
+    const queue = getIngestionQueue()
+    const job = await queue.add(parsed.data, { type: parsed.data })
+    return reply.status(202).send({ jobId: job.id, type: parsed.data, status: 'queued' })
   })
 
   // GET /internal/runs/stats — aggregate agent run analytics (last 30 days)
@@ -560,6 +592,8 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
         avatarUrl: s.avatarUrl,
         isActive: s.isActive,
         tier: s.tier,
+        featured: s.featured,
+        partnerTier: s.partnerTier,
         refreshIntervalMins: s.refreshIntervalMins,
         lastFetchedAt: lastFetch,
         itemCount: s._count.items,
@@ -726,14 +760,22 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
       isActive: z.boolean().default(true),
       avatarUrl: z.string().url().optional(),
       platformConfig: z.record(z.string(), z.unknown()).default({}),
+      tier: z.number().int().min(1).max(3).optional(),
+      featured: z.boolean().optional(),
+      partnerTier: z.string().min(1).max(32).nullable().optional(),
     }).safeParse(req.body)
 
     if (!body.success) {
       return reply.status(400).send({ error: 'Invalid input', details: body.error.flatten() })
     }
 
+    let feedUrl = body.data.feedUrl.trim()
+    if (body.data.platform === 'twitter') {
+      feedUrl = normalizeTwitterFeedUrl(feedUrl, parseNitterBaseUrls(env.NITTER_BASE_URLS))
+    }
+
     const existing = await db.contentSource.findFirst({
-      where: { platform: body.data.platform, feedUrl: body.data.feedUrl },
+      where: { platform: body.data.platform, feedUrl },
     })
     if (existing) {
       return reply.status(409).send({ error: 'Source with this platform + feedUrl already exists', id: existing.id })
@@ -743,11 +785,14 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
       data: {
         name: body.data.name,
         platform: body.data.platform,
-        feedUrl: body.data.feedUrl,
+        feedUrl,
         refreshIntervalMins: body.data.refreshIntervalMins,
         isActive: body.data.isActive,
         avatarUrl: body.data.avatarUrl ?? null,
         platformConfig: body.data.platformConfig as Record<string, string>,
+        ...(body.data.tier !== undefined && { tier: body.data.tier }),
+        ...(body.data.featured !== undefined && { featured: body.data.featured }),
+        ...(body.data.partnerTier !== undefined && { partnerTier: body.data.partnerTier }),
       },
     })
 
@@ -765,6 +810,9 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
       isActive: z.boolean().optional(),
       avatarUrl: z.string().url().nullable().optional(),
       platformConfig: z.record(z.string(), z.unknown()).optional(),
+      tier: z.number().int().min(1).max(3).optional(),
+      featured: z.boolean().optional(),
+      partnerTier: z.string().min(1).max(32).nullable().optional(),
     }).safeParse(req.body)
 
     if (!body.success) {
@@ -774,14 +822,22 @@ export async function internalRoutes(app: FastifyInstance): Promise<void> {
     const existing = await db.contentSource.findUnique({ where: { id } })
     if (!existing) return reply.status(404).send({ error: 'Source not found' })
 
+    let nextFeedUrl = body.data.feedUrl
+    if (nextFeedUrl !== undefined && existing.platform === 'twitter') {
+      nextFeedUrl = normalizeTwitterFeedUrl(nextFeedUrl.trim(), parseNitterBaseUrls(env.NITTER_BASE_URLS))
+    }
+
     const updated = await db.contentSource.update({
       where: { id },
       data: {
         ...(body.data.name !== undefined && { name: body.data.name }),
-        ...(body.data.feedUrl !== undefined && { feedUrl: body.data.feedUrl }),
+        ...(nextFeedUrl !== undefined && { feedUrl: nextFeedUrl }),
         ...(body.data.refreshIntervalMins !== undefined && { refreshIntervalMins: body.data.refreshIntervalMins }),
         ...(body.data.isActive !== undefined && { isActive: body.data.isActive }),
         ...(body.data.avatarUrl !== undefined && { avatarUrl: body.data.avatarUrl }),
+        ...(body.data.tier !== undefined && { tier: body.data.tier }),
+        ...(body.data.featured !== undefined && { featured: body.data.featured }),
+        ...(body.data.partnerTier !== undefined && { partnerTier: body.data.partnerTier }),
         ...(body.data.platformConfig !== undefined && {
           platformConfig: { ...(existing.platformConfig as Record<string, unknown>), ...body.data.platformConfig } as Record<string, string>,
         }),

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/utils'
 
@@ -24,7 +24,7 @@ export default function InternalRunsPage() {
   const [agentTypeFilter, setAgentTypeFilter] = useState('')
   const [autoRefresh, setAutoRefresh] = useState(true)
 
-  async function load(showSpinner = true) {
+  const load = useCallback(async (showSpinner = true) => {
     if (showSpinner) setLoading(true)
     const secret = localStorage.getItem('admin_secret') ?? ''
     try {
@@ -41,11 +41,11 @@ export default function InternalRunsPage() {
     } finally {
       if (showSpinner) setLoading(false)
     }
-  }
+  }, [statusFilter, agentTypeFilter])
 
   useEffect(() => {
-    load() // eslint-disable-line react-hooks/exhaustive-deps
-  }, [statusFilter, agentTypeFilter])
+    void load()
+  }, [load])
 
   useEffect(() => {
     if (!autoRefresh) return
@@ -53,7 +53,7 @@ export default function InternalRunsPage() {
       void load(false)
     }, 5000)
     return () => clearInterval(interval)
-  }, [autoRefresh, statusFilter, agentTypeFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [autoRefresh, load])
 
   const statusColors: Record<string, string> = {
     done: 'text-emerald-400',

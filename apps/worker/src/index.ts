@@ -1,7 +1,10 @@
 import { createAgentWorker } from './workers/agent.worker.js'
 import { createIngestionWorker } from './workers/ingestion.worker.js'
 import { scheduleIngestionJobs } from './scheduler.js'
+import { getIngestionQueue } from './queues.js'
+import { db } from '@rzf/db'
 import { env } from '@rzf/shared/env'
+import { IngestionJobTypes } from '@rzf/shared/types'
 
 async function main(): Promise<void> {
   console.log('[worker] Starting Red Zone Fantasy worker...')
@@ -14,6 +17,22 @@ async function main(): Promise<void> {
 
   // Schedule recurring ingestion jobs
   await scheduleIngestionJobs()
+
+  if (env.AUTO_SEED_SOCIAL_SOURCES) {
+    const [redditN, twitterN] = await Promise.all([
+      db.contentSource.count({ where: { platform: 'reddit', isActive: true } }),
+      db.contentSource.count({ where: { platform: 'twitter', isActive: true } }),
+    ])
+    const q = getIngestionQueue()
+    if (redditN === 0) {
+      await q.add('auto-seed-reddit', { type: IngestionJobTypes.REDDIT_SEED })
+      console.log('[worker] AUTO_SEED_SOCIAL_SOURCES: queued REDDIT_SEED (no active reddit sources)')
+    }
+    if (twitterN === 0) {
+      await q.add('auto-seed-twitter', { type: IngestionJobTypes.TWITTER_SEED })
+      console.log('[worker] AUTO_SEED_SOCIAL_SOURCES: queued TWITTER_SEED (no active twitter sources)')
+    }
+  }
 
   console.log('[worker] Workers started. Listening for jobs...')
 

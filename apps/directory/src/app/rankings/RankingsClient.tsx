@@ -168,7 +168,7 @@ export function RankingsClient({ sites }: { sites: RankingSite[] }) {
                     </a>
                     {site.featured && (
                       <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase" style={{ background: 'rgba(234,179,8,0.15)', color: 'rgb(253,224,71)' }}>
-                        ★ Partner
+                        Featured
                       </span>
                     )}
                     {site.categories.map((cat) => (

@@ -4,6 +4,21 @@ All meaningful changes are logged here. Most recent first.
 
 ---
 
+## 2026-03-26
+
+### Social ingestion, Admin/API parity, tier 0, Directory UX
+
+- **Shared**: `INGESTION_JOB_CATALOG`, `IngestionJobTypeSchema`, `tier0-data`, `ranking-sources`, Nitter URL helpers; ESPN/Yahoo ranking job types; `Prisma` re-export from `@rzf/db` for raw SQL helpers.
+- **API**: `POST /internal/ingestion/trigger` validated against shared job types; `GET/POST` ingestion run audit + retry; source `POST/PUT` accepts `tier`, `featured`, `partnerTier` and normalizes Twitter URLs.
+- **Worker**: `IngestionJobRun` audit wrapper; `REDDIT_BACKFILL`, ESPN/Yahoo ranking jobs; optional `AUTO_SEED_SOCIAL_SOURCES` on startup; scheduler log includes ESPN/Yahoo crons.
+- **Connectors**: Reddit JSON backfill, ESPN/Yahoo ranking sync modules, shared RSS upsert helper usage.
+- **Agents**: multi-market `dynastydaddy`, tier-0 rankings + recent trades in scout/trade/lineup; `player-compare` / `player-scout` defaults include `dynastydaddy`; `recent-trades-prompt` uses `Prisma.sql` via `@rzf/db`.
+- **Admin**: full ingestion catalog on Sources; Source Manager tier/featured/partner + Twitter; **Queue → Ingestion** shows DB `IngestionJobRun` table with filters and Retry.
+- **Directory**: home feed cursor pagination + **Load more** (`/api/feed`, shared `feed-cursor`); player mentions pagination (`/api/players/[id]/mentions`); `RankingsClient` **Featured** badge; player profile rankings/trades/search updates (from prior work in branch).
+- **Docs**: `DATA.md` tier 0 vs `ContentSource.tier`, accurate `PlayerRanking` / `PlayerProjection` notes; `AGENTS.md` ingestion section; `INGESTION_REDDIT_TWITTER.md` bootstrap/backfill/AUTO_SEED; new `INGESTION_ESPN_YAHOO.md`, `BUILD_NOTES_PHASE1.md`; `ARCHITECTURE.md` ingestion audit note.
+
+---
+
 ## 2026-03-17
 
 ### Phase 1 — Agent Content Injection: tiered sources, confidence scoring, schedule-aware recency

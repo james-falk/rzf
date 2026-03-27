@@ -186,6 +186,21 @@ model UserPreferences {
 // ─── Agent Execution ─────────────────────────────────────────────────────────
 
 /// Record of every agent job execution.
+/// One row per BullMQ ingestion job execution (audit + Admin retry)
+model IngestionJobRun {
+  id            String    @id @default(cuid())
+  jobType       String
+  bullmqJobId   String?
+  status        String /// running | success | failed
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  errorSnippet  String?   @db.Text
+  insertedCount Int?
+
+  @@index([jobType, startedAt(sort: Desc)])
+  @@map("ingestion_job_runs")
+}
+
 model AgentRun {
   id String @id @default(cuid())
 
@@ -382,7 +397,9 @@ model PlayerRanking {
   playerId String
   player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
 
-  /// "fantasypros" | "sleeper_trending" | "espn"
+  /// Tier-0 ranking keys written by workers include:
+  /// fantasypros, ffc_adp_ppr | ffc_adp_half_ppr | ffc_adp_standard (ADP in rankOverall),
+  /// espn, yahoo (when ESPN/Yahoo jobs run). Sleeper waiver signal lives in TrendingPlayer, not here.
   source String
 
   rankOverall  Int
@@ -422,7 +439,8 @@ model PlayerProjection {
   playerId String
   player   Player @relation(fields: [playerId], references: [sleeperId], onDelete: Cascade)
 
-  /// "fantasypros" | "espn" | "numberfire"
+  /// Sources written today: primarily "fantasypros". Treat any worker-written `source` as tier-0;
+  /// do not assume espn/numberfire rows exist unless a job is implemented.
   source  String
   week    Int
   season  Int

@@ -1,186 +1,25 @@
 import { getIngestionQueue } from './queues.js'
-import { IngestionJobTypes } from '@rzf/shared/types'
+import { INGESTION_SCHEDULED_JOB_ENTRIES, assertIngestionRegistryComplete } from '@rzf/shared'
 
 /**
  * Schedules recurring ingestion jobs using BullMQ's repeat/cron feature.
- * Called once on worker startup.
+ * Cron patterns and job types come from `@rzf/shared` ingestion registry (single source of truth).
  */
 export async function scheduleIngestionJobs(): Promise<void> {
+  assertIngestionRegistryComplete()
+
   const queue = getIngestionQueue()
 
-  // Daily at 6am ET — full player refresh (depth chart, metadata, status)
-  await queue.upsertJobScheduler(
-    'player-refresh-daily',
-    { pattern: '0 11 * * *' }, // 6am ET = 11am UTC
-    { name: 'player-refresh', data: { type: IngestionJobTypes.PLAYER_REFRESH } },
-  )
-
-  // Every 30 minutes — lightweight injury status sync from Sleeper
-  await queue.upsertJobScheduler(
-    'injury-refresh-30min',
-    { pattern: '*/30 * * * *' },
-    { name: 'injury-refresh', data: { type: IngestionJobTypes.INJURY_REFRESH } },
-  )
-
-  // Hourly — trending adds/drops for waiver wire signals
-  await queue.upsertJobScheduler(
-    'trending-refresh-hourly',
-    { pattern: '0 * * * *' },
-    { name: 'trending-refresh', data: { type: IngestionJobTypes.TRENDING_REFRESH } },
-  )
-
-  // Weekly on Tuesday at 9am ET — consensus rankings refresh
-  await queue.upsertJobScheduler(
-    'rankings-refresh-weekly',
-    { pattern: '0 14 * * 2' }, // Tuesday 9am ET = 2pm UTC
-    { name: 'rankings-refresh', data: { type: IngestionJobTypes.RANKINGS_REFRESH } },
-  )
-
-  // Every 30 minutes — RSS content refresh (articles + player mentions)
-  await queue.upsertJobScheduler(
-    'content-refresh-30min',
-    { pattern: '*/30 * * * *' },
-    { name: 'content-refresh', data: { type: IngestionJobTypes.CONTENT_REFRESH } },
-  )
-
-  // Monthly on the 1st at 5am UTC (~12am ET) — reset paid users to 50 run credits
-  await queue.upsertJobScheduler(
-    'credits-refill-monthly',
-    { pattern: '0 5 1 * *' },
-    { name: 'credits-refill', data: { type: IngestionJobTypes.CREDITS_REFILL } },
-  )
-
-  // Every 2 hours — YouTube video refresh (quota-efficient: ~50 units per run)
-  await queue.upsertJobScheduler(
-    'youtube-refresh-2h',
-    { pattern: '0 */2 * * *' },
-    { name: 'youtube-refresh', data: { type: IngestionJobTypes.YOUTUBE_REFRESH } },
-  )
-
-  // Daily at 1pm UTC (8am ET) — trade transactions refresh for all known leagues
-  await queue.upsertJobScheduler(
-    'trade-refresh-daily',
-    { pattern: '0 13 * * *' },
-    { name: 'trade-refresh', data: { type: IngestionJobTypes.TRADE_REFRESH } },
-  )
-
-  // Weekly on Tuesday at 3pm UTC (10am ET) — trade values from FantasyCalc
-  await queue.upsertJobScheduler(
-    'trade-values-refresh-weekly',
-    { pattern: '0 15 * * 2' },
-    { name: 'trade-values-refresh', data: { type: IngestionJobTypes.TRADE_VALUES_REFRESH } },
-  )
-
-  // Weekly on Tuesday at 3:30pm UTC — ADP from Fantasy Football Calculator
-  await queue.upsertJobScheduler(
-    'adp-refresh-weekly',
-    { pattern: '30 15 * * 2' },
-    { name: 'adp-refresh', data: { type: IngestionJobTypes.ADP_REFRESH } },
-  )
-
-  // Weekly on Tuesday at 4pm UTC (11am ET) — Dynasty Daddy: KTC values + DD own values
-  await queue.upsertJobScheduler(
-    'dynasty-daddy-refresh-weekly',
-    { pattern: '0 16 * * 2' },
-    { name: 'dynasty-daddy-refresh', data: { type: IngestionJobTypes.DYNASTY_DADDY_REFRESH } },
-  )
-
-  // ── FantasyPros API Jobs ────────────────────────────────────────────────────
-
-  // Weekly on Tuesday at 10am UTC — sync FP/ESPN/Yahoo/CBS player ID mappings
-  // Runs after player-refresh (6am) so SportRadar IDs are fresh in the DB
-  await queue.upsertJobScheduler(
-    'fp-player-id-sync-weekly',
-    { pattern: '0 10 * * 2' },
-    { name: 'fp-player-id-sync', data: { type: IngestionJobTypes.FP_PLAYER_ID_SYNC } },
-  )
-
-  // Tuesday + Friday at 2pm UTC (9am ET) — consensus ECR rankings with tier,
-  // ownership %, and per-format ranks into PlayerRanking
-  await queue.upsertJobScheduler(
-    'fp-rankings-refresh',
-    { pattern: '0 14 * * 2,5' },
-    { name: 'fp-rankings-refresh', data: { type: IngestionJobTypes.FP_RANKINGS_REFRESH } },
-  )
-
-  // Tuesday + Friday at 3pm UTC (10am ET) — weekly + ROS projected points
-  // and stat lines into PlayerProjection
-  await queue.upsertJobScheduler(
-    'fp-projections-refresh',
-    { pattern: '0 15 * * 2,5' },
-    { name: 'fp-projections-refresh', data: { type: IngestionJobTypes.FP_PROJECTIONS_REFRESH } },
-  )
-
-  // Every 6 hours — latest 100 NFL news items with expert fantasy impact blurbs
-  // into ContentItem / ContentPlayerMention as Tier 1 api content
-  await queue.upsertJobScheduler(
-    'fp-news-refresh-6h',
-    { pattern: '0 */6 * * *' },
-    { name: 'fp-news-refresh', data: { type: IngestionJobTypes.FP_NEWS_REFRESH } },
-  )
-
-  // Every 12 hours — injury status + numeric probability of playing
-  // into Player.probabilityOfPlaying for the Injury Watch agent
-  await queue.upsertJobScheduler(
-    'fp-injuries-refresh-12h',
-    { pattern: '0 */12 * * *' },
-    { name: 'fp-injuries-refresh', data: { type: IngestionJobTypes.FP_INJURIES_REFRESH } },
-  )
-
-  // ── ESPN Jobs ───────────────────────────────────────────────────────────────
-
-  // Every 6 hours — ESPN NFL news articles (player-tagged via ESPN categories)
-  await queue.upsertJobScheduler(
-    'espn-news-refresh-6h',
-    { pattern: '30 */6 * * *' }, // offset 30min to avoid collision with FP news
-    { name: 'espn-news-refresh', data: { type: IngestionJobTypes.ESPN_NEWS_REFRESH } },
-  )
-
-  // Weekly on Tuesday at 5pm UTC — ESPN team defense stats
-  await queue.upsertJobScheduler(
-    'espn-defense-refresh-weekly',
-    { pattern: '0 17 * * 2' },
-    { name: 'espn-defense-refresh', data: { type: IngestionJobTypes.ESPN_DEFENSE_REFRESH } },
-  )
-
-  // ── The Odds API ────────────────────────────────────────────────────────────
-
-  // Wednesday at 8pm UTC (3pm ET) + Saturday at 4pm UTC (11am ET)
-  // Lines firm midweek; Saturday refresh catches late-week line movement
-  await queue.upsertJobScheduler(
-    'odds-refresh-wed-sat',
-    { pattern: '0 20 * * 3,6' },
-    { name: 'odds-refresh', data: { type: IngestionJobTypes.ODDS_REFRESH } },
-  )
-
-  // ── Reddit ──────────────────────────────────────────────────────────────────
-
-  // Every 2 hours — Reddit subreddit RSS ingestion
-  await queue.upsertJobScheduler(
-    'reddit-refresh-2h',
-    { pattern: '30 */2 * * *' }, // offset 30min from youtube
-    { name: 'reddit-refresh', data: { type: IngestionJobTypes.REDDIT_REFRESH } },
-  )
-
-  // ── Twitter/X Ingestion (read-only, separate from write path) ───────────────
-
-  // Every 6 hours — scrape curated accounts via TweetMonitorRule entries
-  await queue.upsertJobScheduler(
-    'twitter-ingestion-6h',
-    { pattern: '0 */6 * * *' },
-    { name: 'twitter-ingestion', data: { type: IngestionJobTypes.TWITTER_INGESTION_REFRESH } },
-  )
-
-  // ── Learning Pipeline ────────────────────────────────────────────────────────
-
-  // Nightly at 3am UTC — analyze accumulated learning signals and generate proposals
-  await queue.upsertJobScheduler(
-    'context-revision-nightly',
-    { pattern: '0 3 * * *' },
-    { name: 'context-revision', data: { type: IngestionJobTypes.CONTEXT_REVISION } },
-  )
+  for (const entry of INGESTION_SCHEDULED_JOB_ENTRIES) {
+    const { cron, type } = entry
+    await queue.upsertJobScheduler(
+      cron.schedulerId,
+      { pattern: cron.pattern },
+      { name: cron.queueJobName, data: { type } },
+    )
+  }
 
   console.log(
-    '[scheduler] Ingestion jobs scheduled: player-daily, injury-30min, trending-hourly, rankings-weekly, content-30min, credits-refill-monthly, youtube-2h, trade-daily, trade-values-weekly, adp-weekly, dynasty-daddy-weekly, fp-player-id-sync-weekly, fp-rankings-2x-week, fp-projections-2x-week, fp-news-6h, fp-injuries-12h, espn-news-6h, espn-defense-weekly, odds-wed-sat, reddit-2h, twitter-ingestion-6h, context-revision-nightly',
+    `[scheduler] Ingestion jobs scheduled: ${INGESTION_SCHEDULED_JOB_ENTRIES.length} repeat jobs from @rzf/shared registry`,
   )
 }

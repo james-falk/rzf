@@ -1,4 +1,4 @@
-import { Worker } from 'bullmq'
+import { Worker, type Job } from 'bullmq'
 import { db } from '@rzf/db'
 import { SleeperConnector } from '@rzf/connectors/sleeper'
 import { RSSConnector } from '@rzf/connectors/rss'
@@ -8,9 +8,10 @@ import { FantasyCalcConnector } from '@rzf/connectors/fantasycalc'
 import { FFCConnector } from '@rzf/connectors/ffc'
 import { DynastyDaddyConnector } from '@rzf/connectors/dynastydaddy'
 import { FantasyProsConnector } from '@rzf/connectors/fantasypros'
-import { ESPNConnector } from '@rzf/connectors/espn'
+import { ESPNConnector, syncEspnFantasyRankings } from '@rzf/connectors/espn'
+import { syncYahooFantasyRankings } from '@rzf/connectors/yahoo'
 import { OddsConnector } from '@rzf/connectors/odds'
-import { RedditConnector } from '@rzf/connectors/reddit'
+import { RedditConnector, runRedditBackfill } from '@rzf/connectors/reddit'
 import { seedNitterSources } from '@rzf/connectors/twitter'
 import { IngestionJobTypes, generateAliases } from '@rzf/shared'
 import type { IngestionJobType } from '@rzf/shared/types'
@@ -20,94 +21,139 @@ import { QUEUE_NAMES } from '../queues.js'
 /** Warn after this many consecutive Reddit runs with zero inserts (sources > 0). */
 let redditZeroInsertStreak = 0
 
+async function runIngestionJobWithAudit(job: Job<{ type: IngestionJobType }>): Promise<void> {
+  const { type } = job.data
+  console.log(`[ingestion-worker] Starting ${type} job ${job.id}`)
+
+  const bullmqJobId = job.id != null ? String(job.id) : null
+  const run = await db.ingestionJobRun.create({
+    data: { jobType: type, bullmqJobId, status: 'running' },
+  })
+
+  let insertedCount: number | null = null
+
+  try {
+    switch (type) {
+      case IngestionJobTypes.PLAYER_REFRESH:
+        await runPlayerRefresh()
+        break
+      case IngestionJobTypes.INJURY_REFRESH:
+        await runInjuryRefresh()
+        break
+      case IngestionJobTypes.TRENDING_REFRESH:
+        await runTrendingRefresh()
+        break
+      case IngestionJobTypes.RANKINGS_REFRESH:
+        await runRankingsRefresh()
+        break
+      case IngestionJobTypes.CONTENT_REFRESH:
+        await runContentRefresh()
+        break
+      case IngestionJobTypes.CREDITS_REFILL:
+        await runCreditsRefill()
+        break
+      case IngestionJobTypes.YOUTUBE_REFRESH:
+        await runYouTubeRefresh()
+        break
+      case IngestionJobTypes.TRADE_REFRESH:
+        await runTradeRefresh()
+        break
+      case IngestionJobTypes.TRADE_VALUES_REFRESH:
+        await runTradeValuesRefresh()
+        break
+      case IngestionJobTypes.ADP_REFRESH:
+        await runADPRefresh()
+        break
+      case IngestionJobTypes.DYNASTY_DADDY_REFRESH:
+        await runDynastyDaddyRefresh()
+        break
+      case IngestionJobTypes.SEASON_STATS_REFRESH:
+        await runSeasonStatsRefresh()
+        break
+      case IngestionJobTypes.FP_PLAYER_ID_SYNC:
+        await runFPPlayerIdSync()
+        break
+      case IngestionJobTypes.FP_RANKINGS_REFRESH:
+        await runFPRankingsRefresh()
+        break
+      case IngestionJobTypes.FP_PROJECTIONS_REFRESH:
+        await runFPProjectionsRefresh()
+        break
+      case IngestionJobTypes.FP_NEWS_REFRESH:
+        await runFPNewsRefresh()
+        break
+      case IngestionJobTypes.FP_INJURIES_REFRESH:
+        await runFPInjuriesRefresh()
+        break
+      case IngestionJobTypes.ESPN_NEWS_REFRESH:
+        await runESPNNewsRefresh()
+        break
+      case IngestionJobTypes.ESPN_DEFENSE_REFRESH:
+        await runESPNDefenseRefresh()
+        break
+      case IngestionJobTypes.ESPN_RANKINGS_REFRESH:
+        await runEspnRankingsRefresh()
+        break
+      case IngestionJobTypes.ODDS_REFRESH:
+        await runOddsRefresh()
+        break
+      case IngestionJobTypes.YAHOO_RANKINGS_REFRESH:
+        await runYahooRankingsRefresh()
+        break
+      case IngestionJobTypes.TWITTER_INGESTION_REFRESH:
+        await runTwitterIngestionRefresh()
+        break
+      case IngestionJobTypes.REDDIT_REFRESH:
+        await runRedditRefresh()
+        break
+      case IngestionJobTypes.REDDIT_BACKFILL: {
+        const r = await runRedditBackfill()
+        insertedCount = r.inserted
+        if (r.errors.length > 0) {
+          console.warn(`[ingestion] Reddit backfill: ${r.errors.length} source error(s)`)
+        }
+        console.log(
+          `[ingestion] Reddit backfill done: +${r.inserted} items, ${r.sources} sources, ${r.skippedSources} skipped`,
+        )
+        break
+      }
+      case IngestionJobTypes.REDDIT_SEED:
+        await runRedditSeed()
+        break
+      case IngestionJobTypes.TWITTER_SEED:
+        await runTwitterSeed()
+        break
+      case IngestionJobTypes.CONTEXT_REVISION:
+        await runContextRevision()
+        break
+      default:
+        throw new Error(`Unknown ingestion job type: ${type}`)
+    }
+
+    await db.ingestionJobRun.update({
+      where: { id: run.id },
+      data: { status: 'success', finishedAt: new Date(), insertedCount },
+    })
+    console.log(`[ingestion-worker] Completed ${type} job ${job.id}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    await db.ingestionJobRun.update({
+      where: { id: run.id },
+      data: {
+        status: 'failed',
+        finishedAt: new Date(),
+        errorSnippet: msg.slice(0, 4000),
+      },
+    })
+    throw err
+  }
+}
+
 export function createIngestionWorker(): Worker<{ type: IngestionJobType }> {
   const worker = new Worker<{ type: IngestionJobType }>(
     QUEUE_NAMES.INGESTION,
     async (job) => {
-      const { type } = job.data
-      console.log(`[ingestion-worker] Starting ${type} job ${job.id}`)
-
-      switch (type) {
-        case IngestionJobTypes.PLAYER_REFRESH:
-          await runPlayerRefresh()
-          break
-        case IngestionJobTypes.INJURY_REFRESH:
-          await runInjuryRefresh()
-          break
-        case IngestionJobTypes.TRENDING_REFRESH:
-          await runTrendingRefresh()
-          break
-        case IngestionJobTypes.RANKINGS_REFRESH:
-          await runRankingsRefresh()
-          break
-        case IngestionJobTypes.CONTENT_REFRESH:
-          await runContentRefresh()
-          break
-        case IngestionJobTypes.CREDITS_REFILL:
-          await runCreditsRefill()
-          break
-        case IngestionJobTypes.YOUTUBE_REFRESH:
-          await runYouTubeRefresh()
-          break
-        case IngestionJobTypes.TRADE_REFRESH:
-          await runTradeRefresh()
-          break
-        case IngestionJobTypes.TRADE_VALUES_REFRESH:
-          await runTradeValuesRefresh()
-          break
-        case IngestionJobTypes.ADP_REFRESH:
-          await runADPRefresh()
-          break
-        case IngestionJobTypes.DYNASTY_DADDY_REFRESH:
-          await runDynastyDaddyRefresh()
-          break
-        case IngestionJobTypes.SEASON_STATS_REFRESH:
-          await runSeasonStatsRefresh()
-          break
-        case IngestionJobTypes.FP_PLAYER_ID_SYNC:
-          await runFPPlayerIdSync()
-          break
-        case IngestionJobTypes.FP_RANKINGS_REFRESH:
-          await runFPRankingsRefresh()
-          break
-        case IngestionJobTypes.FP_PROJECTIONS_REFRESH:
-          await runFPProjectionsRefresh()
-          break
-        case IngestionJobTypes.FP_NEWS_REFRESH:
-          await runFPNewsRefresh()
-          break
-        case IngestionJobTypes.FP_INJURIES_REFRESH:
-          await runFPInjuriesRefresh()
-          break
-        case IngestionJobTypes.ESPN_NEWS_REFRESH:
-          await runESPNNewsRefresh()
-          break
-        case IngestionJobTypes.ESPN_DEFENSE_REFRESH:
-          await runESPNDefenseRefresh()
-          break
-        case IngestionJobTypes.ODDS_REFRESH:
-          await runOddsRefresh()
-          break
-        case IngestionJobTypes.TWITTER_INGESTION_REFRESH:
-          await runTwitterIngestionRefresh()
-          break
-        case IngestionJobTypes.REDDIT_REFRESH:
-          await runRedditRefresh()
-          break
-        case IngestionJobTypes.REDDIT_SEED:
-          await runRedditSeed()
-          break
-        case IngestionJobTypes.TWITTER_SEED:
-          await runTwitterSeed()
-          break
-        case IngestionJobTypes.CONTEXT_REVISION:
-          await runContextRevision()
-          break
-        default:
-          throw new Error(`Unknown ingestion job type: ${type}`)
-      }
-
-      console.log(`[ingestion-worker] Completed ${type} job ${job.id}`)
+      await runIngestionJobWithAudit(job)
     },
     {
       connection: getRedisConnection(),
@@ -716,6 +762,40 @@ async function runESPNDefenseRefresh(): Promise<void> {
   )
   if (result.errors.length > 0) {
     console.warn('[ingestion] ESPN defense errors (first 5):', result.errors.slice(0, 5))
+  }
+}
+
+async function runEspnRankingsRefresh(): Promise<void> {
+  const nflState = await SleeperConnector.getNFLState()
+  const week = nflState.week
+  const season = parseInt(nflState.season, 10)
+  try {
+    const result = await syncEspnFantasyRankings(week, season)
+    console.log(`[ingestion] ESPN rankings — upserted=${result.upserted} skipped=${result.skipped}`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('ESPN_FANTASY_COOKIE')) {
+      console.warn(`[ingestion] ESPN_RANKINGS_REFRESH skipped — ${msg}`)
+      return
+    }
+    throw e
+  }
+}
+
+async function runYahooRankingsRefresh(): Promise<void> {
+  const nflState = await SleeperConnector.getNFLState()
+  const week = nflState.week
+  const season = parseInt(nflState.season, 10)
+  try {
+    const result = await syncYahooFantasyRankings(week, season)
+    console.log(`[ingestion] Yahoo rankings — upserted=${result.upserted} skipped=${result.skipped}`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('YAHOO_CLIENT_ID') || msg.includes('Yahoo OAuth')) {
+      console.warn(`[ingestion] YAHOO_RANKINGS_REFRESH skipped — ${msg}`)
+      return
+    }
+    throw e
   }
 }
 

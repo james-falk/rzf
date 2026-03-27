@@ -2,7 +2,8 @@ export { db } from './client.js'
 export { track } from './track.js'
 export type { AnalyticsEventType, EventPayloads } from './track.js'
 
-// Re-export Prisma types for consumers
+// Re-export Prisma namespace (e.g. Prisma.sql) and model types for consumers
+export { Prisma } from '@prisma/client'
 export type {
   User,
   SleeperProfile,

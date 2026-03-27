@@ -23,7 +23,9 @@ import {
   Youtube,
   Rss,
   Globe,
+  AtSign,
 } from 'lucide-react'
+import { normalizeTwitterFeedUrl, parseNitterBaseUrls } from '@rzf/shared'
 
 // ─── Platform Config ──────────────────────────────────────────────────────────
 
@@ -47,12 +49,14 @@ const PLATFORM_COLORS: Record<ContentPlatform, string> = {
   manual: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
 }
 
-// Platforms planned but not yet implemented (reddit is active — it's just an RSS feed)
-const COMING_SOON_PLATFORMS: ContentPlatform[] = ['twitter', 'podcast', 'api', 'manual']
+// Connectors not wired for ingestion yet (twitter uses Nitter RSS like reddit — now enabled)
+const COMING_SOON_PLATFORMS: ContentPlatform[] = ['podcast', 'api', 'manual']
 
 const PLATFORM_ICON: Record<string, React.ReactNode> = {
   rss: <Rss size={13} />,
   youtube: <Youtube size={13} />,
+  reddit: <Globe size={13} />,
+  twitter: <AtSign size={13} />,
 }
 
 // ─── Health Badge ─────────────────────────────────────────────────────────────
@@ -106,6 +110,9 @@ interface SourceFormState {
   refreshIntervalMins: number
   isActive: boolean
   avatarUrl: string
+  tier: number
+  featured: boolean
+  partnerTier: string
 }
 
 const DEFAULT_FORM: SourceFormState = {
@@ -115,6 +122,9 @@ const DEFAULT_FORM: SourceFormState = {
   refreshIntervalMins: 60,
   isActive: true,
   avatarUrl: '',
+  tier: 2,
+  featured: false,
+  partnerTier: '',
 }
 
 function SourceModal({
@@ -165,6 +175,8 @@ function SourceModal({
     reddit:
       'Reddit RSS feeds require no API key. Public subreddits only.',
     rss: 'Must be a valid, publicly accessible RSS or Atom feed URL.',
+    twitter:
+      'Ingestion uses Nitter RSS (no X API). Enter @handle or x.com URL — we normalize to the first Nitter base. Set NITTER_BASE_URLS on the worker; instances can break. See docs/INGESTION_REDDIT_TWITTER.md.',
   }
 
   // Normalize feedUrl on save based on platform
@@ -172,6 +184,9 @@ function SourceModal({
     let normalized = form.feedUrl.trim()
     if (form.platform === 'youtube') normalized = normalizeYouTubeInput(normalized)
     if (form.platform === 'reddit') normalized = normalizeRedditInput(normalized)
+    if (form.platform === 'twitter') {
+      normalized = normalizeTwitterFeedUrl(normalized, parseNitterBaseUrls(undefined))
+    }
     onSave({ ...form, feedUrl: normalized })
   }
 
@@ -272,6 +287,49 @@ function SourceModal({
               placeholder="https://example.com/logo.png"
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white placeholder-zinc-600 focus:border-white/20 focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-zinc-400">
+              Content tier (agent injection quality)
+            </label>
+            <select
+              value={form.tier}
+              onChange={(e) => set('tier', parseInt(e.target.value, 10))}
+              disabled={isComingSoon}
+              className="w-full rounded-lg border border-white/10 bg-zinc-800 px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-40"
+            >
+              <option value={1}>Tier 1 — Premium beat / breaking</option>
+              <option value={2}>Tier 2 — Established</option>
+              <option value={3}>Tier 3 — General</option>
+            </select>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-6">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
+              <input
+                type="checkbox"
+                checked={form.featured}
+                onChange={(e) => set('featured', e.target.checked)}
+                disabled={isComingSoon}
+                className="rounded disabled:opacity-40"
+              />
+              Featured source (Directory)
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-zinc-500">Partner tier</span>
+              <select
+                value={form.partnerTier}
+                onChange={(e) => set('partnerTier', e.target.value)}
+                disabled={isComingSoon}
+                className="rounded-lg border border-white/10 bg-zinc-800 px-2 py-1.5 text-xs text-white disabled:opacity-40"
+              >
+                <option value="">—</option>
+                <option value="gold">gold</option>
+                <option value="silver">silver</option>
+                <option value="bronze">bronze</option>
+              </select>
+            </div>
           </div>
 
           {/* Refresh interval + Active toggle */}
@@ -513,6 +571,9 @@ export default function SourceManagerPage() {
         feedUrl: form.feedUrl,
         refreshIntervalMins: form.refreshIntervalMins,
         isActive: form.isActive,
+        tier: form.tier,
+        featured: form.featured,
+        ...(form.partnerTier ? { partnerTier: form.partnerTier } : { partnerTier: null }),
         ...(form.avatarUrl ? { avatarUrl: form.avatarUrl } : {}),
         ...(form.platform === 'youtube' ? { platformConfig: { channelId: form.feedUrl } } : {}),
       }
@@ -538,6 +599,9 @@ export default function SourceManagerPage() {
         refreshIntervalMins: form.refreshIntervalMins,
         isActive: form.isActive,
         avatarUrl: form.avatarUrl || null,
+        tier: form.tier,
+        featured: form.featured,
+        partnerTier: form.partnerTier || null,
       }
       const updated = await api.updateSource(editTarget.id, payload)
       setSources((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)))
@@ -614,7 +678,10 @@ export default function SourceManagerPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Source Manager</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Manage content sources and monitor automated data connectors.
+            Manage content sources and monitor automated data connectors. Ingestion job types and cron
+            schedules are defined in the shared registry (`INGESTION_JOB_REGISTRY`); use{' '}
+            <span className="text-zinc-300">Queue → Ingestion</span> to inspect BullMQ workers and DB run
+            history, and trigger on-demand jobs (e.g. Reddit backfill) from Admin or the internal API.
           </p>
         </div>
         {activeTab === 'managed' && (
@@ -926,6 +993,9 @@ export default function SourceManagerPage() {
             refreshIntervalMins: editTarget.refreshIntervalMins,
             isActive: editTarget.isActive,
             avatarUrl: editTarget.avatarUrl ?? '',
+            tier: editTarget.tier,
+            featured: editTarget.featured ?? false,
+            partnerTier: editTarget.partnerTier ?? '',
           }}
           onSave={handleEdit}
           onClose={() => setEditTarget(null)}

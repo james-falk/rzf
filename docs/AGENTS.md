@@ -1,6 +1,6 @@
 # Agents
 
-> Last updated: 2026-03-12
+> Last updated: 2026-03-26
 > Auto-regenerated section: I/O contracts come from `packages/agents/*/types.ts` via `pnpm sync:docs`
 
 ## Agent Design Principles
@@ -131,21 +131,27 @@ Deep per-player evaluation on demand.
 
 ## Ingestion Jobs (not user-facing agents)
 
-These run on a schedule in `apps/worker`. They populate the data tables that agents read from.
+These run on a schedule in `apps/worker/src/scheduler.ts` and populate the tables agents read. **Canonical list:** `packages/shared/src/types/ingestion-catalog.ts` (`INGESTION_JOB_CATALOG`) — labels, descriptions, and **schedule vs manual-only** for Admin and operators.
 
-| Job | Schedule | Source | Target table |
-|-----|----------|--------|--------------|
-| `PlayerRefreshJob` | Daily 6am ET | Sleeper `/players/nfl` | `Player`, `PlayerAlias` |
-| `TrendingRefreshJob` | Hourly | Sleeper trending | `TrendingPlayer` |
-| `RankingsRefreshJob` | Weekly (Tue) | Sleeper `searchRank` proxy (FantasyPros CSV planned) | `PlayerRanking` |
-| `ContentRefreshJob` | Every 30 min | Active RSS `ContentSource` rows | `ContentItem`, `ContentPlayerMention` |
-| `YouTubeRefreshJob` | Every 2 hours | Active YouTube `ContentSource` rows | `ContentItem`, `ContentPlayerMention` |
-| `TradeRefreshJob` | Daily 8am ET | Sleeper transactions for all stored leagues | `TradeTransaction` (with `leagueType`, `teamCount`, `isSuperflex`, `scoringFormat`) |
-| `TradeValuesRefreshJob` | Weekly (Tue 10am ET) | FantasyCalc public API | `PlayerTradeValue` (`source='fantasycalc'`) |
-| `DynastyDaddyRefreshJob` | Weekly (Tue 11am ET) | Dynasty Daddy API (KTC market=0/4 + DD own) | `PlayerTradeValue` (`source='ktc'` and `source='dynastydaddy'`) |
-| `ADPRefreshJob` | Weekly (Tue 10:30am ET) | Fantasy Football Calculator | `PlayerRanking` (`source='ffc_adp_*'`) |
-| `CreditsRefillJob` | Monthly (1st) | Internal system job | `User.runCredits` |
+**Trigger any job type** (same allowlist as the worker): `POST /internal/ingestion/trigger` with `{ "type": "<snake_case IngestionJobType>" }` and `x-admin-secret`. Examples: `reddit_backfill`, `fp_rankings_refresh`, `espn_rankings_refresh`, `yahoo_rankings_refresh`, `season_stats_refresh` (manual-only in catalog).
 
-Manual trigger: `POST /internal/ingestion/trigger` with `{ "type": "player_refresh" | "trending_refresh" | "rankings_refresh" | "content_refresh" | "credits_refill" }` (requires admin secret or admin session).
+**Audit:** Each run is recorded in `IngestionJobRun`. Admin **Queue → Ingestion** shows BullMQ jobs plus paginated DB runs with **Retry**.
 
-`PlayerRefreshJob` now also generates `PlayerAlias` records for every upserted player using `generateAliases()` from `@rzf/shared`. These are used during content ingestion to resolve name mentions to canonical Sleeper player IDs.
+**Manual-only note:** `season_stats_refresh` has **no cron** by default (heavy Sleeper season stats pull). Run on demand when needed.
+
+High-level examples (not exhaustive — see catalog):
+
+| Job type (snake_case) | Typical schedule | Target |
+|------------------------|------------------|--------|
+| `player_refresh` | Daily | `Player`, `PlayerAlias` |
+| `trending_refresh` | Hourly | `TrendingPlayer` |
+| `content_refresh` | Every 30 min | `ContentItem` (RSS platforms incl. Reddit/Nitter sources) |
+| `youtube_refresh` | Every 2h | `ContentItem` (YouTube sources) |
+| `fp_rankings_refresh` | Tue & Fri | `PlayerRanking` (`fantasypros`) |
+| `adp_refresh` | Weekly | `PlayerRanking` (`ffc_adp_*`) |
+| `trade_refresh` | Daily | `TradeTransaction` |
+| `reddit_backfill` | On demand | ~14d Reddit JSON backfill per subreddit source |
+
+`PlayerRefreshJob` generates `PlayerAlias` rows via `generateAliases()` from `@rzf/shared` for entity resolution during ingestion.
+
+**Social runbook:** [INGESTION_REDDIT_TWITTER.md](./INGESTION_REDDIT_TWITTER.md). **ESPN/Yahoo rankings:** [INGESTION_ESPN_YAHOO.md](./INGESTION_ESPN_YAHOO.md).
