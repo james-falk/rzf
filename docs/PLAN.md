@@ -1,7 +1,17 @@
 # Plan
 
-> Last updated: 2026-03-18
+> Last updated: 2026-03-27
 > Canonical planning document. Keep roadmap and future implementation plans here only.
+
+---
+
+## Review backlog — 2026-03-27
+
+Capture follow-ups while reviewing the latest pushed work. When something is ready to schedule, move it into **Near-Term Roadmap** or a focused doc (e.g. `docs/PLAN_*.md`).
+
+- _(add items as you review)_
+
+**Recent commits for context** (newest first): ingestion SSoT & tier-0 agents, directory feed APIs & ESPN/Yahoo jobs, directory trending/custom feeds, learning pipeline & chat continuity, agentic loop & chat UI, Reddit/ESPN/Odds connectors, Telegram agent daemon.
 
 ---
 

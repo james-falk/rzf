@@ -7,10 +7,7 @@ import { TrendingTicker } from '@/components/TrendingTicker'
 import { FeedWithFilters } from '@/components/FeedWithFilters'
 import { FeaturedContentCarousel } from '@/components/FeaturedContentCarousel'
 import { getTrendingTopics } from '@/lib/getTrendingTopics'
-import { encodeFeedCursor } from '@/lib/feed-cursor'
-
-/** First page size for the home “All Feed” grid; must match `PAGE_SIZE` in `/api/feed`. “Load more” fetches the next pages. */
-const HOME_FEED_PAGE_SIZE = 40
+import { encodeFeedCursor, FEED_PAGE_SIZE } from '@/lib/feed-cursor'
 
 const contentInclude = {
   source: {
@@ -79,7 +76,7 @@ async function getData() {
       },
       include: contentInclude,
       orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
-      take: HOME_FEED_PAGE_SIZE,
+      take: FEED_PAGE_SIZE,
     }),
   ])
 
@@ -99,9 +96,9 @@ async function getData() {
   const featuredIds = new Set(featuredContent.map((item) => item.id))
   const regularContent = latestContent.filter((item) => !featuredIds.has(item.id))
 
-  const last = latestContent[HOME_FEED_PAGE_SIZE - 1]
+  const last = latestContent[latestContent.length - 1]
   const feedNextCursor =
-    latestContent.length === HOME_FEED_PAGE_SIZE && last?.publishedAt
+    latestContent.length === FEED_PAGE_SIZE && last?.publishedAt
       ? encodeFeedCursor(last.publishedAt, last.id)
       : null
 

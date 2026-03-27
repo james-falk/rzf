@@ -72,13 +72,20 @@ body {
 ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgb(63 63 70); }
 
-/* Home featured carousel (Swiper) */
+/* Home featured carousel (Swiper) — card width ≈ one column in xl:grid-cols-3 feed */
 .featured-swiper .swiper-slide {
-  opacity: 0.5;
-  transform: scale(0.94);
+  width: min(22.5rem, calc(100vw - 3rem));
+  height: auto;
+  opacity: 0.72;
+  transform: scale(0.98);
   transition:
     opacity 0.35s ease,
     transform 0.35s ease;
+}
+@media (min-width: 1024px) {
+  .featured-swiper .swiper-slide {
+    width: 24rem; /* 384px — matches ~1/3 of max-w-7xl minus gaps */
+  }
 }
 .featured-swiper .swiper-slide-active {
   opacity: 1;
@@ -88,5 +95,36 @@ body {
   border-color: rgba(234, 179, 8, 0.85) !important;
   box-shadow:
     0 0 0 1px rgba(234, 179, 8, 0.35),
-    0 20px 50px -12px rgba(0, 0, 0, 0.6);
+    0 12px 40px -12px rgba(0, 0, 0, 0.55);
+}
+
+.featured-swiper .swiper-button-prev,
+.featured-swiper .swiper-button-next {
+  color: rgb(234, 179, 8);
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-top: 0;
+  top: 42%;
+}
+.featured-swiper .swiper-button-prev::after,
+.featured-swiper .swiper-button-next::after {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.featured-swiper .swiper-pagination {
+  bottom: 0 !important;
+}
+.featured-swiper .swiper-pagination-bullet {
+  background: rgb(82, 82, 91);
+  opacity: 1;
+}
+.featured-swiper .swiper-pagination-bullet-active {
+  background: rgb(234, 179, 8);
+}
+
+@media (max-width: 639px) {
+  .featured-swiper .swiper-button-prev,
+  .featured-swiper .swiper-button-next {
+    display: none;
+  }
 }

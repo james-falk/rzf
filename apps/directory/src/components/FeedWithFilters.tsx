@@ -47,14 +47,22 @@ interface FeedWithFiltersProps {
   trendingTopics: TrendingTopicRow[]
 }
 
+/** Sidebar bucket key for RSS + news API sources (single “Articles & News” group) */
+const ARTICLES_NEWS_BUCKET = 'articles_news'
+
 const PLATFORM_LABEL: Record<string, string> = {
   youtube: 'YouTube',
-  rss: 'Articles & News',
+  [ARTICLES_NEWS_BUCKET]: 'Articles & News',
   reddit: 'Reddit',
   twitter: 'X / Twitter',
-  api: 'News APIs',
   podcast: 'Podcasts',
   manual: 'Other',
+}
+
+/** Map DB `platform` → sidebar accordion bucket (RSS and API feeds share one group). */
+const SIDEBAR_PLATFORM_BUCKET: Record<string, string> = {
+  rss: ARTICLES_NEWS_BUCKET,
+  api: ARTICLES_NEWS_BUCKET,
 }
 
 const CONTENT_TYPES = [
@@ -76,7 +84,7 @@ function isSocialPlatform(platform: string | undefined): boolean {
 }
 
 /** Stable order for platform groups in the sidebar */
-const PLATFORM_ORDER = ['youtube', 'rss', 'reddit', 'twitter', 'api', 'podcast', 'manual']
+const PLATFORM_ORDER = ['youtube', ARTICLES_NEWS_BUCKET, 'reddit', 'twitter', 'podcast', 'manual']
 
 function sortPlatformKeys(keys: string[]): string[] {
   return [...keys].sort((a, b) => {
@@ -294,8 +302,12 @@ function SourcesSidebarPanel({
   const groupedFull = useMemo(() => {
     const g: Record<string, Source[]> = {}
     for (const s of sources) {
-      if (!g[s.platform]) g[s.platform] = []
-      g[s.platform]!.push(s)
+      const bucket = SIDEBAR_PLATFORM_BUCKET[s.platform] ?? s.platform
+      if (!g[bucket]) g[bucket] = []
+      g[bucket]!.push(s)
+    }
+    for (const list of Object.values(g)) {
+      list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
     }
     return g
   }, [sources])
@@ -379,17 +391,56 @@ export function FeedWithFilters({
   const [feedItems, setFeedItems] = useState<FeedItem[]>(items)
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(initialFeedNextCursor ?? null)
   const [loadingMoreFeed, setLoadingMoreFeed] = useState(false)
+  const [sourceFeedLoading, setSourceFeedLoading] = useState(false)
 
+  const checkedSourcesKey = useMemo(
+    () => [...checkedSources].sort().join(','),
+    [checkedSources],
+  )
+
+  /** Unfiltered stack from the server (when no sidebar source selection). */
   useEffect(() => {
+    if (checkedSources.size > 0) return
     setFeedItems(items)
     setFeedNextCursor(initialFeedNextCursor ?? null)
-  }, [items, initialFeedNextCursor])
+  }, [items, initialFeedNextCursor, checkedSources.size])
+
+  /** When specific sources are selected, load from the API for those IDs (not just filter the first global page). */
+  useEffect(() => {
+    if (checkedSources.size === 0) return
+    const ac = new AbortController()
+    setSourceFeedLoading(true)
+    setFeedItems([])
+    setFeedNextCursor(null)
+    ;(async () => {
+      try {
+        const q = new URLSearchParams()
+        q.set('sources', checkedSourcesKey)
+        const res = await fetch(`/api/feed?${q}`, { signal: ac.signal })
+        if (!res.ok) return
+        const data = (await res.json()) as { items?: Record<string, unknown>[]; nextCursor?: string | null }
+        const parsed = (data.items ?? []).map((row) => parseFeedApiItem(row))
+        if (!ac.signal.aborted) {
+          setFeedItems(parsed)
+          setFeedNextCursor(data.nextCursor ?? null)
+        }
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return
+      } finally {
+        if (!ac.signal.aborted) setSourceFeedLoading(false)
+      }
+    })()
+    return () => ac.abort()
+  }, [checkedSourcesKey, checkedSources.size])
 
   const loadMoreFeed = useCallback(async () => {
     if (!feedNextCursor || loadingMoreFeed) return
     setLoadingMoreFeed(true)
     try {
-      const res = await fetch(`/api/feed?cursor=${encodeURIComponent(feedNextCursor)}`)
+      const q = new URLSearchParams()
+      q.set('cursor', feedNextCursor)
+      if (checkedSources.size > 0) q.set('sources', checkedSourcesKey)
+      const res = await fetch(`/api/feed?${q}`)
       if (!res.ok) return
       const data = (await res.json()) as { items?: Record<string, unknown>[]; nextCursor?: string | null }
       const parsed = (data.items ?? []).map((row) => parseFeedApiItem(row))
@@ -408,7 +459,7 @@ export function FeedWithFilters({
     } finally {
       setLoadingMoreFeed(false)
     }
-  }, [feedNextCursor, loadingMoreFeed])
+  }, [feedNextCursor, loadingMoreFeed, checkedSources.size, checkedSourcesKey])
 
   const toggleSource = (id: string) => {
     setCheckedSources((prev) => {
@@ -471,17 +522,24 @@ export function FeedWithFilters({
           </div>
           {tab === 'feed' && (
             <span className="text-sm" style={{ color: 'rgb(115,115,115)' }}>
-              {filtered.length} item{filtered.length !== 1 ? 's' : ''}
+              {sourceFeedLoading ? (
+                'Loading sources…'
+              ) : (
+                <>
+                  {filtered.length} item{filtered.length !== 1 ? 's' : ''}
+                </>
+              )}
             </span>
           )}
         </div>
         {tab === 'feed' && (
           <p className="mt-2 max-w-3xl text-xs leading-relaxed" style={{ color: 'rgb(82,82,91)' }}>
             Use <strong className="font-medium text-neutral-400">Social</strong> for Reddit and X-only threads;{' '}
-            <strong className="font-medium text-neutral-400">News &amp; video</strong> for articles, YouTube, and APIs. Filter by source
-            type on the left if you need finer control. If posts are missing, confirm ingestion jobs and registered sources.{' '}
+            <strong className="font-medium text-neutral-400">News &amp; video</strong> for articles, YouTube, and other news feeds. Filter by
+            source on the left if you need finer control. If posts are missing, confirm ingestion jobs and registered sources.{' '}
             <span className="block mt-1 text-[11px] text-neutral-500">
-              “Load more” appends the next global page (newest first). Sidebar and stream filters apply only to items already loaded.
+              Choosing sources in the sidebar reloads the feed for those outlets. “Load more” adds the next page (newest first). Topic, stream, and
+              title search apply to items currently on screen.
             </span>
           </p>
         )}

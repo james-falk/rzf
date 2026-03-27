@@ -3,8 +3,10 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { Swiper, SwiperSlide } from 'swiper/react'
-import { Autoplay } from 'swiper/modules'
+import { Autoplay, Navigation, Pagination } from 'swiper/modules'
 import 'swiper/css'
+import 'swiper/css/navigation'
+import 'swiper/css/pagination'
 
 export interface FeaturedCarouselSlide {
   id: string
@@ -51,14 +53,17 @@ export function FeaturedContentCarousel({ slides }: { slides: FeaturedCarouselSl
         </p>
       </div>
 
-      <div className="featured-carousel-wrap -mx-2 px-2 md:mx-0 md:px-0">
+      <div className="featured-carousel-wrap relative -mx-2 px-2 md:mx-0 md:px-0">
         <Swiper
-          modules={[Autoplay]}
+          modules={[Autoplay, Navigation, Pagination]}
+          slidesPerView="auto"
           centeredSlides
-          slidesPerView={1.15}
-          spaceBetween={16}
+          centerInsufficientSlides
+          spaceBetween={20}
           loop={canLoop}
           speed={600}
+          navigation
+          pagination={{ clickable: true, dynamicBullets: slides.length > 6 }}
           autoplay={
             reduceMotion
               ? false
@@ -68,32 +73,28 @@ export function FeaturedContentCarousel({ slides }: { slides: FeaturedCarouselSl
                   pauseOnMouseEnter: true,
                 }
           }
-          breakpoints={{
-            640: { slidesPerView: 1.35, spaceBetween: 20 },
-            1024: { slidesPerView: 1.5, spaceBetween: 24 },
-          }}
-          className="featured-swiper pb-2"
+          className="featured-swiper pb-10!"
         >
           {slides.map((s) => (
-            <SwiperSlide key={s.id} className="!h-auto">
+            <SwiperSlide key={s.id}>
               <a
                 href={s.sourceUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="featured-slide-card group relative block overflow-hidden rounded-2xl border-2 transition-[transform,opacity,border-color] duration-300"
+                className="featured-slide-card group flex h-full flex-col overflow-hidden rounded-xl border transition-[transform,opacity,border-color] duration-300 hover:border-red-800/40 hover:shadow-lg"
                 style={{
                   borderColor: 'rgb(38,38,38)',
-                  background: 'rgb(14,14,14)',
+                  background: 'rgb(18,18,18)',
                 }}
               >
-                <div className="relative aspect-[16/10] w-full bg-zinc-900">
+                <div className="relative aspect-video w-full shrink-0 overflow-hidden bg-zinc-900">
                   {s.thumbnailUrl ? (
                     <Image
                       src={s.thumbnailUrl}
-                      alt=""
+                      alt={s.title}
                       fill
-                      sizes="(max-width: 768px) 85vw, 520px"
-                      className="object-cover transition duration-500 group-hover:scale-[1.03]"
+                      sizes="(max-width: 640px) min(calc(100vw - 3rem), 22.5rem), 384px"
+                      className="object-cover transition duration-500 group-hover:scale-105"
                       unoptimized
                     />
                   ) : (
@@ -105,35 +106,33 @@ export function FeaturedContentCarousel({ slides }: { slides: FeaturedCarouselSl
                       }}
                     />
                   )}
-                  <div
-                    className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent"
-                    aria-hidden
-                  />
                   <span
-                    className="absolute left-3 top-3 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
+                    className="absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
                     style={{ background: 'rgb(234,179,8)', color: 'rgb(10,10,10)' }}
                   >
                     Featured
                   </span>
                   <span
-                    className="absolute right-3 top-3 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide"
+                    className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
                     style={{ background: 'rgba(22,163,74,0.95)', color: 'white' }}
                   >
                     {typePillLabel(s.contentType)}
                   </span>
-                  <div className="absolute bottom-0 left-0 right-0 p-4 pt-10">
-                    {s.sourceName && (
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wider" style={{ color: 'rgb(234,179,8)' }}>
-                        {s.sourceName}
-                      </p>
-                    )}
-                    <h3 className="line-clamp-2 text-lg font-bold leading-snug text-white md:text-xl">{s.title}</h3>
-                    {s.summary && (
-                      <p className="mt-2 line-clamp-2 text-sm" style={{ color: 'rgb(163,163,163)' }}>
-                        {s.summary}
-                      </p>
-                    )}
+                </div>
+                <div className="flex flex-1 flex-col p-4">
+                  <div className="mb-2 flex min-h-5 items-center gap-2">
+                    <span className="truncate text-xs font-medium" style={{ color: 'rgb(163,163,163)' }}>
+                      {s.sourceName ?? 'Partner'}
+                    </span>
                   </div>
+                  <h3 className="mb-2 line-clamp-2 text-sm font-semibold leading-snug text-white transition-colors group-hover:text-red-400">
+                    {s.title}
+                  </h3>
+                  {s.summary && (
+                    <p className="line-clamp-2 text-xs leading-relaxed" style={{ color: 'rgb(115,115,115)' }}>
+                      {s.summary}
+                    </p>
+                  )}
                 </div>
               </a>
             </SwiperSlide>
