@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { db } from '@rzf/db'
 import { decodeFeedCursor, encodeFeedCursor, FEED_PAGE_SIZE } from '@/lib/feed-cursor'
+import { tierWeightedScore } from '@/lib/feed-ranking'
 
 const MAX_SOURCE_IDS = 200
 
@@ -42,7 +43,7 @@ export async function GET(req: NextRequest) {
     },
     include: {
       source: {
-        select: { id: true, name: true, platform: true, feedUrl: true, avatarUrl: true, featured: true, partnerTier: true },
+        select: { id: true, name: true, platform: true, feedUrl: true, avatarUrl: true, featured: true, partnerTier: true, tier: true },
       },
       playerMentions: {
         include: {
@@ -55,12 +56,22 @@ export async function GET(req: NextRequest) {
     take: FEED_PAGE_SIZE,
   })
 
-  const last = items[items.length - 1]
+  // Sort by tier-weighted recency score: tierWeight * exp(-ageHours / 24)
+  // Tier 1 (premium) = 3.0x, Tier 2 (established) = 1.5x, Tier 3 (general) = 1.0x
+  const scored = items.sort(
+    (a, b) =>
+      tierWeightedScore(b.source?.tier, b.publishedAt) -
+      tierWeightedScore(a.source?.tier, a.publishedAt),
+  )
+
+  const last = scored[scored.length - 1]
   const nextCursor =
-    last?.publishedAt && items.length === FEED_PAGE_SIZE ? encodeFeedCursor(last.publishedAt, last.id) : null
+    last?.publishedAt && scored.length === FEED_PAGE_SIZE
+      ? encodeFeedCursor(last.publishedAt, last.id)
+      : null
 
   return NextResponse.json({
-    items: items.map((it) => ({
+    items: scored.map((it) => ({
       ...it,
       publishedAt: it.publishedAt?.toISOString() ?? null,
       fetchedAt: it.fetchedAt.toISOString(),
