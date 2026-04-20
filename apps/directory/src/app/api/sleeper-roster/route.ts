@@ -15,23 +15,26 @@ export async function GET() {
     return NextResponse.json({ leagues: [], playerIds: [] })
   }
 
+  const sleeperId = user.sleeperProfile.sleeperId
+  const currentYear = new Date().getFullYear()
+  const seasonsToTry = [currentYear, currentYear - 1].map(String)
+
   try {
-    const currentYear = new Date().getFullYear().toString()
-    const leaguesRes = await fetch(
-      `https://api.sleeper.app/v1/user/${user.sleeperProfile.sleeperId}/leagues/nfl/${currentYear}`,
-    )
-    if (!leaguesRes.ok) return NextResponse.json({ leagues: [], playerIds: [] })
+    const byId = new Map<string, { id: string; name: string; size: number; season: string }>()
+    for (const season of seasonsToTry) {
+      const res = await fetch(
+        `https://api.sleeper.app/v1/user/${sleeperId}/leagues/nfl/${season}`,
+        { signal: AbortSignal.timeout(10_000) },
+      )
+      if (!res.ok) continue
+      const leagues = (await res.json()) as Array<{ league_id: string; name: string; total_rosters: number }>
+      for (const l of leagues) {
+        if (byId.has(l.league_id)) continue
+        byId.set(l.league_id, { id: l.league_id, name: l.name, size: l.total_rosters, season })
+      }
+    }
 
-    const leagues = await leaguesRes.json() as Array<{ league_id: string; name: string; total_rosters: number }>
-
-    // Return league list for the custom feed builder to pick from
-    const leagueList = leagues.map((l) => ({
-      id: l.league_id,
-      name: l.name,
-      size: l.total_rosters,
-    }))
-
-    return NextResponse.json({ leagues: leagueList })
+    return NextResponse.json({ leagues: Array.from(byId.values()) })
   } catch {
     return NextResponse.json({ leagues: [], playerIds: [] })
   }
