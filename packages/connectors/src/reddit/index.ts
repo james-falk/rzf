@@ -31,6 +31,26 @@ export const DEFAULT_REDDIT_SOURCES = [
     feedUrl: 'https://www.reddit.com/r/FFCommish/.rss?limit=25',
     tier: 3,
   },
+  {
+    name: 'r/fantasyfootballadvice',
+    feedUrl: 'https://www.reddit.com/r/fantasyfootballadvice/.rss?limit=25',
+    tier: 2,
+  },
+  {
+    name: 'r/redraftleagues',
+    feedUrl: 'https://www.reddit.com/r/redraftleagues/.rss?limit=25',
+    tier: 3,
+  },
+  {
+    name: 'r/NFL_Draft',
+    feedUrl: 'https://www.reddit.com/r/NFL_Draft/.rss?limit=25',
+    tier: 2,
+  },
+  {
+    name: 'r/DynastyFFTradeAdvice',
+    feedUrl: 'https://www.reddit.com/r/DynastyFFTradeAdvice/.rss?limit=25',
+    tier: 3,
+  },
 ]
 
 export const RedditConnector = {

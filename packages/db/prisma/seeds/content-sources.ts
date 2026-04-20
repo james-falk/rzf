@@ -151,6 +151,90 @@ const RSS_SOURCES = [
     isActive: true,
     tier: 2,
   },
+
+  // ── The Fantasy Footballers ───────────────────────────────────────────────
+  // Tier 1: Top fantasy podcast — articles, rankings, start/sit, injury notes.
+  {
+    name: 'The Fantasy Footballers',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.thefantasyfootballers.com/feed/',
+    avatarUrl: 'https://www.thefantasyfootballers.com/favicon.ico',
+    refreshIntervalMins: 60,
+    isActive: true,
+    tier: 1,
+  },
+
+  // ── Late Round Podcast ───────────────────────────────────────────────────
+  // Tier 1: JJ Zachariason — analytics-driven fantasy analysis and rankings.
+  {
+    name: 'Late Round Podcast',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.lateroundpodcast.com/feed/',
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    tier: 1,
+  },
+
+  // ── Establish The Run ────────────────────────────────────────────────────
+  // Tier 1: Evan Silva / Adam Levitan — DFS + season-long premium analysis.
+  {
+    name: 'Establish The Run',
+    platform: 'rss' as const,
+    feedUrl: 'https://establishtherun.com/feed/',
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    tier: 1,
+  },
+
+  // ── Dynasty League Football (DLF) ─────────────────────────────────────────
+  // Tier 1: Top dynasty-focused content — rankings, startup drafts, rookie analysis.
+  {
+    name: 'Dynasty League Football',
+    platform: 'rss' as const,
+    feedUrl: 'https://dynastyleaguefootball.com/feed/',
+    avatarUrl: 'https://dynastyleaguefootball.com/favicon.ico',
+    refreshIntervalMins: 120,
+    isActive: true,
+    tier: 1,
+  },
+
+  // ── Dynasty Nerds ────────────────────────────────────────────────────────
+  // Tier 2: Dynasty-specific analysis, trade calculator, film breakdowns.
+  {
+    name: 'Dynasty Nerds',
+    platform: 'rss' as const,
+    feedUrl: 'https://dynastynerds.com/feed/',
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    tier: 2,
+  },
+
+  // ── Sharp Football Analysis ──────────────────────────────────────────────
+  // Tier 2: Warren Sharp — advanced analytics, matchup breakdowns, scheme deep dives.
+  {
+    name: 'Sharp Football Analysis',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.sharpfootballanalysis.com/feed/',
+    avatarUrl: null,
+    refreshIntervalMins: 180,
+    isActive: true,
+    tier: 2,
+  },
+
+  // ── PFF — Pro Football Focus ─────────────────────────────────────────────
+  // Tier 1: Grades, snap counts, target/route data — authoritative advanced stats.
+  {
+    name: 'PFF NFL News',
+    platform: 'rss' as const,
+    feedUrl: 'https://www.pff.com/news/feed',
+    avatarUrl: 'https://www.pff.com/favicon.ico',
+    refreshIntervalMins: 60,
+    isActive: true,
+    tier: 1,
+  },
 ] as const
 
 // ─── YouTube Sources ──────────────────────────────────────────────────────────
@@ -219,6 +303,62 @@ const YOUTUBE_SOURCES = [
     platform: 'youtube' as const,
     feedUrl: '@FantasyPros',
     platformConfig: { channelId: '@FantasyPros' },
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    featured: false,
+    tier: 2,
+  },
+  {
+    name: 'The Fantasy Footballers',
+    platform: 'youtube' as const,
+    feedUrl: '@thefantasyfootballers',
+    platformConfig: { channelId: '@thefantasyfootballers' },
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    featured: true,
+    partnerTier: 'gold',
+    tier: 1,
+  },
+  {
+    name: 'Dynasty Nerds',
+    platform: 'youtube' as const,
+    feedUrl: '@DynastyNerds',
+    platformConfig: { channelId: '@DynastyNerds' },
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    featured: false,
+    tier: 2,
+  },
+  {
+    name: 'Late Round',
+    platform: 'youtube' as const,
+    feedUrl: '@LateRoundPodcast',
+    platformConfig: { channelId: '@LateRoundPodcast' },
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    featured: false,
+    tier: 1,
+  },
+  {
+    name: 'Harris Football',
+    platform: 'youtube' as const,
+    feedUrl: '@HarrisFootball',
+    platformConfig: { channelId: '@HarrisFootball' },
+    avatarUrl: null,
+    refreshIntervalMins: 120,
+    isActive: true,
+    featured: false,
+    tier: 2,
+  },
+  {
+    name: 'Fantasy Life',
+    platform: 'youtube' as const,
+    feedUrl: '@fantasylifeapp',
+    platformConfig: { channelId: '@fantasylifeapp' },
     avatarUrl: null,
     refreshIntervalMins: 120,
     isActive: true,
