@@ -34,6 +34,26 @@ export async function POST(req: NextRequest) {
   }
   const sleeperUser = await sleeperRes.json() as { user_id: string; display_name: string }
 
+  // Fetch leagues snapshot (current + previous season, best-effort).
+  const currentYear = new Date().getFullYear()
+  const leaguesSnapshot: Array<{ league_id: string; name: string; total_rosters: number; season: string }> = []
+  const seenLeagueIds = new Set<string>()
+  for (const season of [currentYear, currentYear - 1].map(String)) {
+    try {
+      const r = await fetch(
+        `https://api.sleeper.app/v1/user/${sleeperUser.user_id}/leagues/nfl/${season}`,
+        { signal: AbortSignal.timeout(10_000) },
+      )
+      if (!r.ok) continue
+      const rows = (await r.json()) as Array<{ league_id: string; name: string; total_rosters: number }>
+      for (const l of rows) {
+        if (seenLeagueIds.has(l.league_id)) continue
+        seenLeagueIds.add(l.league_id)
+        leaguesSnapshot.push({ ...l, season })
+      }
+    } catch { /* ignore; snapshot is best-effort */ }
+  }
+
   // Ensure our user exists (auto-create from Clerk ID)
   const user = await db.user.upsert({
     where: { clerkId },
@@ -47,10 +67,12 @@ export async function POST(req: NextRequest) {
       userId: user.id,
       sleeperId: sleeperUser.user_id,
       displayName: sleeperUser.display_name,
+      leagues: leaguesSnapshot as object,
     },
     update: {
       sleeperId: sleeperUser.user_id,
       displayName: sleeperUser.display_name,
+      leagues: leaguesSnapshot as object,
     },
   })
 

@@ -35,9 +35,28 @@ export function CustomFeedsManager({
 }) {
   const { isSignedIn, isLoaded } = useAuth()
   const isPaid = userTier === 'paid'
-  const freeFeedLimit = 2
+  const freeFeedLimit = 1
   const paidFeedLimit = 5
   const maxFeeds = isPaid ? paidFeedLimit : freeFeedLimit
+  const [upgrading, setUpgrading] = useState(false)
+
+  const handleUpgrade = async () => {
+    setUpgrading(true)
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          successUrl: `${window.location.href}?upgraded=1`,
+          cancelUrl: window.location.href,
+        }),
+      })
+      const data = (await res.json()) as { url?: string }
+      if (data.url) window.location.href = data.url
+    } finally {
+      setUpgrading(false)
+    }
+  }
 
   const [feeds, setFeeds] = useState<FeedRow[]>([])
   const [limit, setLimit] = useState(maxFeeds)
@@ -48,10 +67,14 @@ export function CustomFeedsManager({
   const [feedType, setFeedType] = useState<FeedType>('sources')
   const [name, setName] = useState('')
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set())
-  const [playerIdsRaw, setPlayerIdsRaw] = useState('')
+  type PickedPlayer = { sleeperId: string; firstName: string; lastName: string; position: string | null; team: string | null }
+  const [selectedPlayers, setSelectedPlayers] = useState<PickedPlayer[]>([])
+  const [playerQuery, setPlayerQuery] = useState('')
+  const [playerResults, setPlayerResults] = useState<PickedPlayer[]>([])
+  const [playerSearching, setPlayerSearching] = useState(false)
   const [teamAbbr, setTeamAbbr] = useState('KC')
   const [sleeperLeagueId, setSleeperLeagueId] = useState('')
-  const [leagues, setLeagues] = useState<Array<{ id: string; name: string; size: number }>>([])
+  const [leagues, setLeagues] = useState<Array<{ id: string; name: string; size: number; season?: string }>>([])
   const [saving, setSaving] = useState(false)
 
   const loadFeeds = useCallback(async () => {
@@ -80,13 +103,40 @@ export function CustomFeedsManager({
     void (async () => {
       try {
         const res = await fetch('/api/sleeper-roster', { credentials: 'same-origin' })
-        const data = (await res.json()) as { leagues?: Array<{ id: string; name: string; size: number }> }
+        const data = (await res.json()) as {
+          leagues?: Array<{ id: string; name: string; size: number; season?: string }>
+        }
         setLeagues(data.leagues ?? [])
       } catch {
         setLeagues([])
       }
     })()
   }, [wizardOpen, feedType])
+
+  useEffect(() => {
+    if (!wizardOpen || feedType !== 'players') return
+    const q = playerQuery.trim()
+    if (q.length < 2) {
+      setPlayerResults([])
+      return
+    }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      setPlayerSearching(true)
+      try {
+        const res = await fetch(`/api/players/search?q=${encodeURIComponent(q)}`, { credentials: 'same-origin' })
+        if (!res.ok) return
+        const data = (await res.json()) as { players: PickedPlayer[] }
+        if (!cancelled) setPlayerResults(data.players ?? [])
+      } finally {
+        if (!cancelled) setPlayerSearching(false)
+      }
+    }, 200)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [wizardOpen, feedType, playerQuery])
 
   if (!isLoaded) {
     return (
@@ -105,7 +155,7 @@ export function CustomFeedsManager({
         <div className="relative">
           <h3 className="text-lg font-bold text-white">Sign in to use custom feeds</h3>
           <p className="mx-auto mt-2 max-w-md text-sm" style={{ color: 'rgb(115,115,115)' }}>
-            Free accounts get {freeFeedLimit} saved feeds; paid accounts get {paidFeedLimit}.
+            Free accounts get {freeFeedLimit} saved feed; Pro unlocks {paidFeedLimit}.
           </p>
           <SignInButton mode="modal">
             <button
@@ -135,7 +185,9 @@ export function CustomFeedsManager({
     setFeedType('sources')
     setName('')
     setSelectedSources(new Set())
-    setPlayerIdsRaw('')
+    setSelectedPlayers([])
+    setPlayerQuery('')
+    setPlayerResults([])
     setTeamAbbr('KC')
     setSleeperLeagueId('')
   }
@@ -153,12 +205,9 @@ export function CustomFeedsManager({
         }
         config = { feedType: 'sources', sourceIds: Array.from(selectedSources) }
       } else if (feedType === 'players') {
-        const ids = playerIdsRaw
-          .split(/[\s,]+/)
-          .map((s) => s.trim())
-          .filter(Boolean)
+        const ids = selectedPlayers.map((p) => p.sleeperId).filter(Boolean)
         if (ids.length === 0) {
-          setError('Enter at least one Sleeper player ID.')
+          setError('Pick at least one player.')
           setSaving(false)
           return
         }
@@ -214,19 +263,52 @@ export function CustomFeedsManager({
             {feeds.length} / {limit} feeds · {isPaid ? 'Paid' : 'Free'} plan
           </p>
         </div>
-        <button
-          type="button"
-          disabled={feeds.length >= limit}
-          onClick={() => {
-            resetWizard()
-            setWizardOpen(true)
-          }}
-          className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40"
-          style={{ background: 'rgb(220,38,38)' }}
-        >
-          + Create feed
-        </button>
+        {feeds.length >= limit && !isPaid ? (
+          <button
+            type="button"
+            disabled={upgrading}
+            onClick={() => void handleUpgrade()}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all disabled:opacity-50"
+            style={{ background: 'rgb(220,38,38)' }}
+          >
+            {upgrading ? 'Redirecting…' : 'Upgrade for 5 feeds →'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={feeds.length >= limit}
+            onClick={() => {
+              resetWizard()
+              setWizardOpen(true)
+            }}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: 'rgb(220,38,38)' }}
+          >
+            + Create feed
+          </button>
+        )}
       </div>
+
+      {feeds.length >= limit && !isPaid && (
+        <div
+          className="mb-4 rounded-xl border p-4"
+          style={{ borderColor: 'rgba(220,38,38,0.3)', background: 'rgba(220,38,38,0.06)' }}
+        >
+          <p className="text-sm font-semibold text-white">You&apos;ve used your free feed.</p>
+          <p className="mt-1 text-xs" style={{ color: 'rgb(163,163,163)' }}>
+            Upgrade to Red Zone Fantasy Pro to create up to {paidFeedLimit} custom feeds — roster-driven, team-focused, or sources you pick.
+          </p>
+          <button
+            type="button"
+            disabled={upgrading}
+            onClick={() => void handleUpgrade()}
+            className="mt-3 rounded-lg px-4 py-2 text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ background: 'rgb(220,38,38)' }}
+          >
+            {upgrading ? 'Redirecting…' : 'Upgrade to Pro →'}
+          </button>
+        </div>
+      )}
 
       {error && (
         <p className="mb-4 rounded-lg border px-3 py-2 text-sm" style={{ borderColor: 'rgba(239,68,68,0.4)', color: 'rgb(252,165,165)' }}>
@@ -350,16 +432,83 @@ export function CustomFeedsManager({
                 {feedType === 'players' && (
                   <div>
                     <label className="text-xs font-medium" style={{ color: 'rgb(115,115,115)' }}>
-                      Sleeper player IDs (comma or space separated, max 10)
+                      Search players (max 10)
                     </label>
-                    <textarea
-                      value={playerIdsRaw}
-                      onChange={(e) => setPlayerIdsRaw(e.target.value)}
-                      rows={4}
+                    <input
+                      type="text"
+                      value={playerQuery}
+                      onChange={(e) => setPlayerQuery(e.target.value)}
+                      placeholder="Start typing a player name…"
                       className="mt-1 w-full rounded-lg border px-3 py-2 text-sm text-white"
                       style={{ background: 'rgb(10,10,10)', borderColor: 'rgb(38,38,38)' }}
-                      placeholder="e.g. 4881 4034 6786"
                     />
+                    {selectedPlayers.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {selectedPlayers.map((p) => (
+                          <button
+                            key={p.sleeperId}
+                            type="button"
+                            onClick={() =>
+                              setSelectedPlayers((prev) => prev.filter((x) => x.sleeperId !== p.sleeperId))
+                            }
+                            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs"
+                            style={{ background: 'rgba(220,38,38,0.15)', color: 'rgb(252,165,165)' }}
+                          >
+                            {p.firstName} {p.lastName}
+                            <span style={{ color: 'rgb(163,163,163)' }}>
+                              {p.position ? p.position : ''}{p.team ? ` · ${p.team}` : ''}
+                            </span>
+                            <span aria-hidden>×</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {playerQuery.trim().length >= 2 && (
+                      <div
+                        className="mt-2 max-h-56 overflow-y-auto rounded border"
+                        style={{ borderColor: 'rgb(38,38,38)', background: 'rgb(10,10,10)' }}
+                      >
+                        {playerSearching && (
+                          <p className="px-3 py-2 text-xs" style={{ color: 'rgb(115,115,115)' }}>
+                            Searching…
+                          </p>
+                        )}
+                        {!playerSearching && playerResults.length === 0 && (
+                          <p className="px-3 py-2 text-xs" style={{ color: 'rgb(115,115,115)' }}>
+                            No players match.
+                          </p>
+                        )}
+                        {playerResults.map((p) => {
+                          const already = selectedPlayers.some((x) => x.sleeperId === p.sleeperId)
+                          const atCap = selectedPlayers.length >= 10
+                          const disabled = already || atCap
+                          return (
+                            <button
+                              key={p.sleeperId}
+                              type="button"
+                              disabled={disabled}
+                              onClick={() => {
+                                setSelectedPlayers((prev) => [...prev, p])
+                                setPlayerQuery('')
+                                setPlayerResults([])
+                              }}
+                              className="flex w-full items-center justify-between px-3 py-2 text-left text-xs transition hover:bg-white/5 disabled:opacity-40"
+                              style={{ color: 'rgb(229,229,229)' }}
+                            >
+                              <span>
+                                {p.firstName} {p.lastName}
+                              </span>
+                              <span style={{ color: 'rgb(115,115,115)' }}>
+                                {p.position ?? ''}{p.team ? ` · ${p.team}` : ''}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    <p className="mt-1.5 text-[11px]" style={{ color: 'rgb(115,115,115)' }}>
+                      {selectedPlayers.length} / 10 selected
+                    </p>
                   </div>
                 )}
                 {feedType === 'team' && (
@@ -395,7 +544,7 @@ export function CustomFeedsManager({
                       <option value="">Select league…</option>
                       {leagues.map((l) => (
                         <option key={l.id} value={l.id}>
-                          {l.name} ({l.size} teams)
+                          {l.name} ({l.size} teams{l.season ? ` · ${l.season}` : ''})
                         </option>
                       ))}
                     </select>

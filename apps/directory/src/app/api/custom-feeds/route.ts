@@ -16,7 +16,7 @@ async function getUser() {
 }
 
 function maxFeedsForTier(tier: string): number {
-  return tier === 'paid' ? 5 : 2
+  return tier === 'paid' ? 5 : 1
 }
 
 async function validateSourceIds(sourceIds: string[]): Promise<boolean> {
