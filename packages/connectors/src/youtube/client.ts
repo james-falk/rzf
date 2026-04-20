@@ -179,8 +179,9 @@ async function processChannel(
     const sourceUrl = `https://www.youtube.com/watch?v=${video.id}`
     const rawContent = `${video.snippet.title}\n\n${video.snippet.description}`
     const topics = inferContentTopics(rawContent)
-    // Title-first: full-name match in title wins. Description allows full names only.
-    const titleMatches = resolvePlayerMentions(video.snippet.title, aliases, { strictMode: true })
+    // Title scan is loose (YouTube titles are headline-style, often last-name-only).
+    // Description scan stays strict to avoid false positives in prose.
+    const titleMatches = resolvePlayerMentions(video.snippet.title, aliases, { strictMode: false })
     const matches = titleMatches.length > 0
       ? titleMatches
       : resolvePlayerMentions(video.snippet.description ?? '', aliases, { strictMode: true })

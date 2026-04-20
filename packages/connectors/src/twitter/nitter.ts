@@ -44,17 +44,27 @@ export const DEFAULT_NITTER_HANDLES: Array<{
   { handle: 'AdamSchefter', name: 'Adam Schefter (ESPN)', tier: 1 },
   { handle: 'RapSheet', name: 'Ian Rapoport (NFL Network)', tier: 1 },
   { handle: 'TomPelissero', name: 'Tom Pelissero (NFL Network)', tier: 1 },
+  { handle: 'MikeGarafolo', name: 'Mike Garafolo (NFL Network)', tier: 1 },
   { handle: 'FieldYates', name: 'Field Yates (ESPN)', tier: 1 },
   { handle: 'JordanRaanan', name: 'Jordan Raanan (ESPN)', tier: 1 },
   { handle: 'mortreport', name: 'Chris Mortensen (ESPN)', tier: 1 },
   { handle: 'AlbertBreer', name: 'Albert Breer (SI)', tier: 1 },
   { handle: 'CharlesRobinson', name: 'Charles Robinson (Yahoo)', tier: 1 },
+  { handle: 'DMRussini', name: 'Dianna Russini (The Athletic)', tier: 1 },
+  { handle: 'JFowlerESPN', name: 'Jeremy Fowler (ESPN)', tier: 1 },
   // Fantasy analysts
   { handle: 'matthewberrytmr', name: 'Matthew Berry (NBC)', tier: 2 },
-  { handle: 'RotoVizRob', name: 'RotoViz (analytics)', tier: 2 },
+  { handle: 'JJZachariason', name: 'JJ Zachariason (Late Round)', tier: 2 },
+  { handle: 'evansilva', name: 'Evan Silva (Establish The Run)', tier: 2 },
+  { handle: 'AdamLevitan', name: 'Adam Levitan (Establish The Run)', tier: 2 },
+  { handle: 'hayden_winks', name: 'Hayden Winks (Underdog)', tier: 2 },
+  { handle: 'ScottBarrettDFB', name: 'Scott Barrett (Fantasy Points)', tier: 2 },
+  { handle: 'GrahamBarfield', name: 'Graham Barfield (Fantasy Points)', tier: 2 },
+  { handle: 'PFF', name: 'Pro Football Focus', tier: 2 },
   { handle: 'PFF_Fantasy', name: 'PFF Fantasy', tier: 2 },
   { handle: 'FantasyPros', name: 'FantasyPros', tier: 2 },
   { handle: 'FFTodayNews', name: 'FFToday News', tier: 2 },
+  { handle: 'thefantasyfballrs', name: 'The Fantasy Footballers', tier: 2 },
 ]
 
 /**

@@ -77,9 +77,10 @@ async function main() {
         }
       }
 
-      // For all other content: title-first, then body with strictMode
+      // For all other content: title-first (loose: headlines are short, so
+      // last-name-only matches are acceptable), then body with strictMode.
       if (playerIds.length === 0) {
-        const titleMatches = resolvePlayerMentions(item.title, aliases, { strictMode: true })
+        const titleMatches = resolvePlayerMentions(item.title, aliases, { strictMode: false })
         if (titleMatches.length > 0) {
           playerIds = titleMatches.map((m) => m.playerId)
         } else {

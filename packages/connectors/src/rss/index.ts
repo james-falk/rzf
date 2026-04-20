@@ -50,7 +50,10 @@ export async function upsertContentItemFromArticle(
   if (existing) return false
 
   const topics = inferContentTopics(`${item.title} ${item.rawContent}`)
-  const titleMatches = resolvePlayerMentions(item.title, aliases, { strictMode: true })
+  // Titles are short and headline-style (often last-name-only), so we scan them
+  // with loose matching to catch "Mahomes Throws 3 TDs". Body scan stays strict
+  // to avoid false positives on common surnames in prose ("Smith said…").
+  const titleMatches = resolvePlayerMentions(item.title, aliases, { strictMode: false })
   const matches =
     titleMatches.length > 0
       ? titleMatches
