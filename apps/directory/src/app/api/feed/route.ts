@@ -1,16 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { db } from '@rzf/db'
 import { decodeFeedCursor, encodeFeedCursor, FEED_PAGE_SIZE } from '@/lib/feed-cursor'
+import { tierWeightedScore } from '@/lib/feed-ranking'
 
 const MAX_SOURCE_IDS = 200
-
-const TIER_WEIGHTS: Record<number, number> = { 1: 3.0, 2: 1.5, 3: 1.0 }
-
-function tierWeightedScore(tier: number | null | undefined, publishedAt: Date | null): number {
-  const weight = TIER_WEIGHTS[tier ?? 3] ?? 1.0
-  const ageHours = publishedAt ? (Date.now() - publishedAt.getTime()) / 3_600_000 : 9999
-  return weight * Math.exp(-ageHours / 24)
-}
 
 function parseSourceIdsParam(raw: string | null): string[] | null {
   if (!raw || !raw.trim()) return null
